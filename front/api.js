@@ -16,7 +16,7 @@ const API = (() => {
   // - Local (abrindo em localhost/127.0.0.1): usa o Flask local na porta 5000.
   // - Produção (Vercel): usa o backend hospedado no Render.
   // >>> Depois de criar o Web Service no Render, troque a URL de produção abaixo. <<<
-  const URL_PRODUCAO = "https://SEU-BACKEND.onrender.com";
+  const URL_PRODUCAO = "https://jp-barbearia-r9lq.onrender.com";
   const ehLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
   const BASE_URL = ehLocal ? "http://127.0.0.1:5000" : URL_PRODUCAO;
 
