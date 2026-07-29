@@ -1,0 +1,381 @@
+/* =====================================================
+   admin.css
+   Estilos específicos do Painel do Barbeiro.
+   Reaproveita as variáveis e componentes base do style.css
+   (cores, fontes, .btn, .avatar, .topbar, .campo-label...).
+   ===================================================== */
+
+/* Garante que o atributo `hidden` SEMPRE esconda a tela, mesmo quando
+   a classe define um display (ex: .login-page usa display:flex).
+   Sem isso, a tela "escondida" continua aparecendo — o que deixava
+   o painel visível antes do login. */
+[hidden] { display: none !important; }
+
+/* ---------- Login ---------- */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-lg);
+  padding: 32px 28px;
+  box-shadow: var(--sombra-card);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.form-login {
+  display: flex;
+  flex-direction: column;
+}
+
+.campo-input {
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-md);
+  color: var(--texto);
+  font-size: 15px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+.campo-input:focus {
+  outline: none;
+  border-color: var(--acento);
+}
+
+.login-erro {
+  color: var(--erro);
+  font-size: 13px;
+  min-height: 18px;
+  margin: 0 0 12px;
+}
+
+.voltar-site {
+  display: block;
+  text-align: center;
+  margin-top: 20px;
+  color: var(--texto-suave);
+  font-size: 13px;
+  text-decoration: none;
+}
+.voltar-site:hover { color: var(--texto); }
+
+/* ---------- Botão "Sair" (segue o padrão dos chips: borda + hover laranja) ---------- */
+#btn-logout {
+  cursor: pointer;
+  background: var(--bg-elevada);
+  color: var(--texto-suave);
+  border: 1px solid var(--borda-forte);
+}
+#btn-logout:hover {
+  background: var(--acento-fraco);
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
+/* ---------- Abas de navegação ---------- */
+.abas {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--borda);
+  margin-bottom: 26px;
+  overflow-x: auto;
+}
+
+.aba {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--texto-suave);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.aba:hover { color: var(--texto); }
+.aba.ativa {
+  color: var(--acento);
+  border-bottom-color: var(--acento);
+}
+
+/* ---------- Seção genérica ---------- */
+.secao-titulo {
+  font-family: var(--fonte-titulo);
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.secao-subtitulo {
+  color: var(--texto-suave);
+  font-size: 14px;
+  margin: 0 0 20px;
+}
+
+/* ---------- Cards de indicadores (KPIs) ---------- */
+.grid-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.kpi {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-md);
+  padding: 18px;
+}
+.kpi-rotulo {
+  color: var(--texto-suave);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 8px;
+}
+.kpi-valor {
+  font-family: var(--fonte-titulo);
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0;
+}
+.kpi-valor.acento { color: var(--acento); }
+
+/* ---------- Filtro de período ---------- */
+.filtros {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.chip-filtro {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  color: var(--texto-suave);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chip-filtro:hover { border-color: var(--borda-forte); color: var(--texto); }
+.chip-filtro.ativo {
+  background: var(--acento-fraco);
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
+/* ---------- Painéis/blocos ---------- */
+.bloco {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-md);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.bloco-titulo {
+  font-family: var(--fonte-titulo);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 14px;
+}
+
+/* ---------- Tabela ----------
+   table-layout: fixed + width 100% faz a tabela SEMPRE caber na largura
+   disponível (computador/tablet), sem rolagem horizontal. O conteúdo quebra
+   linha dentro da célula em vez de esticar a tabela pra fora. */
+.tabela-wrap { overflow-x: auto; }
+table.tabela {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.tabela th {
+  text-align: left;
+  color: var(--texto-suave);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  padding: 9px 7px;
+  border-bottom: 1px solid var(--borda);
+}
+table.tabela td {
+  padding: 10px 7px;
+  border-bottom: 1px solid var(--borda);
+  vertical-align: middle;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+table.tabela tr:last-child td { border-bottom: none; }
+
+/* ---------- Badge de status ---------- */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge.confirmado { background: rgba(76,175,125,0.14); color: var(--sucesso); }
+.badge.cancelado  { background: var(--erro-fundo); color: var(--erro); }
+.badge.inativo    { background: var(--erro-fundo); color: var(--erro); }
+.badge.ativo      { background: rgba(76,175,125,0.14); color: var(--sucesso); }
+
+/* ---------- Botões menores em tabela ---------- */
+.btn-mini {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--raio-sm);
+  border: 1px solid var(--borda-forte);
+  background: var(--bg-elevada);
+  color: var(--texto);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-mini:hover { border-color: var(--acento); }
+.btn-mini.perigo { color: var(--erro); border-color: rgba(239,83,80,0.4); }
+.btn-mini.perigo:hover { background: var(--erro-fundo); }
+.btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Dentro das tabelas o botão é mais compacto pra caber na coluna estreita */
+table.tabela .btn-mini {
+  padding: 5px 4px;
+  font-size: 12px;
+  width: 100%;
+}
+
+/* ---------- Barra de ranking (serviços mais realizados) ---------- */
+.ranking-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.ranking-item:last-child { margin-bottom: 0; }
+.ranking-nome { font-size: 14px; font-weight: 600; }
+.ranking-num  { font-size: 13px; color: var(--texto-suave); }
+.ranking-barra-fundo {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: var(--bg-elevada);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ranking-barra {
+  height: 100%;
+  background: var(--acento);
+  border-radius: 999px;
+}
+
+/* ---------- Formulário de bloqueio ---------- */
+.form-linha {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+.form-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.form-grupo .campo-input { margin-bottom: 0; }
+
+/* ---------- Estados vazio/carregando/erro ---------- */
+.estado-vazio {
+  text-align: center;
+  color: var(--texto-fraco);
+  padding: 32px 16px;
+  font-size: 14px;
+}
+.painel-erro {
+  background: var(--erro-fundo);
+  border: 1px solid rgba(239,83,80,0.3);
+  color: var(--erro);
+  border-radius: var(--raio-md);
+  padding: 12px 16px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* =====================================================
+   RESPONSIVO — telas estreitas (celular)
+   As tabelas viram "cards": cada linha é um bloco com
+   rótulo à esquerda e valor à direita. Assim o botão de
+   ação (Cancelar/Inativar/Remover) nunca é cortado e não
+   precisa de rolagem horizontal.
+   ===================================================== */
+@media (max-width: 560px) {
+  .tabela-wrap { overflow-x: visible; }
+
+  table.tabela,
+  table.tabela tbody,
+  table.tabela tr,
+  table.tabela td {
+    display: block;
+    width: 100%;
+  }
+
+  table.tabela thead { display: none; }
+
+  table.tabela tr {
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-md);
+    padding: 8px 14px;
+    margin-bottom: 12px;
+  }
+
+  table.tabela td {
+    border: none;
+    padding: 8px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: right;
+  }
+  table.tabela tr td:last-child { border-bottom: none; }
+
+  /* Rótulo da coluna (vem do data-label de cada célula) */
+  table.tabela td::before {
+    content: attr(data-label);
+    color: var(--texto-suave);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  /* Célula de ação: botão ocupa a largura toda, sem rótulo */
+  table.tabela td.td-acao {
+    padding-top: 12px;
+  }
+  table.tabela td.td-acao::before { content: none; }
+  table.tabela td.td-acao .btn-mini { width: 100%; }
+}

@@ -1,0 +1,32 @@
+# ============================================
+# SEGREDOS — nunca subir pro GitHub
+# ============================================
+.env
+*.env
+!.env.example
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ============================================
+# Banco SQLite legado (agora usamos Supabase/Postgres)
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# Sistema / editor / ferramentas
+# ============================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/settings.local.json

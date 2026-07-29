@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JP Barbearia — Painel do Barbeiro</title>
+  <link rel="stylesheet" href="style.css?v=7" />
+  <link rel="stylesheet" href="admin.css?v=9" />
+  <link rel="icon" type="image/png" href="/front/favicon.PNG">
+</head>
+<body>
+
+  <!-- ============ TELA DE LOGIN ============ -->
+  <div class="page login-page" id="tela-login">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="avatar">JP</div>
+        <div class="brand-text">
+          <h1>Painel do Barbeiro</h1>
+          <p class="tagline">JP Barbearia</p>
+        </div>
+      </div>
+
+      <form id="form-login" class="form-login" autocomplete="off">
+        <label class="campo-label" for="login-usuario">Usuário</label>
+        <input type="text" id="login-usuario" class="campo-input" placeholder="admin" required />
+
+        <label class="campo-label" for="login-senha">Senha</label>
+        <input type="password" id="login-senha" class="campo-input" placeholder="••••••••" required />
+
+        <p class="login-erro" id="login-erro"></p>
+
+        <button type="button" class="btn btn-primario" id="btn-login">Entrar</button>
+      </form>
+
+      <a href="index.html" class="voltar-site">← Voltar ao site de agendamento</a>
+    </div>
+  </div>
+
+  <!-- ============ PAINEL (após login) ============ -->
+  <div class="page painel" id="tela-painel" hidden>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="avatar">JP</div>
+        <div class="brand-text">
+          <h1>Painel do Barbeiro</h1>
+          <p class="tagline">JP Barbearia</p>
+        </div>
+      </div>
+      <button class="admin-link" id="btn-logout">Sair</button>
+    </header>
+
+    <nav class="abas" id="abas">
+      <button class="aba ativa" data-secao="dashboard">Dashboard</button>
+      <button class="aba" data-secao="agendamentos">Agendamentos</button>
+      <button class="aba" data-secao="barbeiros">Barbeiros</button>
+      <button class="aba" data-secao="horarios">Horários</button>
+    </nav>
+
+    <main id="conteudo-painel"></main>
+  </div>
+
+  <script src="api.js?v=8"></script>
+  <script src="admin.js?v=9"></script>
+</body>
+</html>

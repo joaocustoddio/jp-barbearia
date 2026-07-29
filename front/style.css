@@ -1,0 +1,776 @@
+/* =====================================================
+   style.css
+   Tema: wizard escuro estilo "Shimabukuro Barber"
+   Paleta: fundo quase-preto, cards em cinza-azulado,
+   acento laranja (identidade de barbearia clássica).
+   ===================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg:            #0a0c11;
+  --bg-elevada:    #12141c;
+  --card:          #171a24;
+  --card-hover:    #1c202c;
+  --borda:         #262b38;
+  --borda-forte:   #333a4a;
+
+  --texto:         #f3f4f7;
+  --texto-suave:   #9aa1b1;
+  --texto-fraco:   #626a7a;
+
+  --acento:        #f5a623;
+  --acento-forte:  #ffb648;
+  --acento-fraco:  rgba(245, 166, 35, 0.14);
+  --acento-texto:  #14100a;
+
+  --erro:          #ef5350;
+  --erro-fundo:    rgba(239, 83, 80, 0.12);
+  --sucesso:       #4caf7d;
+
+  --raio-lg: 18px;
+  --raio-md: 12px;
+  --raio-sm: 8px;
+
+  --fonte-titulo: 'Sora', sans-serif;
+  --fonte-corpo: 'Inter', sans-serif;
+
+  --sombra-card: 0 2px 10px rgba(0,0,0,0.25);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--fonte-corpo);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(245,166,35,0.06), transparent 45%),
+    var(--bg);
+}
+
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 20px 80px;
+  position: relative;
+}
+
+button {
+  font-family: inherit;
+}
+
+a { color: inherit; }
+
+/* ---------- Topbar ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--borda);
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--acento), #c9790f);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--fonte-titulo);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--acento-texto);
+  flex-shrink: 0;
+}
+
+.brand-text h1 {
+  margin: 0;
+  font-family: var(--fonte-titulo);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brand-text .tagline {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--acento);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-link {
+  font-size: 13px;
+  color: var(--texto-suave);
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--borda);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.admin-link:hover {
+  color: var(--texto);
+  border-color: var(--borda-forte);
+}
+
+/* ---------- Stepper ---------- */
+.stepper {
+  display: flex;
+  align-items: center;
+  margin-bottom: 34px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.stepper::-webkit-scrollbar { display: none; }
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.step.clickable { cursor: pointer; }
+
+.step-circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--fonte-titulo);
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--card);
+  border: 1px solid var(--borda-forte);
+  color: var(--texto-fraco);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.step-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--texto-fraco);
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.step.ativo .step-circle {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: var(--acento-texto);
+}
+.step.ativo .step-label { color: var(--texto); }
+
+.step.concluido .step-circle {
+  background: var(--acento-fraco);
+  border-color: var(--acento);
+  color: var(--acento);
+}
+.step.concluido .step-label { color: var(--texto-suave); }
+
+.step-linha {
+  width: 28px;
+  height: 1px;
+  background: var(--borda-forte);
+  margin: 0 10px;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+.step-linha.concluida { background: var(--acento); }
+
+/* ---------- Conteúdo do passo ---------- */
+.step-content {
+  animation: entra 0.3s ease;
+}
+
+@keyframes entra {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.step-titulo {
+  font-family: var(--fonte-titulo);
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+
+.step-subtitulo {
+  color: var(--texto-suave);
+  font-size: 14.5px;
+  margin: 0 0 24px;
+}
+
+/* ---------- Aviso de "pulou de dia" (discreto, não é erro) ---------- */
+.aviso-dia-pulado {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  color: var(--texto-fraco);
+  flex-wrap: wrap;
+}
+
+.chip-dia-cinza {
+  background: var(--bg-elevada);
+  color: var(--texto-fraco);
+  border: 1px solid var(--borda);
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12.5px;
+  text-decoration: line-through;
+  text-decoration-color: var(--texto-fraco);
+  white-space: nowrap;
+}
+
+.aviso-seta { display: flex; align-items: center; color: var(--texto-fraco); }
+.aviso-seta svg { width: 14px; height: 14px; }
+
+/* ---------- Alerta de erro ---------- */
+.alerta-erro {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--erro-fundo);
+  border: 1px solid rgba(239, 83, 80, 0.3);
+  color: var(--erro);
+  padding: 12px 16px;
+  border-radius: var(--raio-md);
+  font-size: 13.5px;
+  margin-bottom: 18px;
+}
+
+/* Variante neutra: avisos informativos (ex: "pulamos pro próximo dia") */
+.alerta-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--borda);
+  color: var(--texto-suave);
+  padding: 12px 16px;
+  border-radius: var(--raio-md);
+  font-size: 13.5px;
+  margin-bottom: 18px;
+}
+.alerta-info svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ---------- Cards de lista (serviço / barbeiro) ---------- */
+.lista-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card-opcao {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-lg);
+  padding: 18px 20px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  box-shadow: var(--sombra-card);
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  color: var(--texto);
+}
+
+.card-opcao:hover {
+  border-color: var(--acento);
+  background: var(--card-hover);
+  transform: translateY(-1px);
+}
+
+.card-opcao:active { transform: translateY(0); }
+
+.card-icone {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: var(--acento-fraco);
+  color: var(--acento);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.card-icone svg { width: 22px; height: 22px; }
+
+.card-corpo {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-titulo-linha {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.card-nome {
+  font-family: var(--fonte-titulo);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--texto-fraco);
+  font-size: 12.5px;
+}
+.card-meta svg { width: 13px; height: 13px; }
+
+.card-desc {
+  margin-top: 4px;
+  color: var(--texto-suave);
+  font-size: 13px;
+}
+
+.card-direita {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.card-preco {
+  font-family: var(--fonte-titulo);
+  font-weight: 700;
+  color: var(--acento);
+  font-size: 15.5px;
+  white-space: nowrap;
+}
+
+.card-seta { color: var(--texto-fraco); flex-shrink: 0; }
+.card-seta svg { width: 18px; height: 18px; }
+
+/* Card simples (barbeiro, sem preço) */
+.card-opcao.simples .card-nome { font-size: 15.5px; }
+
+/* ---------- Data ---------- */
+.bloco-data {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-lg);
+  padding: 24px;
+  box-shadow: var(--sombra-card);
+}
+
+.campo-label {
+  display: block;
+  font-size: 13px;
+  color: var(--texto-suave);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.aviso-checagem-data {
+  margin: 14px 2px 0;
+  font-size: 12.5px;
+  color: var(--texto-fraco);
+  min-height: 16px;
+}
+
+/* ---------- Atalhos rápidos (Hoje / Amanhã) ---------- */
+.chips-rapidos {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.chip-rapido {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--borda-forte);
+  background: var(--bg-elevada);
+  color: var(--texto-suave);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chip-rapido:hover:not(:disabled) { border-color: var(--acento); color: var(--texto); }
+.chip-rapido.selecionado {
+  background: var(--acento-fraco);
+  border-color: var(--acento);
+  color: var(--acento);
+}
+.chip-rapido:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Chip que navega/rola a faixa (não seleciona data) — leve seta indicando ação */
+.chip-navegacao::after {
+  content: " ›";
+  font-weight: 700;
+}
+
+/* ---------- Faixa de dias (seletor de data) ---------- */
+.faixa-dias {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  /* folga em cima/baixo/laterais pra o dia ampliado no hover não ser cortado */
+  padding: 8px 4px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--borda-forte) transparent;
+}
+.faixa-dias::-webkit-scrollbar { height: 6px; }
+.faixa-dias::-webkit-scrollbar-thumb { background: var(--borda-forte); border-radius: 999px; }
+
+.dia-pill {
+  flex: 0 0 auto;
+  width: 60px;
+  padding: 12px 0;
+  border-radius: var(--raio-md);
+  border: 1px solid var(--borda-forte);
+  background: var(--bg-elevada);
+  color: var(--texto);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.14s ease;
+}
+.dia-pill:hover:not(:disabled) {
+  border-color: var(--acento);
+  transform: scale(1.09);
+}
+.dia-pill:active:not(:disabled) { transform: scale(0.98); }
+
+.dia-pill-topo {
+  display: block;
+  font-size: 11px;
+  color: var(--texto-suave);
+  margin-bottom: 4px;
+}
+.dia-pill-num {
+  display: block;
+  font-size: 19px;
+  font-weight: 700;
+  font-family: var(--fonte-titulo);
+}
+
+.dia-pill.selecionado {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: var(--acento-texto);
+}
+.dia-pill.selecionado .dia-pill-topo { color: var(--acento-texto); opacity: 0.75; }
+
+.dia-pill:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--texto-fraco);
+}
+.dia-pill:disabled .dia-pill-topo { color: var(--texto-fraco); }
+
+input[type="date"],
+input[type="text"],
+input[type="tel"] {
+  width: 100%;
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda-forte);
+  color: var(--texto);
+  padding: 14px 16px;
+  border-radius: var(--raio-md);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+  color-scheme: dark;
+}
+
+input[type="date"]:focus,
+input[type="text"]:focus,
+input[type="tel"]:focus {
+  border-color: var(--acento);
+}
+
+/* Destaque da data escolhida no subtítulo do passo de horário */
+.data-destaque {
+  color: var(--acento);
+  font-weight: 700;
+  background: var(--acento-fraco);
+  padding: 2px 9px;
+  border-radius: var(--raio-sm);
+  white-space: nowrap;
+}
+
+/* ---------- Grid de horários ---------- */
+.grid-horarios {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+
+.chip-horario {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  color: var(--texto);
+  padding: 12px 10px;
+  border-radius: var(--raio-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.chip-horario:hover {
+  border-color: var(--acento);
+  background: var(--card-hover);
+}
+
+.chip-horario.selecionado {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: var(--acento-texto);
+}
+
+.vazio-horarios {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--texto-suave);
+  background: var(--card);
+  border: 1px dashed var(--borda-forte);
+  border-radius: var(--raio-lg);
+}
+.vazio-horarios svg { width: 32px; height: 32px; color: var(--texto-fraco); margin-bottom: 10px; }
+
+/* ---------- Formulário de dados ---------- */
+.form-dados {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.campo-grupo { display: flex; flex-direction: column; }
+
+/* ---------- Resumo ---------- */
+.resumo-card {
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-lg);
+  padding: 20px 22px;
+  margin-bottom: 24px;
+  box-shadow: var(--sombra-card);
+}
+
+.resumo-titulo {
+  font-family: var(--fonte-titulo);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--texto-suave);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 14px;
+}
+
+.resumo-linha {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--borda);
+  font-size: 14.5px;
+}
+.resumo-linha:last-child { border-bottom: none; }
+.resumo-linha .chave { color: var(--texto-suave); }
+.resumo-linha .valor { font-weight: 600; text-align: right; }
+.resumo-linha.total .valor { color: var(--acento); font-family: var(--fonte-titulo); font-size: 17px; }
+
+/* ---------- Botões ---------- */
+.acoes-passo {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.btn {
+  font-weight: 700;
+  font-size: 14.5px;
+  border-radius: 999px;
+  padding: 14px 24px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: var(--fonte-corpo);
+}
+
+.btn-primario {
+  background: var(--acento);
+  color: var(--acento-texto);
+  flex: 1;
+}
+.btn-primario:hover { background: var(--acento-forte); }
+.btn-primario:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secundario {
+  background: transparent;
+  color: var(--texto-suave);
+  border: 1px solid var(--borda-forte);
+}
+.btn-secundario:hover { color: var(--texto); border-color: var(--texto-suave); }
+
+.btn-voltar {
+  background: transparent;
+  color: var(--texto-suave);
+  border: none;
+  padding: 8px 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 16px;
+}
+.btn-voltar:hover { color: var(--texto); }
+.btn-voltar svg { width: 15px; height: 15px; }
+
+/* ---------- Tela de sucesso ---------- */
+.tela-sucesso {
+  text-align: center;
+  padding: 64px 24px;
+}
+
+.icone-sucesso {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: rgba(76, 175, 125, 0.15);
+  color: var(--sucesso);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 26px;
+}
+.icone-sucesso svg { width: 42px; height: 42px; }
+
+.tela-sucesso h2 {
+  font-family: var(--fonte-titulo);
+  font-size: 25px;
+  margin: 0 0 12px;
+}
+
+.tela-sucesso p {
+  color: var(--texto-suave);
+  font-size: 15px;
+  max-width: 400px;
+  margin: 0 auto 28px;
+  line-height: 1.6;
+}
+
+/* Barra que enche sozinha (~15s) até a tela reiniciar */
+.barra-progresso-container {
+  width: 100%;
+  max-width: 300px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--borda);
+  overflow: hidden;
+  margin: 0 auto 26px;
+}
+
+.barra-progresso-preenchimento {
+  height: 100%;
+  width: 0%;
+  background: var(--acento);
+  border-radius: 999px;
+  animation-name: preencher-barra;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes preencher-barra {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+/* ---------- Loading ---------- */
+.carregando {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--texto-suave);
+  font-size: 14px;
+  padding: 30px 0;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--borda-forte);
+  border-top-color: var(--acento);
+  animation: girar 0.7s linear infinite;
+}
+@keyframes girar { to { transform: rotate(360deg); } }
+
+/* ---------- Sparkle decorativo (canto) ---------- */
+.sparkle {
+  position: fixed;
+  bottom: 26px;
+  right: 26px;
+  color: var(--borda-forte);
+  font-size: 22px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---------- Rodapé ---------- */
+.rodape {
+  text-align: center;
+  color: var(--texto-fraco);
+  font-size: 12px;
+  margin-top: 50px;
+}
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 560px) {
+  .page { padding: 20px 16px 70px; }
+  .step-label { display: none; }
+  .step.ativo .step-label {
+    display: inline;
+  }
+  .card-opcao { padding: 15px 16px; gap: 12px; }
+  .step-titulo { font-size: 22px; }
+}
