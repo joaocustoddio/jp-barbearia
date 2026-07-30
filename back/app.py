@@ -293,44 +293,52 @@ def _gerar_horarios_do_dia(data_str=None):
     return horarios
 
 
-@app.route("/api/agendamentos", methods=["POST"])
-def criar_agendamento():
-    dados = request.get_json(silent=True)
-    if not dados:
-        return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
+def _processar_novo_agendamento(dados, exigir_antecedencia):
+    """
+    Valida e insere um novo agendamento. Compartilhado entre:
+    - a rota PÚBLICA (cliente pelo site) → exigir_antecedencia=True
+    - a rota ADMIN (barbeiro registrando walk-in) → exigir_antecedencia=False
 
+    A única diferença é a regra de antecedência mínima: pro cliente ela vale
+    (não dá pra agendar "em cima da hora"); pro admin não, porque ele registra
+    um corte que está acontecendo/aconteceu agora.
+
+    Retorna (corpo_json, status_http).
+    """
     conn = get_connection()
 
-    # Valida barbeiro_id
+    # Valida barbeiro_id (precisa existir e estar ativo)
     barbeiro_id = dados.get("barbeiro_id")
     if not barbeiro_id:
         conn.close()
-        return jsonify({"erro": "Barbeiro é obrigatório"}), 400
+        return {"erro": "Barbeiro é obrigatório"}, 400
     barbeiro = conn.execute(
         "SELECT id FROM barbeiros WHERE id = %s AND ativo = 1", (barbeiro_id,)
     ).fetchone()
     if not barbeiro:
         conn.close()
-        return jsonify({"erro": "Barbeiro não encontrado"}), 400
+        return {"erro": "Barbeiro não encontrado"}, 400
 
-    # Valida cada campo individualmente, devolvendo erro claro
+    # Valida cada campo. A antecedência só é checada quando exigir_antecedencia
+    # for True (passando a data pro validar_hora ativa a regra).
+    data_para_hora = dados.get("data") if exigir_antecedencia else None
     checks = [
         validar_nome(dados.get("nome_cliente")),
         validar_telefone(dados.get("telefone")),
         validar_data(dados.get("data")),
-        validar_hora(dados.get("hora"), dados.get("data")),
+        validar_hora(dados.get("hora"), data_para_hora),
         validar_servico_id(dados.get("servico_id"), conn),
     ]
     for valido, erro in checks:
         if not valido:
             conn.close()
-            return jsonify({"erro": erro}), 400
+            return {"erro": erro}, 400
 
-    # Bloqueia dias sem atendimento (ex: domingo), mesmo via POST direto na API.
+    # Bloqueia dias sem atendimento (ex: domingo)
     fechado, nome_dia = dia_fechado(dados.get("data"))
     if fechado:
         conn.close()
-        return jsonify({"erro": f"Não realizamos agendamentos aos {nome_dia}s."}), 400
+        return {"erro": f"Não realizamos agendamentos aos {nome_dia}s."}, 400
 
     # Verifica conflito de horário PARA ESTE barbeiro
     ocupado = conn.execute(
@@ -338,20 +346,17 @@ def criar_agendamento():
            WHERE data = %s AND hora = %s AND barbeiro_id = %s AND status != 'cancelado'""",
         (dados["data"], dados["hora"], barbeiro_id)
     ).fetchone()
-
     if ocupado:
         conn.close()
-        return jsonify({"erro": "Esse horário já foi reservado com este barbeiro. Escolha outro."}), 409
+        return {"erro": "Esse horário já foi reservado com este barbeiro. Escolha outro."}, 409
 
-    # Salva o cliente (RETURNING id — Postgres não tem lastrowid)
+    # Salva cliente + agendamento (RETURNING id — Postgres não tem lastrowid)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO clientes (nome, telefone) VALUES (%s, %s) RETURNING id",
         (dados["nome_cliente"].strip(), dados.get("telefone") or None)
     )
     cliente_id = cursor.fetchone()["id"]
-
-    # Salva o agendamento
     cursor.execute(
         """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status)
            VALUES (%s, %s, %s, %s, %s, 'confirmado') RETURNING id""",
@@ -361,10 +366,17 @@ def criar_agendamento():
     conn.commit()
     conn.close()
 
-    return jsonify({
-        "mensagem": "Agendamento criado com sucesso!",
-        "agendamento_id": agendamento_id
-    }), 201
+    return {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id}, 201
+
+
+@app.route("/api/agendamentos", methods=["POST"])
+def criar_agendamento():
+    """Agendamento pelo cliente (site público) — exige antecedência mínima."""
+    dados = request.get_json(silent=True)
+    if not dados:
+        return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
+    corpo, status = _processar_novo_agendamento(dados, exigir_antecedencia=True)
+    return jsonify(corpo), status
 
 
 @app.route("/api/agendamentos", methods=["GET"])
@@ -580,6 +592,22 @@ def painel_agendamentos():
     conn.close()
 
     return jsonify([dict(r) for r in resultados])
+
+
+@app.route("/api/admin/agendamentos", methods=["POST"])
+@token_requerido
+def criar_agendamento_admin():
+    """
+    Cria um agendamento pelo PAINEL (ex: barbeiro registrando um walk-in —
+    cliente que chegou sem horário marcado). Reusa a mesma lógica da rota
+    pública, mas SEM exigir antecedência mínima (o corte é agora/hoje).
+    Continua validando conflito de horário e dia fechado.
+    """
+    dados = request.get_json(silent=True)
+    if not dados:
+        return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
+    corpo, status = _processar_novo_agendamento(dados, exigir_antecedencia=False)
+    return jsonify(corpo), status
 
 
 @app.route("/api/admin/agendamentos/<int:agendamento_id>/cancelar", methods=["PATCH"])

@@ -286,7 +286,42 @@ let filtroAgStatus = "";
 async function renderAgendamentos() {
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Agendamentos</h2>
-    <p class="secao-subtitulo">Consulte e gerencie os agendamentos</p>
+    <p class="secao-subtitulo">Consulte, registre e gerencie os agendamentos</p>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Novo agendamento</h3>
+      <div class="form-linha">
+        <div class="form-grupo">
+          <label class="campo-label" for="ag-barbeiro">Barbeiro</label>
+          <select id="ag-barbeiro" class="campo-input"></select>
+        </div>
+        <div class="form-grupo">
+          <label class="campo-label" for="ag-servico">Serviço</label>
+          <select id="ag-servico" class="campo-input"></select>
+        </div>
+        <div class="form-grupo">
+          <label class="campo-label" for="ag-data">Data</label>
+          <input type="date" id="ag-data" class="campo-input" />
+        </div>
+        <div class="form-grupo">
+          <label class="campo-label" for="ag-hora">Hora</label>
+          <input type="time" id="ag-hora" class="campo-input" />
+        </div>
+      </div>
+      <div class="form-linha">
+        <div class="form-grupo" style="flex:1;min-width:150px;">
+          <label class="campo-label" for="ag-nome">Nome do cliente</label>
+          <input type="text" id="ag-nome" class="campo-input" placeholder="Nome" />
+        </div>
+        <div class="form-grupo" style="flex:1;min-width:140px;">
+          <label class="campo-label" for="ag-telefone">Telefone (opcional)</label>
+          <input type="tel" id="ag-telefone" class="campo-input" placeholder="(11) 99999-9999" />
+        </div>
+        <button class="btn-mini" id="btn-add-agendamento">Adicionar</button>
+      </div>
+      <p class="secao-subtitulo" style="margin:0;">Use para registrar um cliente que chegou sem horário marcado (walk-in).</p>
+      <p class="login-erro" id="ag-erro" style="margin-top:8px;"></p>
+    </div>
 
     <div class="form-linha">
       <div class="form-grupo">
@@ -319,7 +354,61 @@ async function renderAgendamentos() {
     carregarListaAgendamentos();
   });
 
+  configurarFormNovoAgendamento();
   carregarListaAgendamentos();
+}
+
+// Popula os selects (barbeiros/serviços) e liga o botão de adicionar.
+async function configurarFormNovoAgendamento() {
+  const selBarb = document.getElementById("ag-barbeiro");
+  const selServ = document.getElementById("ag-servico");
+  document.getElementById("ag-data").value = hojeISO(); // pré-seleciona hoje
+
+  try {
+    const [barbeiros, servicos] = await Promise.all([API.listarBarbeiros(), API.listarServicos()]);
+    selBarb.innerHTML = barbeiros.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("");
+    selServ.innerHTML = servicos.map((s) => `<option value="${s.id}">${escapeHTML(s.nome)} — ${formatarMoeda(s.preco)}</option>`).join("");
+  } catch (erro) {
+    document.getElementById("ag-erro").textContent = "Não foi possível carregar barbeiros/serviços.";
+  }
+
+  document.getElementById("btn-add-agendamento").addEventListener("click", adicionarAgendamento);
+}
+
+async function adicionarAgendamento() {
+  const erroEl = document.getElementById("ag-erro");
+  const btn = document.getElementById("btn-add-agendamento");
+  erroEl.textContent = "";
+
+  const dados = {
+    barbeiro_id: document.getElementById("ag-barbeiro").value,
+    servico_id: document.getElementById("ag-servico").value,
+    data: document.getElementById("ag-data").value,
+    hora: document.getElementById("ag-hora").value,
+    nome_cliente: document.getElementById("ag-nome").value.trim(),
+    telefone: document.getElementById("ag-telefone").value.trim() || null
+  };
+
+  if (!dados.nome_cliente) { erroEl.textContent = "Informe o nome do cliente."; return; }
+  if (!dados.data || !dados.hora) { erroEl.textContent = "Escolha a data e a hora."; return; }
+
+  btn.disabled = true;
+  btn.textContent = "...";
+  try {
+    await API.admin.criarAgendamento(dados);
+    // Limpa os campos do cliente/hora, mantendo barbeiro e data (facilita
+    // registrar vários seguidos no mesmo dia).
+    document.getElementById("ag-nome").value = "";
+    document.getElementById("ag-telefone").value = "";
+    document.getElementById("ag-hora").value = "";
+    carregarListaAgendamentos();
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) erroEl.textContent = msg;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Adicionar";
+  }
 }
 
 async function carregarListaAgendamentos() {

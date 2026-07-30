@@ -134,6 +134,14 @@ const API = (() => {
         return requestAuth(`/api/admin/agendamentos/${id}/cancelar`, { method: "PATCH" });
       },
 
+      /** POST /api/admin/agendamentos → registra agendamento pelo painel (walk-in) */
+      criarAgendamento(dados) {
+        return requestAuth("/api/admin/agendamentos", {
+          method: "POST",
+          body: JSON.stringify(dados)
+        });
+      },
+
       /** GET /api/admin/barbeiros → todos (inclui inativos) */
       listarBarbeiros() {
         return requestAuth("/api/admin/barbeiros");
