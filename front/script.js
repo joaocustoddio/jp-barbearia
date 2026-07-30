@@ -145,7 +145,16 @@ function botaoVoltar(aoClicar) {
 }
 
 function mostrarCarregando(container, texto = "Carregando...") {
-  container.innerHTML = `<div class="carregando"><div class="spinner"></div>${texto}</div>`;
+  container.innerHTML = `
+    <div class="carregando">
+      <div class="spinner"></div>
+      <span>${texto}</span>
+      <small class="carregando-aviso" style="display:none;">Iniciando o servidor… a primeira visita do dia pode levar até ~1 min. Aguarde.</small>
+    </div>`;
+  // Se a carga demorar (cold start do backend grátis), mostra o aviso — mas só
+  // se o spinner ainda estiver na tela (carga rápida já terá sido substituída).
+  const aviso = container.querySelector(".carregando-aviso");
+  setTimeout(() => { if (aviso && aviso.isConnected) aviso.style.display = "block"; }, 4000);
 }
 
 function mostrarErro(container, mensagem, aoTentarNovamente) {
@@ -767,34 +776,70 @@ function filtrarHorariosFuturos(horarios, dataISO) {
 
 
 /* =====================================================
-   CARREGAMENTO (API real, com fallback pro mock)
+   CARREGAMENTO (API real)
+
+   Em PRODUÇÃO não usamos mais o mock: se o backend falhar, a gente
+   RE-TENTA (o host grátis do Render hiberna após ~15min e a 1ª
+   requisição do dia pode demorar ~40s pra acordar). Assim o cliente
+   vê "carregando" e recebe dados REAIS, nunca dados falsos.
+
+   O mock (mockData.js) só entra em DESENVOLVIMENTO local, como
+   conveniência quando o backend está desligado.
    ===================================================== */
-async function carregarServicos() {
-  try {
-    return await API.listarServicos();
-  } catch (erro) {
-    console.warn("Backend offline, usando mock.", erro.message);
-    return MOCK_SERVICOS;
+const EH_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
+const RETRY_MAX = 8;            // ~ cobre o cold start do Render
+const RETRY_ESPERA_MS = 5000;
+
+function esperar(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+/** Chama uma função de API re-tentando algumas vezes (pro cold start). */
+async function chamarComRetry(fn) {
+  let ultimoErro;
+  for (let tentativa = 1; tentativa <= RETRY_MAX; tentativa++) {
+    try {
+      return await fn();
+    } catch (erro) {
+      ultimoErro = erro;
+      if (tentativa < RETRY_MAX) await esperar(RETRY_ESPERA_MS);
+    }
   }
+  throw ultimoErro;
+}
+
+async function carregarServicos() {
+  if (EH_LOCAL) {
+    try { return await API.listarServicos(); }
+    catch (erro) { console.warn("Backend offline (dev): usando mock.", erro.message); return MOCK_SERVICOS; }
+  }
+  // Produção: re-tenta (cold start) e, se falhar de vez, deixa o erro subir
+  // (a tela mostra erro) — nunca dado falso.
+  return await chamarComRetry(() => API.listarServicos());
 }
 
 async function carregarBarbeiros() {
-  try {
-    return await API.listarBarbeiros();
-  } catch (erro) {
-    console.warn("Backend offline, usando mock.", erro.message);
-    return MOCK_BARBEIROS;
+  if (EH_LOCAL) {
+    try { return await API.listarBarbeiros(); }
+    catch (erro) { console.warn("Backend offline (dev): usando mock.", erro.message); return MOCK_BARBEIROS; }
   }
+  return await chamarComRetry(() => API.listarBarbeiros());
 }
 
 async function carregarHorarios(data, barbeiroId) {
   let horarios;
-  try {
-    const resultado = await API.listarHorariosDisponiveis(data, barbeiroId);
-    horarios = resultado.horarios_disponiveis;
-  } catch (erro) {
-    console.warn("Backend offline, usando mock.", erro.message);
-    horarios = MOCK_HORARIOS;
+  if (EH_LOCAL) {
+    try {
+      horarios = (await API.listarHorariosDisponiveis(data, barbeiroId)).horarios_disponiveis;
+    } catch (erro) {
+      console.warn("Backend offline (dev): usando mock.", erro.message);
+      horarios = MOCK_HORARIOS;
+    }
+  } else {
+    try {
+      horarios = (await chamarComRetry(() => API.listarHorariosDisponiveis(data, barbeiroId))).horarios_disponiveis;
+    } catch (erro) {
+      // Produção: sem mock. Degrada pra "sem horários" (nunca horário falso).
+      horarios = [];
+    }
   }
 
   // Filtra de novo aqui no front, como segunda camada de proteção
