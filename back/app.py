@@ -64,8 +64,10 @@ DIAS_FECHADOS = {int(d.strip()) for d in _dias_fechados_raw.split(",") if d.stri
 # Nomes dos dias na ordem do weekday() do Python (pra montar mensagens de erro).
 NOMES_DIAS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
 
-# CORS restrito: em produção só aceita o domínio configurado
-CORS(app, origins=[CORS_ORIGIN])
+# CORS: em produção trava no domínio configurado (CORS_ORIGIN); em
+# desenvolvimento libera geral, pra rodar o front local (localhost) sem
+# esbarrar em CORS. Assim o valor de CORS_ORIGIN no .env local é irrelevante.
+CORS(app, origins=[CORS_ORIGIN] if EM_PRODUCAO else "*")
 
 # -------------------------------------------------------
 # TRATAMENTO DE ERRO GLOBAL
