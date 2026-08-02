@@ -266,6 +266,43 @@ table.tabela tfoot .linha-totais td {
 .btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
 .topbar-acoes { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 button.admin-link { background: none; cursor: pointer; }
+.usuario-atual {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--acento);
+  background: var(--acento-fraco);
+  border: 1px solid var(--acento);
+  padding: 5px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ---- Modal (telinha de repetir agendamento) ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+.modal-box {
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio);
+  padding: 22px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+.modal-titulo { margin: 0 0 6px; font-size: 18px; color: var(--texto); }
+.modal-cliente { margin: 0 0 14px; font-size: 14px; color: var(--texto-suave); }
+.modal-linha { display: flex; gap: 12px; }
+.modal-campo { flex: 1; }
+.modal-box .campo-label { margin-top: 10px; }
+.modal-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .btn-almoco { margin-left: auto; }   /* empurra pra direita na nav */
 .btn-almoco.marcado {
   color: var(--acento);

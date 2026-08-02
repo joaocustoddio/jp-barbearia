@@ -87,6 +87,14 @@ function mostrarPainel() {
   // "Trocar minha senha": só pra quem tem conta individual (master/barbeiro).
   // O salão é tablet compartilhado — a senha dele fica com o master.
   btnMinhaSenha.hidden = API.admin.papel() === "salao";
+
+  // Mostra QUEM está logado, pra não confundir de login (ex: "Rian").
+  const elUsuario = document.getElementById("usuario-atual");
+  const papel = API.admin.papel();
+  const rotulo = papel === "salao" ? "Salão" : (API.admin.barbeiroNome() || "");
+  if (rotulo) { elUsuario.textContent = rotulo; elUsuario.hidden = false; }
+  else { elUsuario.hidden = true; }
+
   const primeira = montarAbas();   // abas conforme o papel (master vê todas)
   trocarSecao(primeira);
 }
@@ -460,7 +468,7 @@ function linkWhatsApp(a) {
   if (tel.length <= 11) tel = "55" + tel;   // adiciona DDI do Brasil se não veio
   const barbeiro = a.barbeiro_nome || "nosso profissional";
   const msg =
-    "💈JP BARBEARIA 💈 \n" +
+    "*JP BARBEARIA*\n" +
     `Olá, passando pra lembrar do serviço agendado com o profissional ${barbeiro} às ${a.hora}. ` +
     "Caso de desistência nos comunique com antecedência.";
   return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
@@ -762,27 +770,89 @@ function renderTimeline(container, data, colunas, ags) {
   const porId = {};
   ags.forEach((a) => { porId[a.id] = a; });
   container.querySelectorAll("[data-repetir]").forEach((btn) => {
-    btn.addEventListener("click", async (ev) => {
+    btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const a = porId[btn.dataset.repetir];
-      if (!a) return;
-      const novaData = addDiasISO(data, 7);
-      if (!confirm(`Repetir para ${formatarDataBR(novaData)} às ${a.hora}? (mesmo cliente, serviço e barbeiro)`)) return;
-      try {
-        await API.admin.criarAgendamento({
-          nome_cliente: a.cliente_nome,
-          telefone: a.cliente_telefone || "",
-          servico_id: a.servico_id,
-          barbeiro_id: a.barbeiro_id,
-          data: novaData,
-          hora: a.hora
-        });
-        alert(`Repetido para ${formatarDataBR(novaData)} às ${a.hora}.`);
-      } catch (erro) {
-        const msg = tratarErro(erro);
-        if (msg !== null) alert(msg);
-      }
+      if (a) abrirModalRepetir(a, addDiasISO(data, 7));
     });
+  });
+}
+
+// Cache dos serviços (pro select do modal de repetir) — evita refetch a cada clique.
+let _servicosCache = null;
+async function carregarServicosCache() {
+  if (!_servicosCache) _servicosCache = await API.listarServicos();
+  return _servicosCache;
+}
+
+// Abre uma telinha pra repetir o agendamento podendo ajustar dia, hora e serviço
+// antes de confirmar (padrão: mesmo serviço, +7 dias, mesma hora).
+async function abrirModalRepetir(a, dataPadrao) {
+  let servicos = [];
+  try { servicos = await carregarServicosCache(); } catch (_) { /* segue sem lista */ }
+  const opts = servicos.map((s) =>
+    `<option value="${s.id}"${Number(s.id) === Number(a.servico_id) ? " selected" : ""}>${escapeHTML(s.nome)} — ${formatarMoeda(s.preco)}</option>`
+  ).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h3 class="modal-titulo">Repetir agendamento</h3>
+      <p class="modal-cliente">Cliente: <strong>${escapeHTML(a.cliente_nome)}</strong></p>
+      <label class="campo-label" for="rep-servico">Serviço</label>
+      <select id="rep-servico" class="campo-input">${opts}</select>
+      <div class="modal-linha">
+        <div class="modal-campo">
+          <label class="campo-label" for="rep-data">Data</label>
+          <input type="date" id="rep-data" class="campo-input" value="${dataPadrao}" />
+        </div>
+        <div class="modal-campo">
+          <label class="campo-label" for="rep-hora">Hora</label>
+          <input type="time" id="rep-hora" class="campo-input" value="${escapeHTML(a.hora.slice(0, 5))}" />
+        </div>
+      </div>
+      <p class="login-erro" id="rep-erro"></p>
+      <div class="modal-acoes">
+        <button class="btn-mini" id="rep-cancelar">Cancelar</button>
+        <button class="btn btn-primario" id="rep-confirmar">Confirmar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const fechar = () => overlay.remove();
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+  overlay.querySelector("#rep-cancelar").addEventListener("click", fechar);
+
+  overlay.querySelector("#rep-confirmar").addEventListener("click", async () => {
+    const servico_id = overlay.querySelector("#rep-servico").value;
+    const dataNova = overlay.querySelector("#rep-data").value;
+    const horaNova = overlay.querySelector("#rep-hora").value;
+    const erroEl = overlay.querySelector("#rep-erro");
+    erroEl.textContent = "";
+    if (!dataNova || !horaNova) { erroEl.textContent = "Escolha a data e a hora."; return; }
+
+    const btn = overlay.querySelector("#rep-confirmar");
+    btn.disabled = true; btn.textContent = "...";
+    try {
+      await API.admin.criarAgendamento({
+        nome_cliente: a.cliente_nome,
+        telefone: a.cliente_telefone || "",
+        servico_id,
+        barbeiro_id: a.barbeiro_id,
+        data: dataNova,
+        hora: horaNova
+      });
+      fechar();
+      // Navega pro dia do novo agendamento pra dar feedback visual de que caiu.
+      dataAgenda = dataNova;
+      const inputDia = document.getElementById("ag-dia");
+      if (inputDia) inputDia.value = dataNova;
+      recarregarAgenda();
+    } catch (erro) {
+      const msg = tratarErro(erro);
+      if (msg !== null) { erroEl.textContent = msg; btn.disabled = false; btn.textContent = "Confirmar"; }
+    }
   });
 }
 
