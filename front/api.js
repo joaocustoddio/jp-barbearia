@@ -231,6 +231,19 @@ const API = (() => {
         return requestAuth(`/api/admin/almoco?data=${encodeURIComponent(data)}`, {
           method: "DELETE"
         });
+      },
+
+      /** GET /api/admin/acessos → lista todos os logins (master) */
+      listarAcessos() {
+        return requestAuth("/api/admin/acessos");
+      },
+
+      /** PUT /api/admin/senha → master troca a senha de um login { usuario, senha } */
+      trocarSenha(usuario, senha) {
+        return requestAuth("/api/admin/senha", {
+          method: "PUT",
+          body: JSON.stringify({ usuario, senha })
+        });
       }
     }
   };

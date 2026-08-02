@@ -775,8 +775,62 @@ async function renderBarbeiros() {
     <h2 class="secao-titulo">Barbeiros</h2>
     <p class="secao-subtitulo">Inative um barbeiro em folga/imprevisto — ele some do site sem perder o histórico</p>
     <div id="lista-barbeiros">${carregando()}</div>
+
+    <div class="bloco" style="margin-top:20px;">
+      <h3 class="bloco-titulo">Acessos e senhas</h3>
+      <p class="secao-subtitulo" style="margin-top:0;">Troque a senha de qualquer login do painel (master, salão e barbeiros).</p>
+      <div id="lista-acessos">${carregando()}</div>
+    </div>
   `;
   carregarListaBarbeiros();
+  carregarAcessos();
+}
+
+// Lista os logins do painel com botão de trocar senha (master-only).
+async function carregarAcessos() {
+  const alvo = document.getElementById("lista-acessos");
+  if (!alvo) return;
+  alvo.innerHTML = carregando();
+  const ROTULO_PAPEL = { master: "Dono (master)", salao: "Salão (tablet)", barbeiro: "Barbeiro" };
+  try {
+    const acessos = await API.admin.listarAcessos();
+    if (!acessos.length) { alvo.innerHTML = vazio("Nenhum login cadastrado."); return; }
+    alvo.innerHTML = `
+      <table class="tabela">
+        <thead><tr><th>Usuário</th><th>Tipo</th><th>Barbeiro</th><th>Senha</th></tr></thead>
+        <tbody>
+          ${acessos.map((a) => `
+            <tr>
+              <td data-rotulo="Usuário">${escapeHTML(a.usuario)}</td>
+              <td data-rotulo="Tipo">${escapeHTML(ROTULO_PAPEL[a.papel] || a.papel)}</td>
+              <td data-rotulo="Barbeiro">${escapeHTML(a.barbeiro_nome || "—")}</td>
+              <td data-rotulo="Senha"><button class="btn-mini" data-senha="${escapeHTML(a.usuario)}">Trocar senha</button></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    `;
+    alvo.querySelectorAll("[data-senha]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const usuario = btn.dataset.senha;
+        const nova = prompt(`Nova senha para "${usuario}" (mínimo 4 caracteres):`);
+        if (!nova) return;
+        if (nova.trim().length < 4) { alert("A senha deve ter pelo menos 4 caracteres."); return; }
+        btn.disabled = true;
+        try {
+          await API.admin.trocarSenha(usuario, nova.trim());
+          alert(`Senha de "${usuario}" atualizada.`);
+        } catch (erro) {
+          const msg = tratarErro(erro);
+          if (msg !== null) alert(msg);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
 }
 
 async function carregarListaBarbeiros() {

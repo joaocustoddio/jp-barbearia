@@ -853,6 +853,49 @@ def definir_login_barbeiro(barbeiro_id):
     return jsonify({"mensagem": msg, "usuario": usuario})
 
 
+@app.route("/api/admin/acessos", methods=["GET"])
+@token_requerido
+@somente_master
+def listar_acessos():
+    """Lista todos os logins do painel (master, salão, barbeiros) — pro master
+    ver e trocar senhas. Ordena: master, salão, depois barbeiros."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT admin.id, admin.usuario, admin.papel, barbeiros.nome AS barbeiro_nome
+           FROM admin
+           LEFT JOIN barbeiros ON admin.barbeiro_id = barbeiros.id
+           ORDER BY CASE admin.papel WHEN 'master' THEN 0 WHEN 'salao' THEN 1 ELSE 2 END,
+                    admin.usuario"""
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/admin/senha", methods=["PUT"])
+@token_requerido
+@somente_master
+def trocar_senha_login():
+    """Master troca a senha de qualquer login. Corpo: { usuario, senha }."""
+    dados = request.get_json(silent=True) or {}
+    usuario = (dados.get("usuario") or "").strip()
+    senha = dados.get("senha") or ""
+    if not usuario or not senha:
+        return jsonify({"erro": "Usuário e senha são obrigatórios"}), 400
+    if len(senha) < 4:
+        return jsonify({"erro": "A senha deve ter pelo menos 4 caracteres"}), 400
+
+    conn = get_connection()
+    existe = conn.execute("SELECT id FROM admin WHERE usuario = %s", (usuario,)).fetchone()
+    if not existe:
+        conn.close()
+        return jsonify({"erro": "Login não encontrado"}), 404
+    h = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+    conn.execute("UPDATE admin SET senha_hash = %s WHERE usuario = %s", (h, usuario))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": f"Senha de '{usuario}' atualizada."})
+
+
 @app.route("/api/admin/barbeiros/<int:barbeiro_id>", methods=["PATCH"])
 @token_requerido
 @somente_master
