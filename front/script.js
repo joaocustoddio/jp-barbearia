@@ -44,11 +44,11 @@ function descricaoServico(nome) {
 
 /* -------------------- Passos do wizard -------------------- */
 const PASSOS = [
-  { chave: "servico",  rotulo: "Serviço" },
+  { chave: "servico", rotulo: "Serviço" },
   { chave: "barbeiro", rotulo: "Profissional" },
-  { chave: "data",     rotulo: "Data" },
-  { chave: "horario",  rotulo: "Horário" },
-  { chave: "dados",    rotulo: "Dados" }
+  { chave: "data", rotulo: "Data" },
+  { chave: "horario", rotulo: "Horário" },
+  { chave: "dados", rotulo: "Dados" }
 ];
 
 /* -------------------- Estado global -------------------- */
@@ -580,8 +580,8 @@ function renderPassoDados() {
       <input type="text" id="input-nome" placeholder="Digite seu nome" value="${state.nome || ""}" />
     </div>
     <div class="campo-grupo">
-      <label class="campo-label" for="input-telefone">Telefone (opcional)</label>
-      <input type="tel" id="input-telefone" placeholder="(11) 99999-9999" value="${state.telefone || ""}" />
+      <label class="campo-label" for="input-telefone">Telefone (com DDD)</label>
+      <input type="tel" id="input-telefone" inputmode="numeric" placeholder="11999998888" value="${state.telefone || ""}" />
     </div>
   `;
   elConteudo.appendChild(form);
@@ -604,20 +604,25 @@ function renderPassoDados() {
   const btnConfirmar = document.createElement("button");
   btnConfirmar.className = "btn btn-primario";
   btnConfirmar.textContent = "Confirmar agendamento";
-  btnConfirmar.disabled = !(state.nome && state.nome.trim());
+  btnConfirmar.disabled = true; // fica cinza até nome + telefone válidos
 
   const inputNome = form.querySelector("#input-nome");
   const inputTelefone = form.querySelector("#input-telefone");
 
-  inputNome.addEventListener("input", () => {
-    state.nome = inputNome.value;
-    btnConfirmar.disabled = !inputNome.value.trim();
-  });
-  inputTelefone.addEventListener("input", () => {
-    state.telefone = inputTelefone.value;
-  });
+  // Telefone válido = 10 ou 11 dígitos (DDD + número), ignorando o que não for número.
+  function telefoneValido(v) {
+    return /^\d{10,11}$/.test(v.replace(/\D/g, ""));
+  }
+  // Só libera o botão quando nome (trim) e telefone estão preenchidos corretamente.
+  function atualizarBotao() {
+    btnConfirmar.disabled = !(inputNome.value.trim() && telefoneValido(inputTelefone.value));
+  }
+
+  inputNome.addEventListener("input", () => { state.nome = inputNome.value; atualizarBotao(); });
+  inputTelefone.addEventListener("input", () => { state.telefone = inputTelefone.value; atualizarBotao(); });
 
   btnConfirmar.addEventListener("click", finalizarAgendamento);
+  atualizarBotao(); // caso a pessoa tenha voltado pro passo com os campos já preenchidos
 
   acoes.appendChild(btnConfirmar);
   elConteudo.appendChild(acoes);
@@ -632,7 +637,7 @@ async function finalizarAgendamento() {
   try {
     await API.criarAgendamento({
       nome_cliente: state.nome.trim(),
-      telefone: state.telefone.trim() || null,
+      telefone: state.telefone.trim(),
       servico_id: state.servico.id,
       barbeiro_id: state.barbeiro.id,
       data: state.data,
@@ -644,6 +649,8 @@ async function finalizarAgendamento() {
     renderSucesso();
 
   } catch (erro) {
+    // A validação de preenchimento fica no botão; aqui mostramos só erros
+    // reais do envio (ex: horário tomado numa corrida — 409).
     mostrarErro(elConteudo, erro.message);
     if (btn) { btn.disabled = false; btn.textContent = "Confirmar agendamento"; }
     if (btnVoltar) btnVoltar.style.display = "";
@@ -694,11 +701,11 @@ function renderSucesso() {
    ===================================================== */
 function renderPassoAtual() {
   switch (PASSOS[passoAtual].chave) {
-    case "servico":  renderPassoServico(); break;
+    case "servico": renderPassoServico(); break;
     case "barbeiro": renderPassoBarbeiro(); break;
-    case "data":      renderPassoData(); break;
-    case "horario":   renderPassoHorario(); break;
-    case "dados":     renderPassoDados(); break;
+    case "data": renderPassoData(); break;
+    case "horario": renderPassoHorario(); break;
+    case "dados": renderPassoDados(); break;
   }
 }
 

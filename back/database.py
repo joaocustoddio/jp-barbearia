@@ -108,6 +108,9 @@ def init_db():
             ativo INTEGER NOT NULL DEFAULT 1
         )
     """)
+    # comissao_pct = % do valor do corte que fica com o BARBEIRO (resto = barbearia).
+    # Padrão 60 (60% barbeiro / 40% barbearia). Coluna aditiva (não quebra o que existe).
+    cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS comissao_pct INTEGER NOT NULL DEFAULT 60")
 
     # ---------------------------------------------------------
     # AGENDAMENTOS
@@ -128,7 +131,10 @@ def init_db():
     """)
 
     # ---------------------------------------------------------
-    # ADMIN (senha guardada como hash bcrypt, nunca em texto puro)
+    # ADMIN (usuários do painel — senha em hash bcrypt)
+    # Agora com PAPEL: 'master' (dono, vê tudo) ou 'barbeiro' (vê só o dele).
+    # barbeiro_id liga o login a um barbeiro. Colunas aditivas — a tabela e o
+    # login que já existiam continuam funcionando igual.
     # ---------------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS admin (
@@ -137,6 +143,8 @@ def init_db():
             senha_hash TEXT NOT NULL
         )
     """)
+    cur.execute("ALTER TABLE admin ADD COLUMN IF NOT EXISTS papel TEXT NOT NULL DEFAULT 'master'")
+    cur.execute("ALTER TABLE admin ADD COLUMN IF NOT EXISTS barbeiro_id INTEGER REFERENCES barbeiros (id)")
 
     # ---------------------------------------------------------
     # BLOQUEIOS (dia inteiro = hora NULL; horário específico = hora preenchida)
@@ -187,9 +195,12 @@ def init_db():
 
 def criar_admin_padrao(usuario=None, senha=None):
     """
-    Cria o usuário admin se ainda não existir. Usuário e senha vêm do .env
-    (ADMIN_USUARIO / ADMIN_SENHA); os valores abaixo só são usados como
-    último recurso. A senha é guardada como hash bcrypt.
+    Cria/garante o usuário MASTER (o dono) se ainda não existir. Usuário e
+    senha vêm do .env (ADMIN_USUARIO / ADMIN_SENHA). Papel 'master' = vê tudo;
+    fica ligado ao barbeiro 1 (o dono também corta). A senha é hash bcrypt.
+
+    Idempotente: se o admin já existia (de antes das colunas de papel), garante
+    que ele vire master ligado a um barbeiro.
 
     IMPORTANTE: defina uma ADMIN_SENHA forte no .env antes de ir pra produção.
     """
@@ -201,11 +212,40 @@ def criar_admin_padrao(usuario=None, senha=None):
     if not existe:
         senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
         conn.execute(
-            "INSERT INTO admin (usuario, senha_hash) VALUES (%s, %s)",
+            "INSERT INTO admin (usuario, senha_hash, papel, barbeiro_id) VALUES (%s, %s, 'master', 1)",
+            (usuario, senha_hash)
+        )
+        print(f"[seed] Master '{usuario}' criado (hash bcrypt). Troque a senha antes da produção!")
+    else:
+        # garante papel master + ligação a um barbeiro (migração de admin antigo)
+        conn.execute(
+            "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
+            (usuario,)
+        )
+    conn.commit()
+    conn.close()
+
+
+def criar_salao_padrao(usuario=None, senha=None):
+    """
+    Cria o login do SALÃO (o do tablet compartilhado) se não existir.
+    Papel 'salao': vê a agenda de TODOS e marca encaixe, mas NÃO vê valores
+    (só a quantidade de cortes). Não é ligado a nenhum barbeiro específico.
+    Configurável via SALAO_USUARIO / SALAO_SENHA no .env.
+    """
+    usuario = usuario or os.getenv("SALAO_USUARIO", "salao")
+    senha   = senha   or os.getenv("SALAO_SENHA", "salao123")
+
+    conn = get_connection()
+    existe = conn.execute("SELECT id FROM admin WHERE usuario = %s", (usuario,)).fetchone()
+    if not existe:
+        senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+        conn.execute(
+            "INSERT INTO admin (usuario, senha_hash, papel, barbeiro_id) VALUES (%s, %s, 'salao', NULL)",
             (usuario, senha_hash)
         )
         conn.commit()
-        print(f"[seed] Admin '{usuario}' criado (hash bcrypt). Troque a senha antes da produção!")
+        print(f"[seed] Login do salão '{usuario}' criado (papel salao). Troque a senha!")
     conn.close()
 
 
@@ -213,4 +253,5 @@ if __name__ == "__main__":
     # Permite rodar "python database.py" pra criar/verificar o schema.
     init_db()
     criar_admin_padrao()
+    criar_salao_padrao()
     print("Banco de dados (Postgres/Supabase) criado/verificado.")

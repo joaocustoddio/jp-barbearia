@@ -84,7 +84,8 @@ function mostrarLogin() {
 function mostrarPainel() {
   telaLogin.hidden = true;
   telaPainel.hidden = false;
-  trocarSecao("dashboard");
+  const primeira = montarAbas();   // abas conforme o papel (master vê todas)
+  trocarSecao(primeira);
 }
 
 async function fazerLogin() {
@@ -129,12 +130,44 @@ btnLogout.addEventListener("click", () => {
 /* =====================================================
    NAVEGAÇÃO POR ABAS
    ===================================================== */
+// Abas por papel:
+// - master: tudo (dono)
+// - barbeiro: só o dele (agenda + seus valores)
+// - salao: tablet compartilhado — agenda de todos + contagem SÓ com quantidade
+const ABAS_POR_PAPEL = {
+  master: [
+    { chave: "dashboard",    rotulo: "Dashboard" },
+    { chave: "agendamentos", rotulo: "Agendamentos" },
+    { chave: "contagem",     rotulo: "Contagem" },
+    { chave: "barbeiros",    rotulo: "Barbeiros" },
+    { chave: "horarios",     rotulo: "Horários" }
+  ],
+  barbeiro: [
+    { chave: "agendamentos", rotulo: "Agendamentos" },
+    { chave: "contagem",     rotulo: "Contagem" }
+  ],
+  salao: [
+    { chave: "agendamentos", rotulo: "Agendamentos" },
+    { chave: "contagem",     rotulo: "Cortes do dia" }
+  ]
+};
+
 const SECOES = {
   dashboard:    renderDashboard,
   agendamentos: renderAgendamentos,
+  contagem:     renderContagem,
   barbeiros:    renderBarbeiros,
   horarios:     renderHorarios
 };
+
+// Monta os botões das abas conforme o papel; devolve a chave da 1ª aba.
+function montarAbas() {
+  const lista = ABAS_POR_PAPEL[API.admin.papel()] || ABAS_POR_PAPEL.barbeiro;
+  abas.innerHTML = lista.map((a, i) =>
+    `<button class="aba${i === 0 ? " ativa" : ""}" data-secao="${a.chave}">${escapeHTML(a.rotulo)}</button>`
+  ).join("");
+  return lista[0].chave;
+}
 
 function trocarSecao(chave) {
   abas.querySelectorAll(".aba").forEach((a) => {
@@ -277,11 +310,127 @@ function renderAgendaHoje(container, ags) {
 }
 
 /* =====================================================
-   SEÇÃO: AGENDAMENTOS
-   Lista com filtros (data/status) + cancelar.
+   SEÇÃO: CONTAGEM (fechamento do dia + comissão)
+   Master vê todos os barbeiros + o total da barbearia.
+   Barbeiro vê só a linha dele (o backend já filtra).
    ===================================================== */
-let filtroAgData   = "";
-let filtroAgStatus = "";
+let dataContagem = ""; // vazio = hoje
+
+async function renderContagem() {
+  const data = dataContagem || hojeISO();
+  elConteudo.innerHTML = `
+    <h2 class="secao-titulo">Contagem</h2>
+    <p class="secao-subtitulo">Fechamento do dia</p>
+
+    <div class="form-linha">
+      <div class="form-grupo">
+        <label class="campo-label" for="contagem-data">Dia</label>
+        <input type="date" id="contagem-data" class="campo-input" value="${data}" />
+      </div>
+    </div>
+
+    <div id="contagem-corpo">${carregando()}</div>
+  `;
+
+  const inputData = document.getElementById("contagem-data");
+  inputData.addEventListener("change", () => { dataContagem = inputData.value; renderContagem(); });
+
+  const corpo = document.getElementById("contagem-corpo");
+  try {
+    const r = await API.admin.contagem(data);
+    const verValores = r.ver_valores !== false; // salão => false (só quantidade)
+    const ehMaster = API.admin.ehMaster();
+
+    if (!r.barbeiros || !r.barbeiros.length) {
+      corpo.innerHTML = vazio("Sem dados para esse dia.");
+      return;
+    }
+
+    if (!verValores) {
+      // Salão (tablet): só a quantidade de cortes por barbeiro — sem dinheiro.
+      corpo.innerHTML = `
+        <div class="tabela-wrap">
+          <table class="tabela">
+            <thead><tr><th>Barbeiro</th><th>Cortes</th></tr></thead>
+            <tbody>
+              ${r.barbeiros.map((b) => `
+                <tr>
+                  <td data-label="Barbeiro"><strong>${escapeHTML(b.barbeiro_nome)}</strong></td>
+                  <td data-label="Cortes">${b.clientes}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+            <tfoot>
+              <tr class="linha-totais">
+                <td data-label="Barbeiro"><strong>Total de cortes</strong></td>
+                <td data-label="Cortes"><strong>${r.totais.clientes}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+      return;
+    }
+
+    // master/barbeiro: tabela completa com valores
+    corpo.innerHTML = `
+      <div class="tabela-wrap">
+        <table class="tabela">
+          <thead>
+            <tr><th>Barbeiro</th><th>Clientes</th><th>Total</th><th>Comissão</th><th>Barbearia</th></tr>
+          </thead>
+          <tbody>
+            ${r.barbeiros.map((b) => `
+              <tr>
+                <td data-label="Barbeiro"><strong>${escapeHTML(b.barbeiro_nome)}</strong></td>
+                <td data-label="Clientes">${b.clientes}</td>
+                <td data-label="Total">${formatarMoeda(b.total)}</td>
+                <td data-label="Comissão (${b.comissao_pct}%)">${formatarMoeda(b.barbeiro_recebe)}</td>
+                <td data-label="Barbearia">${formatarMoeda(b.barbearia_recebe)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+          ${ehMaster ? `
+          <tfoot>
+            <tr class="linha-totais">
+              <td data-label="Barbeiro"><strong>Totais</strong></td>
+              <td data-label="Clientes"><strong>${r.totais.clientes}</strong></td>
+              <td data-label="Total"><strong>${formatarMoeda(r.totais.total)}</strong></td>
+              <td data-label="Comissão"><strong>${formatarMoeda(r.totais.barbeiro_recebe)}</strong></td>
+              <td data-label="Barbearia"><strong>${formatarMoeda(r.totais.barbearia_recebe)}</strong></td>
+            </tr>
+          </tfoot>` : ""}
+        </table>
+      </div>
+    `;
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
+}
+
+
+/* =====================================================
+   SEÇÃO: AGENDAMENTOS — agenda do dia (timeline)
+   Faixas de horário + cards por agendamento. No tablet (tela larga) mostra
+   os barbeiros em colunas lado a lado; no celular, um seletor troca a coluna.
+   ===================================================== */
+let dataAgenda = "";          // vazio = hoje
+const ALTURA_HORA = 80;       // px por hora na timeline (dá espaço pros 3 textos do card)
+
+function minutosDe(hhmm) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
+function minParaHHMM(min) {
+  return String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
+}
+function addDiasISO(iso, n) {
+  const [a, m, d] = iso.split("-").map(Number);
+  const dt = new Date(a, m - 1, d);
+  dt.setDate(dt.getDate() + n);
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+}
+function recarregarAgenda() { carregarAgenda(dataAgenda || hojeISO()); }
 
 async function renderAgendamentos() {
   elConteudo.innerHTML = `
@@ -319,43 +468,34 @@ async function renderAgendamentos() {
         </div>
         <button class="btn-mini" id="btn-add-agendamento">Adicionar</button>
       </div>
-      <p class="secao-subtitulo" style="margin:0;">Use para registrar um cliente que chegou sem horário marcado (walk-in).</p>
+      <p class="secao-subtitulo" style="margin:0;">Use para registrar um cliente que chegou sem horário marcado.</p>
       <p class="login-erro" id="ag-erro" style="margin-top:8px;"></p>
     </div>
 
-    <div class="form-linha">
-      <div class="form-grupo">
-        <label class="campo-label" for="filtro-data">Data</label>
-        <input type="date" id="filtro-data" class="campo-input" value="${filtroAgData}" />
-      </div>
-      <div class="form-grupo">
-        <label class="campo-label" for="filtro-status">Status</label>
-        <select id="filtro-status" class="campo-input">
-          <option value="">Todos</option>
-          <option value="confirmado">Confirmados</option>
-          <option value="cancelado">Cancelados</option>
-        </select>
-      </div>
-      <button class="btn-mini" id="btn-limpar-filtro">Limpar</button>
+    <div class="agenda-nav">
+      <button class="btn-mini" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
+      <input type="date" id="ag-dia" class="campo-input" value="${dataAgenda || hojeISO()}" />
+      <button class="btn-mini" id="ag-dia-prox" aria-label="Próximo dia">›</button>
+      <button class="btn-mini" id="ag-hoje">Hoje</button>
     </div>
 
-    <div id="lista-agendamentos">${carregando()}</div>
+    <div id="agenda-corpo">${carregando()}</div>
   `;
 
-  const inputData   = document.getElementById("filtro-data");
-  const selectStatus = document.getElementById("filtro-status");
-  selectStatus.value = filtroAgStatus;
-
-  inputData.addEventListener("change", () => { filtroAgData = inputData.value; carregarListaAgendamentos(); });
-  selectStatus.addEventListener("change", () => { filtroAgStatus = selectStatus.value; carregarListaAgendamentos(); });
-  document.getElementById("btn-limpar-filtro").addEventListener("click", () => {
-    filtroAgData = ""; filtroAgStatus = "";
-    inputData.value = ""; selectStatus.value = "";
-    carregarListaAgendamentos();
+  const inputDia = document.getElementById("ag-dia");
+  inputDia.addEventListener("change", () => { dataAgenda = inputDia.value; recarregarAgenda(); });
+  document.getElementById("ag-dia-ant").addEventListener("click", () => {
+    dataAgenda = addDiasISO(inputDia.value, -1); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+  document.getElementById("ag-dia-prox").addEventListener("click", () => {
+    dataAgenda = addDiasISO(inputDia.value, 1); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+  document.getElementById("ag-hoje").addEventListener("click", () => {
+    dataAgenda = hojeISO(); inputDia.value = dataAgenda; recarregarAgenda();
   });
 
   configurarFormNovoAgendamento();
-  carregarListaAgendamentos();
+  recarregarAgenda();
 }
 
 // Popula os selects (barbeiros/serviços) e liga o botão de adicionar.
@@ -401,7 +541,7 @@ async function adicionarAgendamento() {
     document.getElementById("ag-nome").value = "";
     document.getElementById("ag-telefone").value = "";
     document.getElementById("ag-hora").value = "";
-    carregarListaAgendamentos();
+    recarregarAgenda();
   } catch (erro) {
     const msg = tratarErro(erro);
     if (msg !== null) erroEl.textContent = msg;
@@ -411,68 +551,132 @@ async function adicionarAgendamento() {
   }
 }
 
-async function carregarListaAgendamentos() {
-  const lista = document.getElementById("lista-agendamentos");
-  if (!lista) return;
-  lista.innerHTML = carregando();
+async function carregarAgenda(data) {
+  const corpo = document.getElementById("agenda-corpo");
+  if (!corpo) return;
+  corpo.innerHTML = carregando();
 
   try {
-    const ags = await API.admin.listarAgendamentos({ data: filtroAgData, status: filtroAgStatus });
-    if (!ags.length) {
-      lista.innerHTML = vazio("Nenhum agendamento encontrado com esses filtros.");
-      return;
+    // Colunas: master e salão veem todos os barbeiros; barbeiro vê só o dele.
+    let colunas;
+    if (API.admin.ehMaster() || API.admin.papel() === "salao") {
+      const barbs = await API.listarBarbeiros(); // públicos (ativos)
+      colunas = barbs.map((b) => ({ id: b.id, nome: b.nome }));
+    } else {
+      colunas = [{ id: API.admin.barbeiroId(), nome: API.admin.barbeiroNome() || "Você" }];
     }
 
-    lista.innerHTML = `
-      <div class="tabela-wrap">
-        <table class="tabela">
-          <thead>
-            <tr>
-              <th>Data</th><th>Hora</th><th>Cliente</th><th>Telefone</th>
-              <th>Serviço</th><th>Profissional</th><th>Status</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${ags.map((a) => `
-              <tr>
-                <td data-label="Data">${formatarDataBR(a.data)}</td>
-                <td data-label="Hora"><strong>${escapeHTML(a.hora)}</strong></td>
-                <td data-label="Cliente">${escapeHTML(a.cliente_nome)}</td>
-                <td data-label="Telefone">${escapeHTML(a.cliente_telefone || "—")}</td>
-                <td data-label="Serviço">${escapeHTML(a.servico_nome)}</td>
-                <td data-label="Profissional">${escapeHTML(a.barbeiro_nome)}</td>
-                <td data-label="Status"><span class="badge ${a.status === "cancelado" ? "cancelado" : "confirmado"}">${escapeHTML(capitalizar(a.status))}</span></td>
-                <td class="td-acao">
-                  ${a.status === "cancelado"
-                    ? ""
-                    : `<button class="btn-mini perigo" data-cancelar="${a.id}">Cancelar</button>`}
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    lista.querySelectorAll("[data-cancelar]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Cancelar este agendamento? O horário voltará a ficar livre.")) return;
-        btn.disabled = true;
-        btn.textContent = "...";
-        try {
-          await API.admin.cancelarAgendamento(btn.dataset.cancelar);
-          carregarListaAgendamentos();
-        } catch (erro) {
-          const msg = tratarErro(erro);
-          if (msg !== null) { btn.disabled = false; btn.textContent = "Cancelar"; alert(msg); }
-        }
-      });
-    });
-
+    const ags = await API.admin.listarAgendamentos({ data });
+    renderTimeline(corpo, data, colunas, ags);
   } catch (erro) {
     const msg = tratarErro(erro);
-    if (msg !== null) lista.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+    if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
   }
+}
+
+function renderTimeline(container, data, colunas, ags) {
+  // Janela do dia (horas): a partir dos agendamentos, com margem 8h–20h.
+  let ini = 8 * 60, fim = 20 * 60;
+  ags.forEach((a) => {
+    const s = minutosDe(a.hora);
+    const e = s + (a.servico_duracao || 30);
+    if (s < ini) ini = s;
+    if (e > fim) fim = e;
+  });
+  const Hs = Math.floor(ini / 60), He = Math.ceil(fim / 60);
+  const altura = (He - Hs) * ALTURA_HORA;
+  const verValores = API.admin.podeVerValores();
+
+  // Agrupa por barbeiro
+  const porBarbeiro = {};
+  colunas.forEach((c) => (porBarbeiro[c.id] = []));
+  ags.forEach((a) => { if (porBarbeiro[a.barbeiro_id]) porBarbeiro[a.barbeiro_id].push(a); });
+
+  // Régua de horas
+  let regua = "";
+  for (let h = Hs; h <= He; h++) {
+    regua += `<div class="agenda-hora" style="top:${(h - Hs) * ALTURA_HORA}px">${String(h).padStart(2, "0")}:00</div>`;
+  }
+
+  // Linha "agora" (só se for hoje e dentro da janela)
+  let agora = "";
+  if (data === hojeISO()) {
+    const now = new Date();
+    const nm = now.getHours() * 60 + now.getMinutes();
+    if (nm >= Hs * 60 && nm <= He * 60) {
+      agora = `<div class="agenda-agora" style="top:${(nm - Hs * 60) / 60 * ALTURA_HORA}px"></div>`;
+    }
+  }
+
+  const colunasHTML = colunas.map((c, i) => {
+    const cards = (porBarbeiro[c.id] || []).map((a) => {
+      const s = minutosDe(a.hora);
+      const dur = a.servico_duracao || 30;
+      const top = (s - Hs * 60) / 60 * ALTURA_HORA;
+      const h = Math.max(dur / 60 * ALTURA_HORA, 50);
+      const canc = a.status === "cancelado";
+      const valor = (verValores && a.servico_preco != null)
+        ? `<span class="agenda-card-valor">${formatarMoeda(a.servico_preco)}</span>` : "";
+      return `
+        <div class="agenda-card${canc ? " cancelado" : ""}" style="top:${top}px;height:${h}px">
+          <div class="agenda-card-topo">
+            <span>${escapeHTML(a.hora)}–${minParaHHMM(s + dur)}</span>
+            ${canc ? "" : `<button class="agenda-x" data-cancelar="${a.id}" title="Cancelar">×</button>`}
+          </div>
+          <div class="agenda-card-cliente">${escapeHTML(a.cliente_nome)}</div>
+          <div class="agenda-card-servico">${escapeHTML(a.servico_nome)}${valor}</div>
+        </div>`;
+    }).join("");
+    return `
+      <div class="agenda-col${i === 0 ? " selecionada" : ""}" data-col="${c.id}">
+        <div class="agenda-col-body" style="height:${altura}px">${agora}${cards}</div>
+      </div>`;
+  }).join("");
+
+  const heads = colunas.map((c, i) =>
+    `<div class="agenda-head${i === 0 ? " selecionada" : ""}" data-col="${c.id}">${escapeHTML(c.nome)}</div>`
+  ).join("");
+
+  const seletor = colunas.length > 1 ? `
+    <div class="agenda-seletor">
+      ${colunas.map((c, i) => `<button class="chip-filtro${i === 0 ? " ativo" : ""}" data-selcol="${c.id}">${escapeHTML(c.nome)}</button>`).join("")}
+    </div>` : "";
+
+  container.innerHTML = `
+    ${seletor}
+    <div class="agenda">
+      <div class="agenda-heads"><div class="agenda-head-spacer"></div>${heads}</div>
+      <div class="agenda-corpo-grid">
+        <div class="agenda-gutter" style="height:${altura}px">${regua}</div>
+        ${colunasHTML}
+      </div>
+    </div>
+  `;
+
+  // Seletor (celular): troca a coluna visível
+  container.querySelectorAll("[data-selcol]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.selcol;
+      container.querySelectorAll("[data-selcol]").forEach((c) => c.classList.toggle("ativo", c === btn));
+      container.querySelectorAll(".agenda-col, .agenda-head").forEach((el) =>
+        el.classList.toggle("selecionada", el.dataset.col === id));
+    });
+  });
+
+  // Cancelar (no card)
+  container.querySelectorAll("[data-cancelar]").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!confirm("Cancelar este agendamento? O horário voltará a ficar livre.")) return;
+      try {
+        await API.admin.cancelarAgendamento(btn.dataset.cancelar);
+        recarregarAgenda();
+      } catch (erro) {
+        const msg = tratarErro(erro);
+        if (msg !== null) alert(msg);
+      }
+    });
+  });
 }
 
 /* =====================================================
@@ -504,15 +708,19 @@ async function carregarListaBarbeiros() {
       <div class="tabela-wrap">
         <table class="tabela">
           <thead>
-            <tr><th>Barbeiro</th><th>Status</th><th>Agend. futuros</th><th></th></tr>
+            <tr><th>Barbeiro</th><th>Status</th><th>Login</th><th>Comissão</th><th></th></tr>
           </thead>
           <tbody>
             ${barbeiros.map((b) => `
               <tr>
                 <td data-label="Barbeiro"><strong>${escapeHTML(b.nome)}</strong></td>
                 <td data-label="Status"><span class="badge ${b.ativo ? "ativo" : "inativo"}">${b.ativo ? "Ativo" : "Inativo"}</span></td>
-                <td data-label="Agend. futuros">${b.agendamentos_futuros}</td>
+                <td data-label="Login">${b.login_usuario ? escapeHTML(b.login_usuario) : "<span class=\"badge inativo\">sem login</span>"}</td>
+                <td data-label="Comissão">${b.comissao_pct}%</td>
                 <td class="td-acao">
+                  <button class="btn-mini" data-login="${b.id}" data-usuario="${escapeHTML(b.login_usuario || "")}">
+                    ${b.login_usuario ? "Editar login" : "Criar login"}
+                  </button>
                   <button class="btn-mini ${b.ativo ? "perigo" : ""}"
                           data-barbeiro="${b.id}" data-ativo="${b.ativo}">
                     ${b.ativo ? "Inativar" : "Reativar"}
@@ -537,6 +745,28 @@ async function carregarListaBarbeiros() {
         } catch (erro) {
           const msg = tratarErro(erro);
           if (msg !== null) { btn.disabled = false; alert(msg); carregarListaBarbeiros(); }
+        }
+      });
+    });
+
+    // Criar/editar login do barbeiro (master)
+    lista.querySelectorAll("[data-login]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.login;
+        const atual = btn.dataset.usuario || "";
+        const usuario = prompt("Usuário de login do barbeiro:", atual);
+        if (usuario === null || !usuario.trim()) return;
+        const senha = prompt(atual
+          ? "Nova senha (deixe em branco para manter a atual):"
+          : "Senha do barbeiro:");
+        if (senha === null) return; // cancelou
+        try {
+          await API.admin.definirLoginBarbeiro(id, usuario.trim(), senha);
+          alert("Login salvo com sucesso.");
+          carregarListaBarbeiros();
+        } catch (erro) {
+          const msg = tratarErro(erro);
+          if (msg !== null) alert(msg);
         }
       });
     });

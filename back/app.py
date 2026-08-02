@@ -16,10 +16,10 @@ from functools import wraps
 
 import jwt
 import bcrypt
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from dotenv import load_dotenv
-from database import get_connection, init_db, criar_admin_padrao
+from database import get_connection, init_db, criar_admin_padrao, criar_salao_padrao
 
 # Carrega as variáveis do arquivo .env
 # Se não existir o .env, usa os valores padrão definidos abaixo
@@ -295,15 +295,13 @@ def _gerar_horarios_do_dia(data_str=None):
     return horarios
 
 
-def _processar_novo_agendamento(dados, exigir_antecedencia):
+def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False):
     """
-    Valida e insere um novo agendamento. Compartilhado entre:
-    - a rota PÚBLICA (cliente pelo site) → exigir_antecedencia=True
-    - a rota ADMIN (barbeiro registrando walk-in) → exigir_antecedencia=False
-
-    A única diferença é a regra de antecedência mínima: pro cliente ela vale
-    (não dá pra agendar "em cima da hora"); pro admin não, porque ele registra
-    um corte que está acontecendo/aconteceu agora.
+    Valida e insere um novo agendamento. Compartilhado entre duas rotas:
+    - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
+      (não dá pra agendar "em cima da hora" e o telefone é obrigatório)
+    - ADMIN (barbeiro registrando walk-in): ambos False
+      (registra corte de agora e o telefone é opcional)
 
     Retorna (corpo_json, status_http).
     """
@@ -321,8 +319,14 @@ def _processar_novo_agendamento(dados, exigir_antecedencia):
         conn.close()
         return {"erro": "Barbeiro não encontrado"}, 400
 
+    # Telefone obrigatório só no fluxo público (cliente).
+    if exigir_telefone and not (dados.get("telefone") or "").strip():
+        conn.close()
+        return {"erro": "Telefone é obrigatório"}, 400
+
     # Valida cada campo. A antecedência só é checada quando exigir_antecedencia
-    # for True (passando a data pro validar_hora ativa a regra).
+    # for True (passando a data pro validar_hora ativa a regra). O validar_telefone
+    # só confere o FORMATO quando vier preenchido (a obrigatoriedade é acima).
     data_para_hora = dados.get("data") if exigir_antecedencia else None
     checks = [
         validar_nome(dados.get("nome_cliente")),
@@ -373,11 +377,13 @@ def _processar_novo_agendamento(dados, exigir_antecedencia):
 
 @app.route("/api/agendamentos", methods=["POST"])
 def criar_agendamento():
-    """Agendamento pelo cliente (site público) — exige antecedência mínima."""
+    """Agendamento pelo cliente (site público) — exige antecedência e telefone."""
     dados = request.get_json(silent=True)
     if not dados:
         return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
-    corpo, status = _processar_novo_agendamento(dados, exigir_antecedencia=True)
+    corpo, status = _processar_novo_agendamento(
+        dados, exigir_antecedencia=True, exigir_telefone=True
+    )
     return jsonify(corpo), status
 
 
@@ -489,12 +495,57 @@ def token_requerido(f):
 
         try:
             # Decodifica e valida o token usando a SECRET_KEY
-            jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+            dados_token = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
         except jwt.InvalidTokenError:
             return jsonify({"erro": "Token inválido"}), 401
 
+        # Guarda o usuário logado (papel + barbeiro) pra rota usar no escopo.
+        g.usuario = dados_token
+        return f(*args, **kwargs)
+    return decorated
+
+
+def papel_atual():
+    """Papel do usuário logado: 'master', 'barbeiro' ou 'salao'."""
+    return getattr(g, "usuario", {}).get("papel")
+
+
+def eh_master():
+    """True se o usuário logado é o dono (papel master = vê tudo)."""
+    return papel_atual() == "master"
+
+
+def barbeiro_do_escopo():
+    """
+    Retorna None se o usuário enxerga TODOS os barbeiros (master ou salão),
+    ou o barbeiro_id do usuário se ele for um barbeiro (enxerga só o dele).
+    As rotas usam isso pra filtrar QUAIS agendamentos aparecem.
+    """
+    if papel_atual() in ("master", "salao"):
+        return None
+    return getattr(g, "usuario", {}).get("barbeiro_id")
+
+
+def pode_ver_valores():
+    """
+    Quem pode ver DINHEIRO (faturamento, comissão, repasse):
+    - master (tudo) e barbeiro (só o dele) → sim
+    - salão (tablet compartilhado) → NÃO (só quantidade de cortes)
+    """
+    return papel_atual() != "salao"
+
+
+def somente_master(f):
+    """
+    Decorator pra rotas que só o master pode acessar (gerenciar barbeiros,
+    logins, bloqueios). Use SEMPRE abaixo de @token_requerido.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not eh_master():
+            return jsonify({"erro": "Acesso restrito ao administrador."}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -522,7 +573,11 @@ def admin_login():
 
     conn = get_connection()
     admin = conn.execute(
-        "SELECT id, senha_hash FROM admin WHERE usuario = %s",
+        """SELECT admin.id, admin.senha_hash, admin.papel, admin.barbeiro_id,
+                  barbeiros.nome AS barbeiro_nome
+           FROM admin
+           LEFT JOIN barbeiros ON admin.barbeiro_id = barbeiros.id
+           WHERE admin.usuario = %s""",
         (usuario,)
     ).fetchone()
     conn.close()
@@ -540,13 +595,22 @@ def admin_login():
     token = jwt.encode(
         {
             "admin_id": admin["id"],
+            "papel": admin["papel"],
+            "barbeiro_id": admin["barbeiro_id"],
             "exp": datetime.now(timezone.utc) + timedelta(hours=horas)
         },
         app.config["SECRET_KEY"],
         algorithm="HS256"
     )
 
-    return jsonify({"token": token, "mensagem": "Login realizado com sucesso!"})
+    # Devolve papel/barbeiro pro front adaptar a interface (master vs barbeiro).
+    return jsonify({
+        "token": token,
+        "mensagem": "Login realizado com sucesso!",
+        "papel": admin["papel"],
+        "barbeiro_id": admin["barbeiro_id"],
+        "barbeiro_nome": admin["barbeiro_nome"]
+    })
 
 
 @app.route("/api/admin/agendamentos", methods=["GET"])
@@ -566,11 +630,13 @@ def painel_agendamentos():
             agendamentos.data,
             agendamentos.hora,
             agendamentos.status,
-            clientes.nome     AS cliente_nome,
-            clientes.telefone AS cliente_telefone,
-            servicos.nome     AS servico_nome,
-            servicos.preco    AS servico_preco,
-            barbeiros.nome    AS barbeiro_nome
+            agendamentos.barbeiro_id,
+            clientes.nome       AS cliente_nome,
+            clientes.telefone   AS cliente_telefone,
+            servicos.nome       AS servico_nome,
+            servicos.preco      AS servico_preco,
+            servicos.duracao_min AS servico_duracao,
+            barbeiros.nome      AS barbeiro_nome
         FROM agendamentos
         JOIN clientes  ON agendamentos.cliente_id  = clientes.id
         JOIN servicos  ON agendamentos.servico_id  = servicos.id
@@ -587,13 +653,25 @@ def painel_agendamentos():
         query += " AND agendamentos.status = %s"
         parametros.append(status_filtro)
 
+    # Escopo: barbeiro vê só os agendamentos dele; master vê todos.
+    escopo = barbeiro_do_escopo()
+    if escopo is not None:
+        query += " AND agendamentos.barbeiro_id = %s"
+        parametros.append(escopo)
+
     query += " ORDER BY agendamentos.data, agendamentos.hora"
 
     conn = get_connection()
     resultados = conn.execute(query, parametros).fetchall()
     conn.close()
 
-    return jsonify([dict(r) for r in resultados])
+    lista = [dict(r) for r in resultados]
+    # Salão (tablet compartilhado) não vê valores — remove o preço dos cards.
+    if not pode_ver_valores():
+        for r in lista:
+            r.pop("servico_preco", None)
+
+    return jsonify(lista)
 
 
 @app.route("/api/admin/agendamentos", methods=["POST"])
@@ -608,6 +686,13 @@ def criar_agendamento_admin():
     dados = request.get_json(silent=True)
     if not dados:
         return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
+
+    # Escopo: barbeiro só pode marcar pra si mesmo — força o barbeiro_id dele,
+    # ignorando o que vier no corpo. Master pode escolher qualquer barbeiro.
+    escopo = barbeiro_do_escopo()
+    if escopo is not None:
+        dados["barbeiro_id"] = escopo
+
     corpo, status = _processar_novo_agendamento(dados, exigir_antecedencia=False)
     return jsonify(corpo), status
 
@@ -622,10 +707,17 @@ def cancelar_agendamento(agendamento_id):
     """
     conn = get_connection()
     existe = conn.execute(
-        "SELECT id, status FROM agendamentos WHERE id = %s", (agendamento_id,)
+        "SELECT id, status, barbeiro_id FROM agendamentos WHERE id = %s", (agendamento_id,)
     ).fetchone()
 
     if not existe:
+        conn.close()
+        return jsonify({"erro": "Agendamento não encontrado"}), 404
+
+    # Escopo: barbeiro só cancela agendamento dele (trata como "não encontrado"
+    # pra não revelar dados de outros barbeiros). Master cancela qualquer um.
+    escopo = barbeiro_do_escopo()
+    if escopo is not None and existe["barbeiro_id"] != escopo:
         conn.close()
         return jsonify({"erro": "Agendamento não encontrado"}), 404
 
@@ -645,12 +737,11 @@ def cancelar_agendamento(agendamento_id):
 
 @app.route("/api/admin/barbeiros", methods=["GET"])
 @token_requerido
+@somente_master
 def painel_barbeiros():
     """
-    Lista TODOS os barbeiros (ativos e inativos), com a contagem de
-    agendamentos futuros de cada um. Diferente de /api/barbeiros (público),
-    que só devolve os ativos — aqui o admin precisa enxergar os inativos
-    para poder reativá-los.
+    Lista TODOS os barbeiros (ativos e inativos), com agendamentos futuros,
+    comissão e o login de cada um (se já tiver). Só o master acessa.
     """
     hoje = date.today().isoformat()
     conn = get_connection()
@@ -660,7 +751,11 @@ def painel_barbeiros():
             barbeiros.id,
             barbeiros.nome,
             barbeiros.ativo,
-            COUNT(agendamentos.id) AS agendamentos_futuros
+            barbeiros.comissao_pct,
+            COUNT(agendamentos.id) AS agendamentos_futuros,
+            (SELECT usuario FROM admin
+             WHERE admin.barbeiro_id = barbeiros.id AND admin.papel = 'barbeiro'
+             LIMIT 1) AS login_usuario
         FROM barbeiros
         LEFT JOIN agendamentos
             ON agendamentos.barbeiro_id = barbeiros.id
@@ -675,8 +770,66 @@ def painel_barbeiros():
     return jsonify([dict(b) for b in barbeiros])
 
 
+@app.route("/api/admin/barbeiros/<int:barbeiro_id>/login", methods=["PUT"])
+@token_requerido
+@somente_master
+def definir_login_barbeiro(barbeiro_id):
+    """
+    Master cria/atualiza o login (usuário + senha) de um barbeiro.
+    Corpo: { "usuario": "...", "senha": "..." } (senha opcional na atualização).
+    """
+    dados = request.get_json(silent=True) or {}
+    usuario = (dados.get("usuario") or "").strip()
+    senha = dados.get("senha") or ""
+
+    if not usuario:
+        return jsonify({"erro": "Usuário é obrigatório"}), 400
+
+    conn = get_connection()
+    # barbeiro existe?
+    if not conn.execute("SELECT id FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone():
+        conn.close()
+        return jsonify({"erro": "Barbeiro não encontrado"}), 404
+
+    # usuário já usado por OUTRA conta?
+    conflito = conn.execute(
+        "SELECT id FROM admin WHERE usuario = %s AND barbeiro_id IS DISTINCT FROM %s",
+        (usuario, barbeiro_id)
+    ).fetchone()
+    if conflito:
+        conn.close()
+        return jsonify({"erro": "Esse nome de usuário já está em uso"}), 409
+
+    existente = conn.execute(
+        "SELECT id FROM admin WHERE barbeiro_id = %s AND papel = 'barbeiro'", (barbeiro_id,)
+    ).fetchone()
+
+    if existente:
+        # atualiza usuário (e senha, se veio)
+        conn.execute("UPDATE admin SET usuario = %s WHERE id = %s", (usuario, existente["id"]))
+        if senha:
+            h = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+            conn.execute("UPDATE admin SET senha_hash = %s WHERE id = %s", (h, existente["id"]))
+        msg = "Login do barbeiro atualizado"
+    else:
+        if not senha:
+            conn.close()
+            return jsonify({"erro": "Senha é obrigatória ao criar o login"}), 400
+        h = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+        conn.execute(
+            "INSERT INTO admin (usuario, senha_hash, papel, barbeiro_id) VALUES (%s, %s, 'barbeiro', %s)",
+            (usuario, h, barbeiro_id)
+        )
+        msg = "Login do barbeiro criado"
+
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": msg, "usuario": usuario})
+
+
 @app.route("/api/admin/barbeiros/<int:barbeiro_id>", methods=["PATCH"])
 @token_requerido
+@somente_master
 def atualizar_status_barbeiro(barbeiro_id):
     """
     Inativa ou reativa um barbeiro (item: folga/imprevisto temporário).
@@ -711,6 +864,7 @@ def atualizar_status_barbeiro(barbeiro_id):
 
 @app.route("/api/admin/bloqueios", methods=["GET"])
 @token_requerido
+@somente_master
 def listar_bloqueios():
     """Lista todos os bloqueios cadastrados."""
     conn = get_connection()
@@ -723,6 +877,7 @@ def listar_bloqueios():
 
 @app.route("/api/admin/bloqueios", methods=["POST"])
 @token_requerido
+@somente_master
 def criar_bloqueio():
     """
     Cria um bloqueio de dia inteiro ou horário específico.
@@ -770,6 +925,7 @@ def criar_bloqueio():
 
 @app.route("/api/admin/bloqueios/<int:bloqueio_id>", methods=["DELETE"])
 @token_requerido
+@somente_master
 def remover_bloqueio(bloqueio_id):
     """Remove um bloqueio (desbloqueia o dia ou horário)."""
     conn = get_connection()
@@ -796,6 +952,10 @@ def relatorio_admin():
     Parâmetro: ?periodo=dia | semana | mes
     Padrão: dia (hoje)
     """
+    # Salão (tablet compartilhado) não vê dinheiro.
+    if not pode_ver_valores():
+        return jsonify({"erro": "Sem acesso a valores financeiros."}), 403
+
     periodo = request.args.get("periodo", "dia")
 
     hoje = date.today()
@@ -812,46 +972,52 @@ def relatorio_admin():
 
     conn = get_connection()
 
+    # Escopo: barbeiro vê só os números dele; master vê de todos.
+    # (filtro_barb é um fragmento fixo — o valor vai por parâmetro, sem injeção)
+    escopo = barbeiro_do_escopo()
+    filtro_barb = " AND agendamentos.barbeiro_id = %s" if escopo is not None else ""
+    per = [inicio.isoformat(), fim.isoformat()] + ([escopo] if escopo is not None else [])
+
     # Faturamento do período
-    faturamento = conn.execute("""
+    faturamento = conn.execute(f"""
         SELECT COALESCE(SUM(servicos.preco), 0) as total
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status != 'cancelado'
-          AND agendamentos.data BETWEEN %s AND %s
-    """, (inicio.isoformat(), fim.isoformat())).fetchone()["total"]
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+    """, per).fetchone()["total"]
 
     # Total de agendamentos no período
-    total = conn.execute("""
+    total = conn.execute(f"""
         SELECT COUNT(*) as total FROM agendamentos
-        WHERE status != 'cancelado'
-          AND data BETWEEN %s AND %s
-    """, (inicio.isoformat(), fim.isoformat())).fetchone()["total"]
+        WHERE agendamentos.status != 'cancelado'
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+    """, per).fetchone()["total"]
 
     # Agendamentos por dia (pra montar gráfico no futuro)
-    por_dia = conn.execute("""
+    por_dia = conn.execute(f"""
         SELECT agendamentos.data, COUNT(*) as quantidade,
                SUM(servicos.preco) as faturamento
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status != 'cancelado'
-          AND agendamentos.data BETWEEN %s AND %s
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
         GROUP BY agendamentos.data
         ORDER BY agendamentos.data
-    """, (inicio.isoformat(), fim.isoformat())).fetchall()
+    """, per).fetchall()
 
     # Ranking dos serviços mais realizados no período (pro dashboard)
-    servicos_mais_realizados = conn.execute("""
+    servicos_mais_realizados = conn.execute(f"""
         SELECT servicos.nome,
                COUNT(*) as quantidade,
                SUM(servicos.preco) as faturamento
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status != 'cancelado'
-          AND agendamentos.data BETWEEN %s AND %s
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
         GROUP BY servicos.id
         ORDER BY quantidade DESC, faturamento DESC
-    """, (inicio.isoformat(), fim.isoformat())).fetchall()
+    """, per).fetchall()
 
     conn.close()
 
@@ -866,12 +1032,95 @@ def relatorio_admin():
     })
 
 
+@app.route("/api/admin/contagem", methods=["GET"])
+@token_requerido
+def contagem_dia():
+    """
+    Fechamento do dia por barbeiro: nº de clientes, valor total e o repasse
+    (comissão do barbeiro conforme comissao_pct; o resto fica com a barbearia).
+    Master vê todos os barbeiros; barbeiro vê só o dele.
+    Parâmetro: ?data=YYYY-MM-DD (padrão: hoje). Aceita datas passadas (fechamento).
+    """
+    data_str = request.args.get("data") or date.today().isoformat()
+    try:
+        datetime.strptime(data_str, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"erro": "Formato de data inválido (use YYYY-MM-DD)"}), 400
+
+    # Escopo: barbeiro vê só a linha dele; master vê todos.
+    escopo = barbeiro_do_escopo()
+    filtro = " WHERE barbeiros.id = %s" if escopo is not None else ""
+    params = [data_str] + ([escopo] if escopo is not None else [])
+
+    conn = get_connection()
+    linhas = conn.execute(f"""
+        SELECT barbeiros.id AS barbeiro_id, barbeiros.nome AS barbeiro_nome,
+               barbeiros.comissao_pct,
+               COUNT(agendamentos.id) AS clientes,
+               COALESCE(SUM(servicos.preco), 0) AS total
+        FROM barbeiros
+        LEFT JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
+             AND agendamentos.data = %s AND agendamentos.status != 'cancelado'
+        LEFT JOIN servicos ON agendamentos.servico_id = servicos.id
+        {filtro}
+        GROUP BY barbeiros.id
+        ORDER BY barbeiros.id
+    """, params).fetchall()
+    conn.close()
+
+    # Salão (tablet) NÃO vê valores — só a quantidade de cortes.
+    ver_valores = pode_ver_valores()
+
+    barbeiros = []
+    tot_clientes = tot_valor = tot_barbeiro = tot_barbearia = 0
+    for r in linhas:
+        total = float(r["total"] or 0)
+        pct = r["comissao_pct"]
+        recebe_barbeiro = round(total * pct / 100, 2)
+        recebe_barbearia = round(total - recebe_barbeiro, 2)
+
+        item = {
+            "barbeiro_id": r["barbeiro_id"],
+            "barbeiro_nome": r["barbeiro_nome"],
+            "clientes": r["clientes"]
+        }
+        if ver_valores:
+            item.update({
+                "total": round(total, 2),
+                "comissao_pct": pct,
+                "barbeiro_recebe": recebe_barbeiro,
+                "barbearia_recebe": recebe_barbearia
+            })
+        barbeiros.append(item)
+
+        tot_clientes += r["clientes"]
+        tot_valor += total
+        tot_barbeiro += recebe_barbeiro
+        tot_barbearia += recebe_barbearia
+
+    totais = {"clientes": tot_clientes}
+    if ver_valores:
+        totais.update({
+            "total": round(tot_valor, 2),
+            "barbeiro_recebe": round(tot_barbeiro, 2),
+            "barbearia_recebe": round(tot_barbearia, 2)
+        })
+
+    return jsonify({
+        "data": data_str,
+        "ver_valores": ver_valores,
+        "barbeiros": barbeiros,
+        "totais": totais
+    })
+
+
 # -------------------------------------------------------
 # INICIALIZAÇÃO
 # -------------------------------------------------------
 if __name__ == "__main__":
     init_db()
-    criar_admin_padrao()  # cria o admin (usuário/senha vêm do .env) se não existir
+    criar_admin_padrao()  # login master (dono) — do .env
+    criar_salao_padrao()  # login do salão (tablet) — do .env
     print(f"[config] Ambiente: {FLASK_ENV}")
     print(f"[config] CORS permitido para: {CORS_ORIGIN}")
     print(f"[config] Funcionamento: {HORARIO_ABERTURA} às {HORARIO_FECHAMENTO}")

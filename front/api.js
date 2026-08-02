@@ -108,16 +108,37 @@ const API = (() => {
        ===================================================== */
     admin: {
       estaLogado() { return !!getToken(); },
-      logout() { limparToken(); },
 
-      /** POST /api/admin/login → guarda o token e devolve os dados. */
+      logout() {
+        limparToken();
+        localStorage.removeItem("admin_papel");
+        localStorage.removeItem("admin_barbeiro_nome");
+        localStorage.removeItem("admin_barbeiro_id");
+      },
+
+      /** POST /api/admin/login → guarda token + papel/barbeiro e devolve os dados. */
       async login(usuario, senha) {
         const dados = await request("/api/admin/login", {
           method: "POST",
           body: JSON.stringify({ usuario, senha })
         });
-        if (dados?.token) setToken(dados.token);
+        if (dados?.token) {
+          setToken(dados.token);
+          localStorage.setItem("admin_papel", dados.papel || "");
+          localStorage.setItem("admin_barbeiro_nome", dados.barbeiro_nome || "");
+          localStorage.setItem("admin_barbeiro_id", dados.barbeiro_id ?? "");
+        }
         return dados;
+      },
+
+      /** Papel do usuário logado ('master' | 'barbeiro') e atalhos. */
+      papel() { return localStorage.getItem("admin_papel") || ""; },
+      ehMaster() { return this.papel() === "master"; },
+      podeVerValores() { return this.papel() !== "salao"; },
+      barbeiroNome() { return localStorage.getItem("admin_barbeiro_nome") || ""; },
+      barbeiroId() {
+        const v = localStorage.getItem("admin_barbeiro_id");
+        return v ? Number(v) : null;
       },
 
       /** GET /api/admin/agendamentos?data=&status= */
@@ -176,6 +197,20 @@ const API = (() => {
       /** DELETE /api/admin/bloqueios/:id */
       removerBloqueio(id) {
         return requestAuth(`/api/admin/bloqueios/${id}`, { method: "DELETE" });
+      },
+
+      /** GET /api/admin/contagem?data= → fechamento do dia por barbeiro (comissão) */
+      contagem(data) {
+        const qs = data ? `?data=${encodeURIComponent(data)}` : "";
+        return requestAuth(`/api/admin/contagem${qs}`);
+      },
+
+      /** PUT /api/admin/barbeiros/:id/login → master cria/edita login do barbeiro */
+      definirLoginBarbeiro(id, usuario, senha) {
+        return requestAuth(`/api/admin/barbeiros/${id}/login`, {
+          method: "PUT",
+          body: JSON.stringify({ usuario, senha })
+        });
       }
     }
   };

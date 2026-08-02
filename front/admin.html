@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JP Barbearia — Painel do Barbeiro</title>
   <link rel="stylesheet" href="style.css?v=7" />
-  <link rel="stylesheet" href="admin.css?v=9" />
+  <link rel="stylesheet" href="admin.css?v=13" />
   <link rel="icon" type="image/png" href="/front/favicon.PNG">
 </head>
 <body>
@@ -51,17 +51,13 @@
       <button class="admin-link" id="btn-logout">Sair</button>
     </header>
 
-    <nav class="abas" id="abas">
-      <button class="aba ativa" data-secao="dashboard">Dashboard</button>
-      <button class="aba" data-secao="agendamentos">Agendamentos</button>
-      <button class="aba" data-secao="barbeiros">Barbeiros</button>
-      <button class="aba" data-secao="horarios">Horários</button>
-    </nav>
+    <!-- As abas são geradas por JS conforme o papel (master vê todas; barbeiro vê só as dele) -->
+    <nav class="abas" id="abas"></nav>
 
     <main id="conteudo-painel"></main>
   </div>
 
-  <script src="api.js?v=10"></script>
-  <script src="admin.js?v=10"></script>
+  <script src="api.js?v=12"></script>
+  <script src="admin.js?v=13"></script>
 </body>
 </html>
