@@ -19,7 +19,7 @@ import bcrypt
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from dotenv import load_dotenv
-from database import get_connection, init_db, criar_admin_padrao, criar_salao_padrao, criar_barbeiros_padrao
+from database import get_connection, init_db, criar_admin_padrao, criar_salao_padrao, criar_barbeiros_padrao, ajustar_servicos
 
 # Carrega as variáveis do arquivo .env
 # Se não existir o .env, usa os valores padrão definidos abaixo
@@ -1313,6 +1313,7 @@ init_db()
 criar_admin_padrao()      # login master (dono) — do .env
 criar_salao_padrao()      # login do salão (tablet) — do .env
 criar_barbeiros_padrao()  # logins dos barbeiros comuns (2 e 3) — do .env
+ajustar_servicos()        # cardápio oficial (nome/preço/duração/imagem)
 
 if __name__ == "__main__":
     print(f"[config] Ambiente: {FLASK_ENV}")

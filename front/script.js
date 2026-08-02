@@ -183,8 +183,11 @@ async function renderPassoServico() {
     servicos.forEach((s) => {
       const card = document.createElement("button");
       card.className = "card-opcao";
+      const icone = s.imagem
+        ? `<div class="card-icone card-icone-foto"><img src="img/${s.imagem}" alt="${s.nome}" loading="lazy"></div>`
+        : `<div class="card-icone">${ICONES.tesoura}</div>`;
       card.innerHTML = `
-        <div class="card-icone">${ICONES.tesoura}</div>
+        ${icone}
         <div class="card-corpo">
           <div class="card-titulo-linha">
             <span class="card-nome">${s.nome}</span>

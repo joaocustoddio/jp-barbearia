@@ -96,6 +96,8 @@ def init_db():
             preco REAL NOT NULL
         )
     """)
+    # imagem: nome do arquivo em front/img (ex: 'degrade.jpg'); NULL = sem foto.
+    cur.execute("ALTER TABLE servicos ADD COLUMN IF NOT EXISTS imagem TEXT")
 
     # ---------------------------------------------------------
     # BARBEIROS
@@ -312,10 +314,48 @@ def criar_barbeiros_padrao():
     )
 
 
+def ajustar_servicos():
+    """
+    Cardápio oficial de serviços (nome/duração/preço/imagem). Roda no boot e é
+    idempotente. Este código é a fonte da verdade dos serviços — pra mudar preço
+    ou foto, edita aqui e redeploya. Atualiza os existentes (casando pelo nome
+    antigo) e cria os novos que ainda não existem.
+    """
+    conn = get_connection()
+    # (nome_antigo, nome_novo, duracao_min, preco, imagem)
+    ajustes = [
+        ("Degradê",       "Degradê",       40, 40.00, "degrade.jpg"),
+        ("Social",        "Corte Social",  30, 35.00, "social.jpg"),
+        ("Barba",         "Barba",         20, 25.00, "barba.jpg"),
+        ("Corte + Barba", "Corte + Barba", 50, 55.00, "corte-barba.jpg"),
+        ("Navalhado",     "Navalhado",     45, 40.00, None),
+        ("Sobrancelha",   "Sobrancelha",   10, 10.00, None),
+    ]
+    for antigo, novo, dur, preco, img in ajustes:
+        conn.execute(
+            "UPDATE servicos SET nome=%s, duracao_min=%s, preco=%s, imagem=%s WHERE nome=%s",
+            (novo, dur, preco, img, antigo)
+        )
+    # Serviços novos (cria só se ainda não existir)
+    novos = [
+        ("Corte e penteado", 50, 50.00, None),
+        ("Limpeza de pele",  20, 25.00, None),
+    ]
+    for nome, dur, preco, img in novos:
+        if not conn.execute("SELECT id FROM servicos WHERE nome=%s", (nome,)).fetchone():
+            conn.execute(
+                "INSERT INTO servicos (nome, duracao_min, preco, imagem) VALUES (%s,%s,%s,%s)",
+                (nome, dur, preco, img)
+            )
+    conn.commit()
+    conn.close()
+
+
 if __name__ == "__main__":
     # Permite rodar "python database.py" pra criar/verificar o schema.
     init_db()
     criar_admin_padrao()
     criar_salao_padrao()
     criar_barbeiros_padrao()
+    ajustar_servicos()
     print("Banco de dados (Postgres/Supabase) criado/verificado.")
