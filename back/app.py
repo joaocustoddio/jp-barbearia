@@ -1117,10 +1117,15 @@ def contagem_dia():
 # -------------------------------------------------------
 # INICIALIZAÇÃO
 # -------------------------------------------------------
+# Roda no carregamento do módulo para funcionar tanto com `python app.py`
+# quanto sob gunicorn em produção (o bloco __main__ NÃO executa sob gunicorn,
+# então init_db/seeds precisam ficar aqui fora). Tudo é idempotente
+# (CREATE TABLE / ADD COLUMN IF NOT EXISTS e seeds que checam antes de inserir).
+init_db()
+criar_admin_padrao()  # login master (dono) — do .env
+criar_salao_padrao()  # login do salão (tablet) — do .env
+
 if __name__ == "__main__":
-    init_db()
-    criar_admin_padrao()  # login master (dono) — do .env
-    criar_salao_padrao()  # login do salão (tablet) — do .env
     print(f"[config] Ambiente: {FLASK_ENV}")
     print(f"[config] CORS permitido para: {CORS_ORIGIN}")
     print(f"[config] Funcionamento: {HORARIO_ABERTURA} às {HORARIO_FECHAMENTO}")
