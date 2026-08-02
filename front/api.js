@@ -211,6 +211,26 @@ const API = (() => {
           method: "PUT",
           body: JSON.stringify({ usuario, senha })
         });
+      },
+
+      /** GET /api/admin/almoco?data= → almoço do barbeiro no dia (ou null) */
+      obterAlmoco(data) {
+        return requestAuth(`/api/admin/almoco?data=${encodeURIComponent(data)}`);
+      },
+
+      /** POST /api/admin/almoco → bloqueia 60min de almoço { data, hora } */
+      marcarAlmoco(data, hora) {
+        return requestAuth("/api/admin/almoco", {
+          method: "POST",
+          body: JSON.stringify({ data, hora })
+        });
+      },
+
+      /** DELETE /api/admin/almoco?data= → libera o almoço do barbeiro no dia */
+      liberarAlmoco(data) {
+        return requestAuth(`/api/admin/almoco?data=${encodeURIComponent(data)}`, {
+          method: "DELETE"
+        });
       }
     }
   };

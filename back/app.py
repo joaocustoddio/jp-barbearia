@@ -19,7 +19,7 @@ import bcrypt
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from dotenv import load_dotenv
-from database import get_connection, init_db, criar_admin_padrao, criar_salao_padrao
+from database import get_connection, init_db, criar_admin_padrao, criar_salao_padrao, criar_barbeiros_padrao
 
 # Carrega as variáveis do arquivo .env
 # Se não existir o .env, usa os valores padrão definidos abaixo
@@ -53,6 +53,11 @@ INTERVALO_MINUTOS     = int(os.getenv("INTERVALO_MINUTOS", "30"))
 # Mude o valor no .env (ANTECEDENCIA_MINIMA_MINUTOS) quando quiser ajustar —
 # esse "30" aqui só é usado se a variável não existir no .env.
 ANTECEDENCIA_MINIMA   = int(os.getenv("ANTECEDENCIA_MINIMA_MINUTOS", "30"))
+
+# Janela máxima de agendamento pelo site (em dias). O cliente só pode marcar
+# de hoje até hoje + esse limite. Padrão 7 (1 semana). Vale só pro fluxo público;
+# o barbeiro pelo painel (walk-in / repetir) não fica preso a esse limite.
+LIMITE_DIAS_AGENDAMENTO = int(os.getenv("LIMITE_DIAS_AGENDAMENTO", "7"))
 
 # Dias da semana em que a barbearia NÃO atende.
 # Numeração do Python (date.weekday()): 0=segunda, 1=terça, ..., 5=sábado, 6=domingo.
@@ -239,16 +244,29 @@ def horarios_disponiveis():
 
     horarios_ocupados = {row["hora"] for row in ocupados}
 
-    # Bloqueios do admin (valem pra todos os barbeiros)
+    # Bloqueios: os globais (barbeiro_id NULL) valem pra todos; os com
+    # barbeiro_id valem só pra esse barbeiro (ex: almoço). Cada bloqueio tem
+    # uma janela (duracao_min); sem duração, vale por 1 slot.
     bloqueios = conn.execute(
-        "SELECT hora FROM bloqueios WHERE data = %s", (data_str,)
+        """SELECT hora, duracao_min FROM bloqueios
+           WHERE data = %s AND (barbeiro_id IS NULL OR barbeiro_id = %s)""",
+        (data_str, barbeiro_id)
     ).fetchall()
     conn.close()
+
+    def _min(hhmm):
+        return int(hhmm[:2]) * 60 + int(hhmm[3:5])
 
     for b in bloqueios:
         if b["hora"] is None:
             return jsonify({"data": data_str, "horarios_disponiveis": [], "bloqueio_dia": True})
-        horarios_ocupados.add(b["hora"])
+        ini = _min(b["hora"])
+        fim_b = ini + (b["duracao_min"] or INTERVALO_MINUTOS)
+        # Marca ocupado todo slot cuja janela [S, S+intervalo) encoste no bloqueio.
+        for h in todos:
+            hm = _min(h)
+            if hm < fim_b and hm + INTERVALO_MINUTOS > ini:
+                horarios_ocupados.add(h)
 
     disponiveis = [h for h in todos if h not in horarios_ocupados]
 
@@ -345,6 +363,13 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     if fechado:
         conn.close()
         return {"erro": f"Não realizamos agendamentos aos {nome_dia}s."}, 400
+
+    # Janela máxima (só no fluxo público): não deixa marcar além de X dias.
+    if exigir_antecedencia:
+        data_ag = datetime.strptime(dados["data"], "%Y-%m-%d").date()
+        if data_ag > date.today() + timedelta(days=LIMITE_DIAS_AGENDAMENTO):
+            conn.close()
+            return {"erro": f"Só é possível agendar até {LIMITE_DIAS_AGENDAMENTO} dias à frente."}, 400
 
     # Verifica conflito de horário PARA ESTE barbeiro
     ocupado = conn.execute(
@@ -631,6 +656,7 @@ def painel_agendamentos():
             agendamentos.hora,
             agendamentos.status,
             agendamentos.barbeiro_id,
+            agendamentos.servico_id,
             clientes.nome       AS cliente_nome,
             clientes.telefone   AS cliente_telefone,
             servicos.nome       AS servico_nome,
@@ -944,6 +970,99 @@ def remover_bloqueio(bloqueio_id):
     return jsonify({"mensagem": "Bloqueio removido com sucesso"})
 
 
+# -------------------------------------------------------
+# ALMOÇO — o barbeiro bloqueia 60min do próprio dia (e pode liberar).
+# Reaproveita a tabela bloqueios (barbeiro_id + duracao_min + motivo 'Almoço').
+# Não é @somente_master: o próprio barbeiro gerencia o almoço dele.
+# -------------------------------------------------------
+def _barbeiro_alvo_almoco(fonte):
+    """Descobre o barbeiro do almoço: o do escopo (barbeiro logado) ou, se for
+    master/salão, o barbeiro_id vindo da requisição. Retorna (id, erro)."""
+    barbeiro_id = barbeiro_do_escopo()
+    if barbeiro_id is None:
+        barbeiro_id = fonte.get("barbeiro_id")
+    if not barbeiro_id:
+        return None, "barbeiro_id é obrigatório"
+    return barbeiro_id, None
+
+
+@app.route("/api/admin/almoco", methods=["GET"])
+@token_requerido
+def obter_almoco():
+    """Almoço do barbeiro (logado ou informado) numa data. ?data=&barbeiro_id?="""
+    data = request.args.get("data")
+    if not data:
+        return jsonify({"erro": "Data é obrigatória"}), 400
+    barbeiro_id, erro = _barbeiro_alvo_almoco(request.args)
+    if erro:
+        return jsonify({"erro": erro}), 400
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT id, hora, duracao_min FROM bloqueios
+           WHERE data = %s AND barbeiro_id = %s AND motivo = 'Almoço'
+           ORDER BY hora LIMIT 1""",
+        (data, barbeiro_id)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else None)
+
+
+@app.route("/api/admin/almoco", methods=["POST"])
+@token_requerido
+def marcar_almoco():
+    """Barbeiro bloqueia 60min de almoço no dia. { data, hora, barbeiro_id? }"""
+    dados = request.get_json(silent=True) or {}
+    data = dados.get("data")
+    hora = dados.get("hora")
+    if not data or not hora:
+        return jsonify({"erro": "Data e hora são obrigatórias"}), 400
+    valido, erro = validar_data(data)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    valido, erro = validar_hora(hora)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    barbeiro_id, erro = _barbeiro_alvo_almoco(dados)
+    if erro:
+        return jsonify({"erro": erro}), 400
+
+    conn = get_connection()
+    ja = conn.execute(
+        "SELECT id FROM bloqueios WHERE data = %s AND barbeiro_id = %s AND motivo = 'Almoço'",
+        (data, barbeiro_id)
+    ).fetchone()
+    if ja:
+        conn.close()
+        return jsonify({"erro": "Você já tem um almoço marcado nesse dia. Libere o atual primeiro."}), 409
+    conn.execute(
+        "INSERT INTO bloqueios (data, hora, motivo, barbeiro_id, duracao_min) VALUES (%s, %s, 'Almoço', %s, 60)",
+        (data, hora, barbeiro_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": f"Almoço bloqueado às {hora} (60 min)."}), 201
+
+
+@app.route("/api/admin/almoco", methods=["DELETE"])
+@token_requerido
+def liberar_almoco():
+    """Libera (remove) o almoço do barbeiro na data. ?data=&barbeiro_id?="""
+    data = request.args.get("data")
+    if not data:
+        return jsonify({"erro": "Data é obrigatória"}), 400
+    barbeiro_id, erro = _barbeiro_alvo_almoco(request.args)
+    if erro:
+        return jsonify({"erro": erro}), 400
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM bloqueios WHERE data = %s AND barbeiro_id = %s AND motivo = 'Almoço'",
+        (data, barbeiro_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Almoço liberado."})
+
+
 @app.route("/api/admin/relatorio", methods=["GET"])
 @token_requerido
 def relatorio_admin():
@@ -1122,8 +1241,9 @@ def contagem_dia():
 # então init_db/seeds precisam ficar aqui fora). Tudo é idempotente
 # (CREATE TABLE / ADD COLUMN IF NOT EXISTS e seeds que checam antes de inserir).
 init_db()
-criar_admin_padrao()  # login master (dono) — do .env
-criar_salao_padrao()  # login do salão (tablet) — do .env
+criar_admin_padrao()      # login master (dono) — do .env
+criar_salao_padrao()      # login do salão (tablet) — do .env
+criar_barbeiros_padrao()  # logins dos barbeiros comuns (2 e 3) — do .env
 
 if __name__ == "__main__":
     print(f"[config] Ambiente: {FLASK_ENV}")

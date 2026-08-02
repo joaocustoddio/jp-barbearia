@@ -264,6 +264,12 @@ table.tabela tfoot .linha-totais td {
 .btn-mini.perigo { color: var(--erro); border-color: rgba(239,83,80,0.4); }
 .btn-mini.perigo:hover { background: var(--erro-fundo); }
 .btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-almoco { margin-left: auto; }   /* empurra pra direita na nav */
+.btn-almoco.marcado {
+  color: var(--acento);
+  border-color: var(--acento);
+  background: var(--acento-fraco);
+}
 
 /* Dentro das tabelas o botão é mais compacto pra caber na coluna estreita */
 table.tabela .btn-mini {
@@ -431,6 +437,35 @@ table.tabela .btn-mini {
   text-overflow: ellipsis;
 }
 .agenda-card-valor { color: var(--acento); font-weight: 600; margin-left: 4px; }
+.agenda-acoes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.agenda-wpp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #25d366;              /* verde do WhatsApp */
+  padding: 1px 2px;
+  border-radius: 4px;
+  line-height: 0;
+}
+.agenda-wpp:hover { background: rgba(37, 211, 102, 0.15); }
+.agenda-rep {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--acento);
+  cursor: pointer;
+  padding: 1px 2px;
+  border-radius: 4px;
+  line-height: 0;
+}
+.agenda-rep:hover { background: var(--acento-fraco); }
 .agenda-x {
   background: none;
   border: none;

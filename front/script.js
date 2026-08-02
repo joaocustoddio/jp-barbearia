@@ -263,8 +263,10 @@ async function renderPassoBarbeiro() {
    por escrito — porque o calendário em si é o componente nativo
    do navegador, e não temos como "pintar" dias sem vaga nele.
    ===================================================== */
-/* Quantos dias a faixa mostra pra frente e rótulos curtos do topo do card. */
-const DIAS_A_MOSTRAR = 14;
+/* Quantos dias a faixa mostra pra frente e rótulos curtos do topo do card.
+   8 = hoje + 7 dias (janela de 1 semana). Deve casar com LIMITE_DIAS_AGENDAMENTO
+   no backend (app.py); se mudar lá, ajuste aqui também. */
+const DIAS_A_MOSTRAR = 8;
 const DIAS_SEMANA_CURTO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 /* Dias da semana fechados no FRONT (0=domingo). Espelha o padrão de
@@ -399,19 +401,6 @@ function renderPassoData() {
     chips.appendChild(chip);
   });
 
-  // Atalho "Próxima semana": não seleciona uma data, só ROLA a faixa até a
-  // segunda-feira da semana que vem, pra pessoa escolher o dia por lá.
-  const proxSegunda = new Date(hoje);
-  const diasAteSegunda = ((8 - hoje.getDay()) % 7) || 7; // sempre a segunda da semana seguinte
-  proxSegunda.setDate(hoje.getDate() + diasAteSegunda);
-  const proxSegundaISO = dataLocalISO(proxSegunda);
-
-  const chipProx = document.createElement("button");
-  chipProx.className = "chip-rapido chip-navegacao";
-  chipProx.textContent = "Próxima semana";
-  chipProx.addEventListener("click", () => rolarFaixaPara(proxSegundaISO));
-  chips.appendChild(chipProx);
-
   btnContinuar.addEventListener("click", () => {
     if (!state.data) return;
     btnContinuar.disabled = true; // trava contra clique duplo enquanto a tela troca
@@ -470,7 +459,7 @@ function renderPassoData() {
    busca automaticamente os dias seguintes até achar um com
    vaga, em vez de simplesmente dizer "não há horários".
    ===================================================== */
-const LIMITE_DIAS_BUSCA_AUTOMATICA = 14; // não procura pra sempre, tem um teto
+const LIMITE_DIAS_BUSCA_AUTOMATICA = 7; // teto = janela de 1 semana (hoje + 7)
 
 async function renderPassoHorario() {
   elConteudo.innerHTML = "";
@@ -580,7 +569,7 @@ function renderPassoDados() {
       <input type="text" id="input-nome" placeholder="Digite seu nome" value="${state.nome || ""}" />
     </div>
     <div class="campo-grupo">
-      <label class="campo-label" for="input-telefone">Telefone (com DDD)</label>
+      <label class="campo-label" for="input-telefone">Whatsapp <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 018.413 3.488 11.82 11.82 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.489-.919zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"></path></svg></label>
       <input type="tel" id="input-telefone" inputmode="numeric" placeholder="11999998888" value="${state.telefone || ""}" />
     </div>
   `;

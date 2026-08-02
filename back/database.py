@@ -158,6 +158,11 @@ def init_db():
             criado_em TIMESTAMPTZ DEFAULT now()
         )
     """)
+    # Colunas aditivas: barbeiro_id (NULL = vale pra todos; preenchido = só
+    # daquele barbeiro, ex: almoço) e duracao_min (janela do bloqueio em minutos,
+    # ex: 60 pro almoço; NULL = um slot só, como os bloqueios antigos).
+    cur.execute("ALTER TABLE bloqueios ADD COLUMN IF NOT EXISTS barbeiro_id INTEGER REFERENCES barbeiros (id)")
+    cur.execute("ALTER TABLE bloqueios ADD COLUMN IF NOT EXISTS duracao_min INTEGER")
 
     conn.commit()
 
@@ -249,9 +254,44 @@ def criar_salao_padrao(usuario=None, senha=None):
     conn.close()
 
 
+def _criar_login_barbeiro(usuario, senha, barbeiro_id):
+    """Cria um login de barbeiro (papel 'barbeiro') ligado a um barbeiro, se não existir."""
+    conn = get_connection()
+    existe = conn.execute("SELECT id FROM admin WHERE usuario = %s", (usuario,)).fetchone()
+    if not existe:
+        senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+        conn.execute(
+            "INSERT INTO admin (usuario, senha_hash, papel, barbeiro_id) VALUES (%s, %s, 'barbeiro', %s)",
+            (usuario, senha_hash, barbeiro_id)
+        )
+        conn.commit()
+        print(f"[seed] Login do barbeiro '{usuario}' criado (barbeiro_id={barbeiro_id}). Troque a senha!")
+    conn.close()
+
+
+def criar_barbeiros_padrao():
+    """
+    Cria os logins dos barbeiros comuns (barbeiro_id 2 e 3), papel 'barbeiro'.
+    O barbeiro 1 é o dono (master), então não entra aqui.
+    Configurável via BARBEIRO2_USUARIO/SENHA e BARBEIRO3_USUARIO/SENHA no .env.
+    Idempotente: só cria quem ainda não existe (não reseta senha de quem já existe).
+    """
+    _criar_login_barbeiro(
+        os.getenv("BARBEIRO2_USUARIO", "barbeiro2"),
+        os.getenv("BARBEIRO2_SENHA", "barbeiro2senha"),
+        2,
+    )
+    _criar_login_barbeiro(
+        os.getenv("BARBEIRO3_USUARIO", "barbeiro3"),
+        os.getenv("BARBEIRO3_SENHA", "barbeiro3senha"),
+        3,
+    )
+
+
 if __name__ == "__main__":
     # Permite rodar "python database.py" pra criar/verificar o schema.
     init_db()
     criar_admin_padrao()
     criar_salao_padrao()
+    criar_barbeiros_padrao()
     print("Banco de dados (Postgres/Supabase) criado/verificado.")

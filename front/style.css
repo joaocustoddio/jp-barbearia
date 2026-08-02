@@ -434,12 +434,6 @@ a { color: inherit; }
 }
 .chip-rapido:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Chip que navega/rola a faixa (não seleciona data) — leve seta indicando ação */
-.chip-navegacao::after {
-  content: " ›";
-  font-weight: 700;
-}
-
 /* ---------- Faixa de dias (seletor de data) ---------- */
 .faixa-dias {
   display: flex;
