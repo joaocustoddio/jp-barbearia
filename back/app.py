@@ -896,6 +896,32 @@ def trocar_senha_login():
     return jsonify({"mensagem": f"Senha de '{usuario}' atualizada."})
 
 
+@app.route("/api/admin/minha-senha", methods=["PUT"])
+@token_requerido
+def trocar_minha_senha():
+    """Qualquer usuário logado troca a PRÓPRIA senha (exige a senha atual).
+    Corpo: { senha_atual, nova_senha }."""
+    dados = request.get_json(silent=True) or {}
+    atual = dados.get("senha_atual") or ""
+    nova = dados.get("nova_senha") or ""
+    if not atual or not nova:
+        return jsonify({"erro": "Informe a senha atual e a nova"}), 400
+    if len(nova) < 4:
+        return jsonify({"erro": "A nova senha deve ter pelo menos 4 caracteres"}), 400
+
+    admin_id = g.usuario.get("admin_id")
+    conn = get_connection()
+    row = conn.execute("SELECT senha_hash FROM admin WHERE id = %s", (admin_id,)).fetchone()
+    if not row or not bcrypt.checkpw(atual.encode(), row["senha_hash"].encode()):
+        conn.close()
+        return jsonify({"erro": "Senha atual incorreta"}), 400
+    h = bcrypt.hashpw(nova.encode(), bcrypt.gensalt()).decode()
+    conn.execute("UPDATE admin SET senha_hash = %s WHERE id = %s", (h, admin_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Senha alterada com sucesso."})
+
+
 @app.route("/api/admin/barbeiros/<int:barbeiro_id>", methods=["PATCH"])
 @token_requerido
 @somente_master

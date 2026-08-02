@@ -244,6 +244,14 @@ const API = (() => {
           method: "PUT",
           body: JSON.stringify({ usuario, senha })
         });
+      },
+
+      /** PUT /api/admin/minha-senha → usuário logado troca a própria senha */
+      trocarMinhaSenha(senha_atual, nova_senha) {
+        return requestAuth("/api/admin/minha-senha", {
+          method: "PUT",
+          body: JSON.stringify({ senha_atual, nova_senha })
+        });
       }
     }
   };

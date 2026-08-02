@@ -264,6 +264,8 @@ table.tabela tfoot .linha-totais td {
 .btn-mini.perigo { color: var(--erro); border-color: rgba(239,83,80,0.4); }
 .btn-mini.perigo:hover { background: var(--erro-fundo); }
 .btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
+.topbar-acoes { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+button.admin-link { background: none; cursor: pointer; }
 .btn-almoco { margin-left: auto; }   /* empurra pra direita na nav */
 .btn-almoco.marcado {
   color: var(--acento);

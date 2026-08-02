@@ -84,6 +84,9 @@ function mostrarLogin() {
 function mostrarPainel() {
   telaLogin.hidden = true;
   telaPainel.hidden = false;
+  // "Trocar minha senha": só pra quem tem conta individual (master/barbeiro).
+  // O salão é tablet compartilhado — a senha dele fica com o master.
+  btnMinhaSenha.hidden = API.admin.papel() === "salao";
   const primeira = montarAbas();   // abas conforme o papel (master vê todas)
   trocarSecao(primeira);
 }
@@ -125,6 +128,23 @@ formLogin.addEventListener("submit", (e) => {
 btnLogout.addEventListener("click", () => {
   API.admin.logout();
   mostrarLogin();
+});
+
+// Trocar a PRÓPRIA senha (self-service). Salão é compartilhado, então não mostra.
+const btnMinhaSenha = document.getElementById("btn-minha-senha");
+btnMinhaSenha.addEventListener("click", async () => {
+  const atual = prompt("Sua senha atual:");
+  if (!atual) return;
+  const nova = prompt("Nova senha (mínimo 4 caracteres):");
+  if (!nova) return;
+  if (nova.trim().length < 4) { alert("A nova senha deve ter pelo menos 4 caracteres."); return; }
+  try {
+    await API.admin.trocarMinhaSenha(atual, nova.trim());
+    alert("Senha alterada com sucesso.");
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) alert(msg);
+  }
 });
 
 /* =====================================================

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JP Barbearia — Painel do Barbeiro</title>
   <link rel="stylesheet" href="style.css?v=7" />
-  <link rel="stylesheet" href="admin.css?v=15" />
+  <link rel="stylesheet" href="admin.css?v=16" />
   <link rel="icon" type="image/png" href="/front/favicon.PNG">
 </head>
 <body>
@@ -48,7 +48,10 @@
           <p class="tagline">JP Barbearia</p>
         </div>
       </div>
-      <button class="admin-link" id="btn-logout">Sair</button>
+      <div class="topbar-acoes">
+        <button class="admin-link" id="btn-minha-senha" hidden>Trocar minha senha</button>
+        <button class="admin-link" id="btn-logout">Sair</button>
+      </div>
     </header>
 
     <!-- As abas são geradas por JS conforme o papel (master vê todas; barbeiro vê só as dele) -->
@@ -57,7 +60,7 @@
     <main id="conteudo-painel"></main>
   </div>
 
-  <script src="api.js?v=14"></script>
-  <script src="admin.js?v=16"></script>
+  <script src="api.js?v=15"></script>
+  <script src="admin.js?v=17"></script>
 </body>
 </html>

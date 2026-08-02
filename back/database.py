@@ -227,6 +227,12 @@ def criar_admin_padrao(usuario=None, senha=None):
             "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
             (usuario,)
         )
+    # Nome de exibição do dono (barbeiro 1) — aparece na agenda e no site público.
+    nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
+    conn.execute(
+        "UPDATE barbeiros SET nome = %s WHERE id = 1 AND nome IS DISTINCT FROM %s",
+        (nome_jp, nome_jp)
+    )
     conn.commit()
     conn.close()
 
@@ -254,37 +260,55 @@ def criar_salao_padrao(usuario=None, senha=None):
     conn.close()
 
 
-def _criar_login_barbeiro(usuario, senha, barbeiro_id):
-    """Cria um login de barbeiro (papel 'barbeiro') ligado a um barbeiro, se não existir."""
+def _sync_login_barbeiro(barbeiro_id, nome, usuario, senha):
+    """
+    Sincroniza um barbeiro no boot (dirigido por config, sem botão):
+    - NOME de exibição e USUÁRIO de login: atualizados sempre (não são segredo).
+    - SENHA: definida só na CRIAÇÃO. Depois é self-service (cada um troca a sua)
+      ou o master reseta — nunca sobrescrevemos senha aqui.
+    """
     conn = get_connection()
-    existe = conn.execute("SELECT id FROM admin WHERE usuario = %s", (usuario,)).fetchone()
-    if not existe:
+    if nome:
+        conn.execute(
+            "UPDATE barbeiros SET nome = %s WHERE id = %s AND nome IS DISTINCT FROM %s",
+            (nome, barbeiro_id, nome)
+        )
+    login = conn.execute(
+        "SELECT id FROM admin WHERE barbeiro_id = %s AND papel = 'barbeiro'", (barbeiro_id,)
+    ).fetchone()
+    if not login:
         senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
         conn.execute(
             "INSERT INTO admin (usuario, senha_hash, papel, barbeiro_id) VALUES (%s, %s, 'barbeiro', %s)",
             (usuario, senha_hash, barbeiro_id)
         )
-        conn.commit()
-        print(f"[seed] Login do barbeiro '{usuario}' criado (barbeiro_id={barbeiro_id}). Troque a senha!")
+        print(f"[seed] Login '{usuario}' criado (barbeiro id={barbeiro_id}). Senha inicial temporária — troque no 1º acesso.")
+    else:
+        conn.execute(
+            "UPDATE admin SET usuario = %s WHERE id = %s AND usuario IS DISTINCT FROM %s",
+            (usuario, login["id"], usuario)
+        )
+    conn.commit()
     conn.close()
 
 
 def criar_barbeiros_padrao():
     """
-    Cria os logins dos barbeiros comuns (barbeiro_id 2 e 3), papel 'barbeiro'.
-    O barbeiro 1 é o dono (master), então não entra aqui.
-    Configurável via BARBEIRO2_USUARIO/SENHA e BARBEIRO3_USUARIO/SENHA no .env.
-    Idempotente: só cria quem ainda não existe (não reseta senha de quem já existe).
+    Sincroniza os barbeiros 2 e 3 (nome + usuário) a partir da config, e cria o
+    login se ainda não existir. Nome/usuário via .env (com defaults JP/Rian/Gabriel);
+    a senha é temporária na criação e depois é trocada pela pessoa (self-service).
     """
-    _criar_login_barbeiro(
-        os.getenv("BARBEIRO2_USUARIO", "barbeiro2"),
-        os.getenv("BARBEIRO2_SENHA", "barbeiro2senha"),
+    _sync_login_barbeiro(
         2,
+        os.getenv("BARBEIRO2_NOME", "Rian"),
+        os.getenv("BARBEIRO2_USUARIO", "rian"),
+        os.getenv("BARBEIRO2_SENHA", "mudar@123"),
     )
-    _criar_login_barbeiro(
-        os.getenv("BARBEIRO3_USUARIO", "barbeiro3"),
-        os.getenv("BARBEIRO3_SENHA", "barbeiro3senha"),
+    _sync_login_barbeiro(
         3,
+        os.getenv("BARBEIRO3_NOME", "Gabriel Xeybão"),
+        os.getenv("BARBEIRO3_USUARIO", "gabriel"),
+        os.getenv("BARBEIRO3_SENHA", "mudar@123"),
     )
 
 
