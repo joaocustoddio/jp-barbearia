@@ -303,7 +303,15 @@ button.admin-link { background: none; cursor: pointer; }
 .modal-campo { flex: 1; }
 .modal-box .campo-label { margin-top: 10px; }
 .modal-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
-.btn-almoco { margin-left: auto; }   /* empurra pra direita na nav */
+.acao-almoco {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--borda);
+}
 .btn-almoco.marcado {
   color: var(--acento);
   border-color: var(--acento);

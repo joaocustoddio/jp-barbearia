@@ -480,7 +480,7 @@ async function renderAgendamentos() {
     <p class="secao-subtitulo">Consulte, registre e gerencie os agendamentos</p>
 
     <div class="bloco">
-      <h3 class="bloco-titulo">Novo agendamento</h3>
+      <h3 class="bloco-titulo">Marcar agendamento</h3>
       <div class="form-linha">
         <div class="form-grupo">
           <label class="campo-label" for="ag-barbeiro">Barbeiro</label>
@@ -512,17 +512,23 @@ async function renderAgendamentos() {
       </div>
       <p class="secao-subtitulo" style="margin:0;">Use para registrar um cliente que chegou sem horário marcado.</p>
       <p class="login-erro" id="ag-erro" style="margin-top:8px;"></p>
+
+      <div class="acao-almoco" id="acao-almoco" hidden>
+        <span class="secao-subtitulo" id="acao-almoco-label" style="margin:0;"></span>
+        <button class="btn-mini btn-almoco" id="ag-almoco" hidden></button>
+      </div>
     </div>
 
-    <div class="agenda-nav">
-      <button class="btn-mini" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
-      <input type="date" id="ag-dia" class="campo-input" value="${dataAgenda || hojeISO()}" />
-      <button class="btn-mini" id="ag-dia-prox" aria-label="Próximo dia">›</button>
-      <button class="btn-mini" id="ag-hoje">Hoje</button>
-      <button class="btn-mini btn-almoco" id="ag-almoco" hidden></button>
+    <div class="bloco">
+      <h3 class="bloco-titulo">Agenda do dia</h3>
+      <div class="agenda-nav">
+        <button class="btn-mini" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
+        <input type="date" id="ag-dia" class="campo-input" value="${dataAgenda || hojeISO()}" />
+        <button class="btn-mini" id="ag-dia-prox" aria-label="Próximo dia">›</button>
+        <button class="btn-mini" id="ag-hoje">Hoje</button>
+      </div>
+      <div id="agenda-corpo">${carregando()}</div>
     </div>
-
-    <div id="agenda-corpo">${carregando()}</div>
   `;
 
   const inputDia = document.getElementById("ag-dia");
@@ -622,8 +628,17 @@ async function carregarAgenda(data) {
 // "Marcar almoço" quando não há; "Almoço HH:MM — liberar" quando já marcou.
 async function atualizarBotaoAlmoco(data) {
   const btn = document.getElementById("ag-almoco");
+  const wrap = document.getElementById("acao-almoco");
+  const label = document.getElementById("acao-almoco-label");
   if (!btn) return;
-  if (API.admin.papel() !== "barbeiro") { btn.hidden = true; return; }
+  // Só o barbeiro gerencia o próprio almoço. Salão/master não veem a seção.
+  if (API.admin.papel() !== "barbeiro") {
+    if (wrap) wrap.hidden = true;
+    btn.hidden = true;
+    return;
+  }
+  if (wrap) wrap.hidden = false;
+  if (label) label.textContent = `Almoço de ${formatarDataBR(data)}:`;
   btn.hidden = false;
   btn.disabled = true;
   btn.textContent = "Almoço";
