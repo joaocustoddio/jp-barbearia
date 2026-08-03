@@ -113,6 +113,8 @@ def init_db():
     # comissao_pct = % do valor do corte que fica com o BARBEIRO (resto = barbearia).
     # Padrão 60 (60% barbeiro / 40% barbearia). Coluna aditiva (não quebra o que existe).
     cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS comissao_pct INTEGER NOT NULL DEFAULT 60")
+    # foto: nome do arquivo em front/img (ex: 'rian.jpg'); NULL = sem foto.
+    cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS foto TEXT")
 
     # ---------------------------------------------------------
     # AGENDAMENTOS
@@ -229,12 +231,10 @@ def criar_admin_padrao(usuario=None, senha=None):
             "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
             (usuario,)
         )
-    # Nome de exibição do dono (barbeiro 1) — aparece na agenda e no site público.
+    # Nome + foto do dono (barbeiro 1) — aparecem na agenda e no site público.
     nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
-    conn.execute(
-        "UPDATE barbeiros SET nome = %s WHERE id = 1 AND nome IS DISTINCT FROM %s",
-        (nome_jp, nome_jp)
-    )
+    foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
+    conn.execute("UPDATE barbeiros SET nome = %s, foto = %s WHERE id = 1", (nome_jp, foto_jp))
     conn.commit()
     conn.close()
 
@@ -262,10 +262,10 @@ def criar_salao_padrao(usuario=None, senha=None):
     conn.close()
 
 
-def _sync_login_barbeiro(barbeiro_id, nome, usuario, senha):
+def _sync_login_barbeiro(barbeiro_id, nome, usuario, senha, foto=None):
     """
     Sincroniza um barbeiro no boot (dirigido por config, sem botão):
-    - NOME de exibição e USUÁRIO de login: atualizados sempre (não são segredo).
+    - NOME de exibição, FOTO e USUÁRIO de login: atualizados sempre (não são segredo).
     - SENHA: definida só na CRIAÇÃO. Depois é self-service (cada um troca a sua)
       ou o master reseta — nunca sobrescrevemos senha aqui.
     """
@@ -275,6 +275,8 @@ def _sync_login_barbeiro(barbeiro_id, nome, usuario, senha):
             "UPDATE barbeiros SET nome = %s WHERE id = %s AND nome IS DISTINCT FROM %s",
             (nome, barbeiro_id, nome)
         )
+    if foto:
+        conn.execute("UPDATE barbeiros SET foto = %s WHERE id = %s", (foto, barbeiro_id))
     login = conn.execute(
         "SELECT id FROM admin WHERE barbeiro_id = %s AND papel = 'barbeiro'", (barbeiro_id,)
     ).fetchone()
@@ -305,12 +307,14 @@ def criar_barbeiros_padrao():
         os.getenv("BARBEIRO2_NOME", "Rian"),
         os.getenv("BARBEIRO2_USUARIO", "rian"),
         os.getenv("BARBEIRO2_SENHA", "mudar@123"),
+        os.getenv("BARBEIRO2_FOTO", "rian.jpg"),
     )
     _sync_login_barbeiro(
         3,
         os.getenv("BARBEIRO3_NOME", "Gabriel Xeybão"),
         os.getenv("BARBEIRO3_USUARIO", "gabriel"),
         os.getenv("BARBEIRO3_SENHA", "mudar@123"),
+        os.getenv("BARBEIRO3_FOTO", "xeybao.jpg"),
     )
 
 

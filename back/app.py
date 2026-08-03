@@ -198,7 +198,7 @@ def listar_barbeiros():
     """Retorna os barbeiros ativos. Usado pro cliente escolher no chat."""
     conn = get_connection()
     barbeiros = conn.execute(
-        "SELECT id, nome FROM barbeiros WHERE ativo = 1 ORDER BY id"
+        "SELECT id, nome, foto FROM barbeiros WHERE ativo = 1 ORDER BY id"
     ).fetchall()
     conn.close()
     return jsonify([dict(b) for b in barbeiros])

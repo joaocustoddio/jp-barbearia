@@ -233,8 +233,11 @@ async function renderPassoBarbeiro() {
     barbeiros.forEach((b) => {
       const card = document.createElement("button");
       card.className = "card-opcao simples";
+      const icone = b.foto
+        ? `<div class="card-icone card-icone-foto"><img src="img/${b.foto}" alt="${b.nome}" loading="lazy"></div>`
+        : `<div class="card-icone">${ICONES.usuario}</div>`;
       card.innerHTML = `
-        <div class="card-icone">${ICONES.usuario}</div>
+        ${icone}
         <div class="card-corpo">
           <div class="card-titulo-linha">
             <span class="card-nome">${b.nome}</span>
