@@ -402,20 +402,23 @@ table.tabela .btn-mini {
   top: 0;
   z-index: 2;
   background: var(--bg);
-  padding-bottom: 6px;
+  padding-bottom: 10px;
 }
 .agenda-head-spacer { flex: 0 0 46px; }
 .agenda-head {
   flex: 1;
   min-width: 0;
   text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--texto);
-  padding: 7px 4px;
-  background: var(--card);
-  border: 1px solid var(--borda);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--acento);
+  padding: 10px 4px;
+  background: var(--acento-fraco);
+  border: 1px solid var(--acento);
   border-radius: var(--raio-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -428,7 +431,8 @@ table.tabela .btn-mini {
   right: 6px;
   transform: translateY(-7px);
   font-size: 11px;
-  color: var(--texto-fraco);
+  font-weight: 600;
+  color: var(--acento);
 }
 
 .agenda-col { flex: 1; min-width: 0; }
