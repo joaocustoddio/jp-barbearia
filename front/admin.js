@@ -164,23 +164,27 @@ btnMinhaSenha.addEventListener("click", async () => {
 // - salao: tablet compartilhado — agenda de todos + contagem SÓ com quantidade
 const ABAS_POR_PAPEL = {
   master: [
-    { chave: "dashboard",    rotulo: "Dashboard" },
+    { chave: "agenda_dia",   rotulo: "Agenda do dia" },
     { chave: "agendamentos", rotulo: "Agendamentos" },
     { chave: "contagem",     rotulo: "Contagem" },
+    { chave: "dashboard",    rotulo: "Dashboard" },
     { chave: "barbeiros",    rotulo: "Barbeiros" },
     { chave: "horarios",     rotulo: "Horários" }
   ],
   barbeiro: [
+    { chave: "agenda_dia",   rotulo: "Agenda do dia" },
     { chave: "agendamentos", rotulo: "Agendamentos" },
     { chave: "contagem",     rotulo: "Contagem" }
   ],
   salao: [
+    { chave: "agenda_dia",   rotulo: "Agenda do dia" },
     { chave: "agendamentos", rotulo: "Agendamentos" },
     { chave: "contagem",     rotulo: "Cortes do dia" }
   ]
 };
 
 const SECOES = {
+  agenda_dia:   renderAgendaDia,
   dashboard:    renderDashboard,
   agendamentos: renderAgendamentos,
   contagem:     renderContagem,
@@ -474,10 +478,43 @@ function linkWhatsApp(a) {
   return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
 }
 
+// ABA 1 — AGENDA DO DIA: só a timeline (visualização), com navegação de dia.
+async function renderAgendaDia() {
+  elConteudo.innerHTML = `
+    <h2 class="secao-titulo">Agenda do dia</h2>
+    <p class="secao-subtitulo">Veja os agendamentos do dia na linha do tempo</p>
+
+    <div class="bloco">
+      <div class="agenda-nav">
+        <button class="btn-mini" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
+        <input type="date" id="ag-dia" class="campo-input" value="${dataAgenda || hojeISO()}" />
+        <button class="btn-mini" id="ag-dia-prox" aria-label="Próximo dia">›</button>
+        <button class="btn-mini" id="ag-hoje">Hoje</button>
+      </div>
+      <div id="agenda-corpo">${carregando()}</div>
+    </div>
+  `;
+
+  const inputDia = document.getElementById("ag-dia");
+  inputDia.addEventListener("change", () => { dataAgenda = inputDia.value; recarregarAgenda(); });
+  document.getElementById("ag-dia-ant").addEventListener("click", () => {
+    dataAgenda = addDiasISO(inputDia.value, -1); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+  document.getElementById("ag-dia-prox").addEventListener("click", () => {
+    dataAgenda = addDiasISO(inputDia.value, 1); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+  document.getElementById("ag-hoje").addEventListener("click", () => {
+    dataAgenda = hojeISO(); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+
+  recarregarAgenda();
+}
+
+// ABA 2 — AGENDAMENTOS: registrar cliente (walk-in) + gerenciar o almoço.
 async function renderAgendamentos() {
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Agendamentos</h2>
-    <p class="secao-subtitulo">Consulte, registre e gerencie os agendamentos</p>
+    <p class="secao-subtitulo">Registre um cliente que chegou sem horário e gerencie seu almoço</p>
 
     <div class="bloco">
       <h3 class="bloco-titulo">Marcar agendamento</h3>
@@ -518,33 +555,10 @@ async function renderAgendamentos() {
         <button class="btn-mini btn-almoco" id="ag-almoco" hidden></button>
       </div>
     </div>
-
-    <div class="bloco">
-      <h3 class="bloco-titulo">Agenda do dia</h3>
-      <div class="agenda-nav">
-        <button class="btn-mini" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
-        <input type="date" id="ag-dia" class="campo-input" value="${dataAgenda || hojeISO()}" />
-        <button class="btn-mini" id="ag-dia-prox" aria-label="Próximo dia">›</button>
-        <button class="btn-mini" id="ag-hoje">Hoje</button>
-      </div>
-      <div id="agenda-corpo">${carregando()}</div>
-    </div>
   `;
 
-  const inputDia = document.getElementById("ag-dia");
-  inputDia.addEventListener("change", () => { dataAgenda = inputDia.value; recarregarAgenda(); });
-  document.getElementById("ag-dia-ant").addEventListener("click", () => {
-    dataAgenda = addDiasISO(inputDia.value, -1); inputDia.value = dataAgenda; recarregarAgenda();
-  });
-  document.getElementById("ag-dia-prox").addEventListener("click", () => {
-    dataAgenda = addDiasISO(inputDia.value, 1); inputDia.value = dataAgenda; recarregarAgenda();
-  });
-  document.getElementById("ag-hoje").addEventListener("click", () => {
-    dataAgenda = hojeISO(); inputDia.value = dataAgenda; recarregarAgenda();
-  });
-
   configurarFormNovoAgendamento();
-  recarregarAgenda();
+  atualizarBotaoAlmoco(hojeISO());   // almoço opera no dia de hoje
 }
 
 // Popula os selects (barbeiros/serviços) e liga o botão de adicionar.
@@ -651,7 +665,7 @@ async function atualizarBotaoAlmoco(data) {
     btn.textContent = `Almoço ${almoco.hora.slice(0, 5)} — liberar`;
     btn.onclick = async () => {
       if (!confirm(`Liberar o almoço das ${almoco.hora.slice(0, 5)}? Os horários voltam a ficar livres.`)) return;
-      try { await API.admin.liberarAlmoco(data); recarregarAgenda(); }
+      try { await API.admin.liberarAlmoco(data); atualizarBotaoAlmoco(data); }
       catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
     };
   } else {
@@ -661,7 +675,7 @@ async function atualizarBotaoAlmoco(data) {
       const hora = prompt("A que horas começa o almoço? (formato HH:MM, ex: 12:30)\nFica bloqueado por 60 minutos.");
       if (!hora) return;
       if (!/^\d{2}:\d{2}$/.test(hora.trim())) { alert("Hora inválida. Use o formato HH:MM (ex: 12:30)."); return; }
-      try { await API.admin.marcarAlmoco(data, hora.trim()); recarregarAgenda(); }
+      try { await API.admin.marcarAlmoco(data, hora.trim()); atualizarBotaoAlmoco(data); }
       catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
     };
   }
