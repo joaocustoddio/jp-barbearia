@@ -401,7 +401,7 @@ table.tabela .btn-mini {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--bg);
+  background: var(--card);   /* mesmo fundo do card, pra não destoar */
   padding-bottom: 10px;
 }
 .agenda-head-spacer { flex: 0 0 46px; }
