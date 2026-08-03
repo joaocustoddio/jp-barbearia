@@ -424,7 +424,7 @@ table.tabela .btn-mini {
   text-overflow: ellipsis;
 }
 
-.agenda-corpo-grid { display: flex; gap: 6px; }
+.agenda-corpo-grid { display: flex; gap: 6px; padding-top: 12px; }
 .agenda-gutter { flex: 0 0 46px; position: relative; }
 .agenda-hora {
   position: absolute;
