@@ -346,11 +346,11 @@ def ajustar_servicos():
     extras = [
         ("Corte e penteado",           50, 50.00, None),
         ("Limpeza de pele",            20, 25.00, None),
-        ("Corte + Progressiva",       120, 75.00, None),
-        ("Corte + Alisamento",         90, 55.00, None),
-        ("Corte + Botox",              90, 65.00, None),
+        ("Corte + Progressiva",        60, 75.00, None),
+        ("Corte + Alisamento",         45, 55.00, None),
+        ("Corte + Botox",              60, 65.00, None),
         ("Corte + Hidratação Capilar", 60, 60.00, None),
-        ("Acabamento",                 15, 10.00, None),
+        ("Acabamento",                 10, 10.00, None),
     ]
     for nome, dur, preco, img in extras:
         if conn.execute("SELECT id FROM servicos WHERE nome=%s", (nome,)).fetchone():
