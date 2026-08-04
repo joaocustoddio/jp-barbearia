@@ -326,27 +326,36 @@ def ajustar_servicos():
     antigo) e cria os novos que ainda não existem.
     """
     conn = get_connection()
+    # Renomeações + preços dos serviços que vieram do seed antigo (casa pelo nome antigo).
     # (nome_antigo, nome_novo, duracao_min, preco, imagem)
-    ajustes = [
+    renomear = [
         ("Degradê",       "Degradê",       40, 40.00, "degrade.jpg"),
         ("Social",        "Corte Social",  30, 35.00, "social.jpg"),
         ("Barba",         "Barba",         20, 25.00, "barba.jpg"),
-        ("Corte + Barba", "Corte + Barba", 50, 55.00, "corte-barba.jpg"),
+        ("Corte + Barba", "Corte + Barba", 50, 60.00, "corte-barba.jpg"),
         ("Navalhado",     "Navalhado",     45, 40.00, None),
         ("Sobrancelha",   "Sobrancelha",   10, 10.00, None),
     ]
-    for antigo, novo, dur, preco, img in ajustes:
+    for antigo, novo, dur, preco, img in renomear:
         conn.execute(
             "UPDATE servicos SET nome=%s, duracao_min=%s, preco=%s, imagem=%s WHERE nome=%s",
             (novo, dur, preco, img, antigo)
         )
-    # Serviços novos (cria só se ainda não existir)
-    novos = [
-        ("Corte e penteado", 50, 50.00, None),
-        ("Limpeza de pele",  20, 25.00, None),
+    # Serviços que não vêm do seed antigo — UPSERT por nome (cria ou atualiza
+    # preço/duração). Durações dos químicos são estimadas — ajuste aqui se precisar.
+    extras = [
+        ("Corte e penteado",           50, 50.00, None),
+        ("Limpeza de pele",            20, 25.00, None),
+        ("Corte + Progressiva",       120, 75.00, None),
+        ("Corte + Alisamento",         90, 55.00, None),
+        ("Corte + Botox",              90, 65.00, None),
+        ("Corte + Hidratação Capilar", 60, 60.00, None),
+        ("Acabamento",                 15, 10.00, None),
     ]
-    for nome, dur, preco, img in novos:
-        if not conn.execute("SELECT id FROM servicos WHERE nome=%s", (nome,)).fetchone():
+    for nome, dur, preco, img in extras:
+        if conn.execute("SELECT id FROM servicos WHERE nome=%s", (nome,)).fetchone():
+            conn.execute("UPDATE servicos SET duracao_min=%s, preco=%s WHERE nome=%s", (dur, preco, nome))
+        else:
             conn.execute(
                 "INSERT INTO servicos (nome, duracao_min, preco, imagem) VALUES (%s,%s,%s,%s)",
                 (nome, dur, preco, img)
