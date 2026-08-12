@@ -233,8 +233,9 @@ table.tabela tfoot .linha-totais td {
   border-top: 2px solid var(--acento);
   background: var(--acento-fraco);
 }
-/* Título do fechamento (substitui "Totais" por "JP BARBEARIA") */
-.totais-titulo strong { color: var(--acento); }
+/* Título do fechamento (substitui "Totais" por "JP BARBEARIA") — centralizado */
+.totais-titulo { text-align: center; }
+.totais-titulo strong { color: var(--acento); letter-spacing: 0.4px; }
 
 /* ---------- Badge de status ---------- */
 .badge {
