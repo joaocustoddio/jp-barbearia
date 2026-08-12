@@ -351,7 +351,7 @@ button.admin-link { background: none; cursor: pointer; }
 /* Contagem: colunas se ajustam ao conteúdo (barbeiro fica mais largo pro
    breakdown) e o conteúdo alinha no topo (números não boiam no meio). */
 #contagem-corpo table.tabela { table-layout: auto; }
-#contagem-corpo table.tabela td { vertical-align: top; }
+#contagem-corpo table.tabela td { vertical-align: top; padding-top: 16px; padding-bottom: 16px; }
 
 /* Detalhe de serviços por barbeiro na Contagem */
 .contagem-servicos {
@@ -679,9 +679,12 @@ table.tabela .btn-mini {
     border: 2px solid var(--acento);
     background: var(--acento-fraco);
   }
+  /* Espaço maior entre os barbeiros (cards) na Contagem */
+  #contagem-corpo table.tabela tr { margin-bottom: 18px; }
+
   table.tabela td.totais-titulo {
     display: block;
-    text-align: center;
+    text-align: left;   /* no celular fica à esquerda */
     color: var(--acento);
     font-size: 14px;
     padding: 2px 0 8px;
