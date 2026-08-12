@@ -232,7 +232,7 @@ table.tabela tr:last-child td { border-bottom: none; }
 table.tabela tfoot .linha-totais td {
   border-top: 2px solid var(--acento);
   background: var(--acento-fraco);
-  
+
 }
 /* Título do fechamento (substitui "Totais" por "JP BARBEARIA") — centralizado */
 .totais-titulo { text-align: center; }
@@ -680,6 +680,7 @@ table.tabela .btn-mini {
     border: 2px solid var(--acento);
     background: var(--acento-fraco);
     padding: 4px 14px 10px;
+    margin: 10px 50px;
   }
   #contagem-corpo table.tabela tr.linha-totais td {
     border-top: none;
