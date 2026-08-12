@@ -444,7 +444,7 @@ async function renderContagem() {
           ${ehMaster ? `
           <tfoot>
             <tr class="linha-totais">
-              <td data-label="Barbeiro"><strong>Totais</strong></td>
+              <td class="totais-titulo"><strong>JP BARBEARIA</strong></td>
               <td data-label="Clientes"><strong>${r.totais.clientes}</strong></td>
               <td data-label="Total"><strong>${formatarMoeda(r.totais.total)}</strong></td>
               <td data-label="Comissão"><strong>${formatarMoeda(r.totais.barbeiro_recebe)}</strong></td>

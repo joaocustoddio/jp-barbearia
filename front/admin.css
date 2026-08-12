@@ -228,11 +228,13 @@ table.tabela td {
 }
 table.tabela tr:last-child td { border-bottom: none; }
 
-/* Linha de totais (contagem do dia — só o master vê) */
+/* Linha de totais (contagem do dia — só o master vê) — destaque laranja */
 table.tabela tfoot .linha-totais td {
-  border-top: 2px solid var(--borda-forte);
-  background: var(--bg-elevada);
+  border-top: 2px solid var(--acento);
+  background: var(--acento-fraco);
 }
+/* Título do fechamento (substitui "Totais" por "JP BARBEARIA") */
+.totais-titulo strong { color: var(--acento); }
 
 /* ---------- Badge de status ---------- */
 .badge {
@@ -669,4 +671,21 @@ table.tabela .btn-mini {
   }
   table.tabela td.td-acao::before { content: none; }
   table.tabela td.td-acao .btn-mini { width: 100%; }
+
+  /* Totais (fechamento da barbearia): card com contorno laranja e
+     título "JP BARBEARIA" no topo (sem rótulo à esquerda). */
+  table.tabela tr.linha-totais {
+    border: 2px solid var(--acento);
+    background: var(--acento-fraco);
+  }
+  table.tabela td.totais-titulo {
+    display: block;
+    text-align: center;
+    color: var(--acento);
+    font-size: 14px;
+    padding: 2px 0 8px;
+    border-bottom: 1px solid var(--acento);
+    margin-bottom: 4px;
+  }
+  table.tabela td.totais-titulo::before { content: none; }
 }
