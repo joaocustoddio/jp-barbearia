@@ -236,11 +236,11 @@ def criar_admin_padrao(usuario=None, senha=None):
             "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
             (usuario,)
         )
-    # Nome + foto do dono (barbeiro 1). Comissão do JP = 0 (ele é o DONO, então
-    # 100% do valor fica com a barbearia, não entra no 60/40 dos barbeiros).
+    # Nome + foto do dono (barbeiro 1). Comissão do JP = 100 (ele é o DONO, então
+    # o valor inteiro fica com ele — barbeiro e barbearia são a mesma pessoa).
     nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
     foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
-    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "0"))
+    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "100"))
     conn.execute(
         "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
         (nome_jp, foto_jp, comissao_jp)
