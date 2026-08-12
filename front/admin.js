@@ -351,10 +351,10 @@ function renderAgendaHoje(container, ags) {
    ===================================================== */
 let dataContagem = ""; // vazio = hoje
 
-// "3× Degradê · 1× Corte Social · 3× Barba" (vazio se não houver)
+// Breakdown por serviço, um por linha (ex: "1× Degradê" / "2× Corte + Barba").
 function servicosResumo(b) {
   if (!b.servicos || !b.servicos.length) return "";
-  return b.servicos.map((s) => `${s.quantidade}× ${escapeHTML(s.nome)}`).join(" · ");
+  return b.servicos.map((s) => `<div>${s.quantidade}× ${escapeHTML(s.nome)}</div>`).join("");
 }
 
 async function renderContagem() {
