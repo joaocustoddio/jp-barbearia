@@ -313,13 +313,18 @@ def _gerar_horarios_do_dia(data_str=None):
     return horarios
 
 
-def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False):
+def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False,
+                                permitir_conflito=False):
     """
     Valida e insere um novo agendamento. Compartilhado entre duas rotas:
     - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
       (não dá pra agendar "em cima da hora" e o telefone é obrigatório)
     - ADMIN (barbeiro registrando walk-in): ambos False
       (registra corte de agora e o telefone é opcional)
+
+    permitir_conflito=True libera sobrescrever/encaixar em cima de outro horário
+    (o barbeiro pelo painel pode; o cliente pelo site NÃO).
+    dados["encaixe"] marca o agendamento como encaixe (caderninho).
 
     Retorna (corpo_json, status_http).
     """
@@ -371,15 +376,17 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
             conn.close()
             return {"erro": f"Só é possível agendar até {LIMITE_DIAS_AGENDAMENTO} dias à frente."}, 400
 
-    # Verifica conflito de horário PARA ESTE barbeiro
-    ocupado = conn.execute(
-        """SELECT id FROM agendamentos
-           WHERE data = %s AND hora = %s AND barbeiro_id = %s AND status != 'cancelado'""",
-        (dados["data"], dados["hora"], barbeiro_id)
-    ).fetchone()
-    if ocupado:
-        conn.close()
-        return {"erro": "Esse horário já foi reservado com este barbeiro. Escolha outro."}, 409
+    # Verifica conflito de horário PARA ESTE barbeiro (só quando não é permitido
+    # sobrescrever — o barbeiro pelo painel/caderninho pode encaixar em cima).
+    if not permitir_conflito:
+        ocupado = conn.execute(
+            """SELECT id FROM agendamentos
+               WHERE data = %s AND hora = %s AND barbeiro_id = %s AND status != 'cancelado'""",
+            (dados["data"], dados["hora"], barbeiro_id)
+        ).fetchone()
+        if ocupado:
+            conn.close()
+            return {"erro": "Esse horário já foi reservado com este barbeiro. Escolha outro."}, 409
 
     # Salva cliente + agendamento (RETURNING id — Postgres não tem lastrowid)
     cursor = conn.cursor()
@@ -389,9 +396,10 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     )
     cliente_id = cursor.fetchone()["id"]
     cursor.execute(
-        """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status)
-           VALUES (%s, %s, %s, %s, %s, 'confirmado') RETURNING id""",
-        (cliente_id, int(dados["servico_id"]), int(barbeiro_id), dados["data"], dados["hora"])
+        """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status, encaixe)
+           VALUES (%s, %s, %s, %s, %s, 'confirmado', %s) RETURNING id""",
+        (cliente_id, int(dados["servico_id"]), int(barbeiro_id), dados["data"], dados["hora"],
+         bool(dados.get("encaixe")))
     )
     agendamento_id = cursor.fetchone()["id"]
     conn.commit()
@@ -657,6 +665,7 @@ def painel_agendamentos():
             agendamentos.status,
             agendamentos.barbeiro_id,
             agendamentos.servico_id,
+            agendamentos.encaixe,
             clientes.nome       AS cliente_nome,
             clientes.telefone   AS cliente_telefone,
             servicos.nome       AS servico_nome,
@@ -706,8 +715,9 @@ def criar_agendamento_admin():
     """
     Cria um agendamento pelo PAINEL (ex: barbeiro registrando um walk-in —
     cliente que chegou sem horário marcado). Reusa a mesma lógica da rota
-    pública, mas SEM exigir antecedência mínima (o corte é agora/hoje).
-    Continua validando conflito de horário e dia fechado.
+    pública, mas SEM exigir antecedência mínima (o corte é agora/hoje) e
+    PERMITINDO sobrescrever/encaixar em cima de outro horário (o barbeiro
+    pode cortar mais rápido e encaixar outro corte no mesmo horário).
     """
     dados = request.get_json(silent=True)
     if not dados:
@@ -719,7 +729,9 @@ def criar_agendamento_admin():
     if escopo is not None:
         dados["barbeiro_id"] = escopo
 
-    corpo, status = _processar_novo_agendamento(dados, exigir_antecedencia=False)
+    corpo, status = _processar_novo_agendamento(
+        dados, exigir_antecedencia=False, permitir_conflito=True
+    )
     return jsonify(corpo), status
 
 

@@ -133,6 +133,8 @@ def init_db():
             criado_em TIMESTAMPTZ DEFAULT now()
         )
     """)
+    # encaixe: marca os cortes lançados pelo caderninho virtual (encaixe do barbeiro).
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS encaixe BOOLEAN NOT NULL DEFAULT false")
 
     # ---------------------------------------------------------
     # ADMIN (usuários do painel — senha em hash bcrypt)
@@ -231,10 +233,15 @@ def criar_admin_padrao(usuario=None, senha=None):
             "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
             (usuario,)
         )
-    # Nome + foto do dono (barbeiro 1) — aparecem na agenda e no site público.
+    # Nome + foto do dono (barbeiro 1). Comissão do JP = 0 (ele é o DONO, então
+    # 100% do valor fica com a barbearia, não entra no 60/40 dos barbeiros).
     nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
     foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
-    conn.execute("UPDATE barbeiros SET nome = %s, foto = %s WHERE id = 1", (nome_jp, foto_jp))
+    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "0"))
+    conn.execute(
+        "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
+        (nome_jp, foto_jp, comissao_jp)
+    )
     conn.commit()
     conn.close()
 

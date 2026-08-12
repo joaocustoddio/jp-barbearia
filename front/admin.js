@@ -165,6 +165,7 @@ btnMinhaSenha.addEventListener("click", async () => {
 const ABAS_POR_PAPEL = {
   master: [
     { chave: "agenda_dia",   rotulo: "Agenda do dia" },
+    { chave: "caderninho",   rotulo: "Caderninho" },
     { chave: "agendamentos", rotulo: "Agendamentos" },
     { chave: "contagem",     rotulo: "Contagem" },
     { chave: "dashboard",    rotulo: "Dashboard" },
@@ -173,6 +174,7 @@ const ABAS_POR_PAPEL = {
   ],
   barbeiro: [
     { chave: "agenda_dia",   rotulo: "Agenda do dia" },
+    { chave: "caderninho",   rotulo: "Caderninho" },
     { chave: "agendamentos", rotulo: "Agendamentos" },
     { chave: "contagem",     rotulo: "Contagem" }
   ],
@@ -185,6 +187,7 @@ const ABAS_POR_PAPEL = {
 
 const SECOES = {
   agenda_dia:   renderAgendaDia,
+  caderninho:   renderCaderninho,
   dashboard:    renderDashboard,
   agendamentos: renderAgendamentos,
   contagem:     renderContagem,
@@ -561,6 +564,119 @@ async function renderAgendamentos() {
   atualizarBotaoAlmoco(hojeISO());   // almoço opera no dia de hoje
 }
 
+/* =====================================================
+   SEÇÃO: CADERNINHO VIRTUAL
+   Anotação rápida de encaixe: horário + cliente + serviço.
+   Pode sobrescrever/encaixar em cima de outro horário (sem
+   restrição de conflito). Só barbeiro/master (dono também corta).
+   ===================================================== */
+async function renderCaderninho() {
+  const barbeiroId = API.admin.barbeiroId();   // 1 = JP (master); próprio id p/ barbeiro
+  const hoje = hojeISO();
+  elConteudo.innerHTML = `
+    <h2 class="secao-titulo">Caderninho virtual</h2>
+    <p class="secao-subtitulo">Anote rapidinho um corte de encaixe: horário, cliente e serviço</p>
+
+    <div class="bloco">
+      <div class="form-linha">
+        <div class="form-grupo">
+          <label class="campo-label" for="cad-hora">Horário</label>
+          <input type="time" id="cad-hora" class="campo-input" />
+        </div>
+        <div class="form-grupo" style="flex:1;min-width:150px;">
+          <label class="campo-label" for="cad-nome">Cliente</label>
+          <input type="text" id="cad-nome" class="campo-input" placeholder="Nome" />
+        </div>
+        <div class="form-grupo" style="flex:1;min-width:150px;">
+          <label class="campo-label" for="cad-servico">Serviço</label>
+          <select id="cad-servico" class="campo-input"></select>
+        </div>
+        <button class="btn-mini" id="cad-add">Anotar</button>
+      </div>
+      <p class="secao-subtitulo" style="margin:0;">Pode encaixar em cima de outro horário — sem restrição.</p>
+      <p class="login-erro" id="cad-erro" style="margin-top:8px;"></p>
+    </div>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Cortes de hoje (${formatarDataBR(hoje)})</h3>
+      <div id="cad-lista">${carregando()}</div>
+    </div>
+  `;
+
+  try {
+    const servicos = await carregarServicosCache();
+    document.getElementById("cad-servico").innerHTML =
+      servicos.map((s) => `<option value="${s.id}">${escapeHTML(s.nome)}</option>`).join("");
+  } catch (_) { /* segue sem lista */ }
+
+  document.getElementById("cad-add").addEventListener("click", () => anotarCaderninho(barbeiroId, hoje));
+  carregarCaderninhoLista(barbeiroId, hoje);
+}
+
+async function anotarCaderninho(barbeiroId, data) {
+  const erroEl = document.getElementById("cad-erro");
+  erroEl.textContent = "";
+  const hora = document.getElementById("cad-hora").value;
+  const nome = document.getElementById("cad-nome").value.trim();
+  const servico_id = document.getElementById("cad-servico").value;
+  if (!hora) { erroEl.textContent = "Informe o horário."; return; }
+  if (!nome) { erroEl.textContent = "Informe o nome do cliente."; return; }
+
+  const btn = document.getElementById("cad-add");
+  btn.disabled = true; btn.textContent = "...";
+  try {
+    await API.admin.criarAgendamento({
+      barbeiro_id: barbeiroId, servico_id, data, hora, nome_cliente: nome, encaixe: true
+    });
+    document.getElementById("cad-hora").value = "";
+    document.getElementById("cad-nome").value = "";
+    carregarCaderninhoLista(barbeiroId, data);
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) erroEl.textContent = msg;
+  } finally {
+    btn.disabled = false; btn.textContent = "Anotar";
+  }
+}
+
+async function carregarCaderninhoLista(barbeiroId, data) {
+  const alvo = document.getElementById("cad-lista");
+  if (!alvo) return;
+  alvo.innerHTML = carregando();
+  try {
+    let ags = await API.admin.listarAgendamentos({ data });
+    ags = ags.filter((a) => a.status !== "cancelado" && Number(a.barbeiro_id) === Number(barbeiroId));
+    ags.sort((a, b) => a.hora.localeCompare(b.hora));
+    if (!ags.length) { alvo.innerHTML = vazio("Nenhum corte anotado hoje."); return; }
+    alvo.innerHTML = `
+      <table class="tabela">
+        <thead><tr><th>Hora</th><th>Cliente</th><th>Serviço</th><th></th></tr></thead>
+        <tbody>
+          ${ags.map((a) => `
+            <tr>
+              <td data-rotulo="Hora">${escapeHTML(a.hora.slice(0, 5))}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</td>
+              <td data-rotulo="Cliente">${escapeHTML(a.cliente_nome)}</td>
+              <td data-rotulo="Serviço">${escapeHTML(a.servico_nome)}</td>
+              <td data-rotulo=""><button class="btn-mini perigo" data-rem-cad="${a.id}">Remover</button></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    `;
+    alvo.querySelectorAll("[data-rem-cad]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Remover este corte?")) return;
+        try {
+          await API.admin.cancelarAgendamento(btn.dataset.remCad);
+          carregarCaderninhoLista(barbeiroId, data);
+        } catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
+      });
+    });
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
+}
+
 // Popula os selects (barbeiros/serviços) e liga o botão de adicionar.
 async function configurarFormNovoAgendamento() {
   const selBarb = document.getElementById("ag-barbeiro");
@@ -740,7 +856,7 @@ function renderTimeline(container, data, colunas, ags) {
             <span>${escapeHTML(a.hora)}–${minParaHHMM(s + dur)}</span>
             ${acoes}
           </div>
-          <div class="agenda-card-cliente">${escapeHTML(a.cliente_nome)}</div>
+          <div class="agenda-card-cliente">${escapeHTML(a.cliente_nome)}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</div>
           <div class="agenda-card-servico">${escapeHTML(a.servico_nome)}${valor}</div>
         </div>`;
     }).join("");

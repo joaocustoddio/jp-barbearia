@@ -303,6 +303,19 @@ button.admin-link { background: none; cursor: pointer; }
 .modal-campo { flex: 1; }
 .modal-box .campo-label { margin-top: 10px; }
 .modal-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.tag-encaixe {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--acento);
+  background: var(--acento-fraco);
+  border: 1px solid var(--acento);
+  border-radius: 4px;
+  padding: 0 4px;
+  vertical-align: middle;
+}
 .acao-almoco {
   display: flex;
   align-items: center;
