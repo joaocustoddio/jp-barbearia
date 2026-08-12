@@ -349,9 +349,14 @@ button.admin-link { background: none; cursor: pointer; }
 .contagem-servicos {
   font-size: 11px;
   color: var(--texto-suave);
-  margin-top: 3px;
+  margin-top: 6px;
+  text-align: center;
+}
+.contagem-servicos div {
+  margin-top: 6px;
   line-height: 1.3;
 }
+.contagem-servicos div:first-child { margin-top: 0; }
 .acao-almoco {
   display: flex;
   align-items: center;
