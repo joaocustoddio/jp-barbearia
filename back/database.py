@@ -115,6 +115,9 @@ def init_db():
     cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS comissao_pct INTEGER NOT NULL DEFAULT 60")
     # foto: nome do arquivo em front/img (ex: 'rian.jpg'); NULL = sem foto.
     cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS foto TEXT")
+    # almoco_fixo: hora 'HH:MM' de almoço que se repete TODO dia (bloqueia 60min);
+    # NULL = sem almoço fixo (o barbeiro marca manualmente dia a dia).
+    cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS almoco_fixo TEXT")
 
     # ---------------------------------------------------------
     # AGENDAMENTOS

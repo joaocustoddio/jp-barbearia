@@ -233,6 +233,24 @@ const API = (() => {
         });
       },
 
+      /** GET /api/admin/almoco-fixo → almoço fixo (todo dia) do barbeiro */
+      obterAlmocoFixo() {
+        return requestAuth("/api/admin/almoco-fixo");
+      },
+
+      /** PUT /api/admin/almoco-fixo → define almoço fixo { hora } */
+      definirAlmocoFixo(hora) {
+        return requestAuth("/api/admin/almoco-fixo", {
+          method: "PUT",
+          body: JSON.stringify({ hora })
+        });
+      },
+
+      /** DELETE /api/admin/almoco-fixo → remove o almoço fixo */
+      removerAlmocoFixo() {
+        return requestAuth("/api/admin/almoco-fixo", { method: "DELETE" });
+      },
+
       /** GET /api/admin/acessos → lista todos os logins (master) */
       listarAcessos() {
         return requestAuth("/api/admin/acessos");

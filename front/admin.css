@@ -316,6 +316,42 @@ button.admin-link { background: none; cursor: pointer; }
   padding: 0 4px;
   vertical-align: middle;
 }
+
+/* Caderninho: grid de serviços com foto (toque pra escolher) */
+.cad-servicos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  margin: 4px 0;
+}
+.cad-servico-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+  cursor: pointer;
+  text-align: center;
+}
+.cad-servico-card:hover { border-color: var(--acento); }
+.cad-servico-card.selecionado { border-color: var(--acento); background: var(--acento-fraco); }
+.cad-servico-card img, .cad-servico-ph {
+  width: 46px; height: 46px; border-radius: 10px; object-fit: cover;
+}
+.cad-servico-ph { background: var(--card); }
+.cad-servico-nome { font-size: 12px; font-weight: 600; color: var(--texto); line-height: 1.15; }
+.cad-servico-preco { font-size: 11px; color: var(--acento); font-weight: 600; }
+
+/* Detalhe de serviços por barbeiro na Contagem */
+.contagem-servicos {
+  font-size: 11px;
+  color: var(--texto-suave);
+  margin-top: 3px;
+  line-height: 1.3;
+}
 .acao-almoco {
   display: flex;
   align-items: center;

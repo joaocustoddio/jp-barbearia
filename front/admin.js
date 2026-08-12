@@ -164,35 +164,35 @@ btnMinhaSenha.addEventListener("click", async () => {
 // - salao: tablet compartilhado — agenda de todos + contagem SÓ com quantidade
 const ABAS_POR_PAPEL = {
   master: [
-    { chave: "agenda_dia",   rotulo: "Agenda do dia" },
-    { chave: "caderninho",   rotulo: "Caderninho" },
-    { chave: "agendamentos", rotulo: "Agendamentos" },
-    { chave: "contagem",     rotulo: "Contagem" },
-    { chave: "dashboard",    rotulo: "Dashboard" },
-    { chave: "barbeiros",    rotulo: "Barbeiros" },
-    { chave: "horarios",     rotulo: "Horários" }
+    { chave: "agenda_dia", rotulo: "Agenda do dia" },
+    { chave: "caderninho", rotulo: "Caderninho" },
+    { chave: "almoco",     rotulo: "Almoço" },
+    { chave: "contagem",   rotulo: "Contagem" },
+    { chave: "dashboard",  rotulo: "Dashboard" },
+    { chave: "barbeiros",  rotulo: "Barbeiros" },
+    { chave: "horarios",   rotulo: "Horários" }
   ],
   barbeiro: [
-    { chave: "agenda_dia",   rotulo: "Agenda do dia" },
-    { chave: "caderninho",   rotulo: "Caderninho" },
-    { chave: "agendamentos", rotulo: "Agendamentos" },
-    { chave: "contagem",     rotulo: "Contagem" }
+    { chave: "agenda_dia", rotulo: "Agenda do dia" },
+    { chave: "caderninho", rotulo: "Caderninho" },
+    { chave: "almoco",     rotulo: "Almoço" },
+    { chave: "contagem",   rotulo: "Contagem" }
   ],
   salao: [
-    { chave: "agenda_dia",   rotulo: "Agenda do dia" },
-    { chave: "agendamentos", rotulo: "Agendamentos" },
-    { chave: "contagem",     rotulo: "Cortes do dia" }
+    { chave: "agenda_dia", rotulo: "Agenda do dia" },
+    { chave: "caderninho", rotulo: "Caderninho" },
+    { chave: "contagem",   rotulo: "Cortes do dia" }
   ]
 };
 
 const SECOES = {
-  agenda_dia:   renderAgendaDia,
-  caderninho:   renderCaderninho,
-  dashboard:    renderDashboard,
-  agendamentos: renderAgendamentos,
-  contagem:     renderContagem,
-  barbeiros:    renderBarbeiros,
-  horarios:     renderHorarios
+  agenda_dia: renderAgendaDia,
+  caderninho: renderCaderninho,
+  almoco:     renderAlmoco,
+  contagem:   renderContagem,
+  dashboard:  renderDashboard,
+  barbeiros:  renderBarbeiros,
+  horarios:   renderHorarios
 };
 
 // Monta os botões das abas conforme o papel; devolve a chave da 1ª aba.
@@ -351,6 +351,12 @@ function renderAgendaHoje(container, ags) {
    ===================================================== */
 let dataContagem = ""; // vazio = hoje
 
+// "3× Degradê · 1× Corte Social · 3× Barba" (vazio se não houver)
+function servicosResumo(b) {
+  if (!b.servicos || !b.servicos.length) return "";
+  return b.servicos.map((s) => `${s.quantidade}× ${escapeHTML(s.nome)}`).join(" · ");
+}
+
 async function renderContagem() {
   const data = dataContagem || hojeISO();
   elConteudo.innerHTML = `
@@ -390,7 +396,10 @@ async function renderContagem() {
             <tbody>
               ${r.barbeiros.map((b) => `
                 <tr>
-                  <td data-label="Barbeiro"><strong>${escapeHTML(b.barbeiro_nome)}</strong></td>
+                  <td data-label="Barbeiro">
+                    <strong>${escapeHTML(b.barbeiro_nome)}</strong>
+                    ${servicosResumo(b) ? `<div class="contagem-servicos">${servicosResumo(b)}</div>` : ""}
+                  </td>
                   <td data-label="Cortes">${b.clientes}</td>
                 </tr>
               `).join("")}
@@ -417,7 +426,10 @@ async function renderContagem() {
           <tbody>
             ${r.barbeiros.map((b) => `
               <tr>
-                <td data-label="Barbeiro"><strong>${escapeHTML(b.barbeiro_nome)}</strong></td>
+                <td data-label="Barbeiro">
+                  <strong>${escapeHTML(b.barbeiro_nome)}</strong>
+                  ${servicosResumo(b) ? `<div class="contagem-servicos">${servicosResumo(b)}</div>` : ""}
+                </td>
                 <td data-label="Clientes">${b.clientes}</td>
                 <td data-label="Total">${formatarMoeda(b.total)}</td>
                 <td data-label="Comissão (${b.comissao_pct}%)">${formatarMoeda(b.barbeiro_recebe)}</td>
@@ -513,88 +525,82 @@ async function renderAgendaDia() {
   recarregarAgenda();
 }
 
-// ABA 2 — AGENDAMENTOS: registrar cliente (walk-in) + gerenciar o almoço.
-async function renderAgendamentos() {
+// ABA — ALMOÇO: gerenciar o almoço (fixo todo dia OU manual só hoje).
+async function renderAlmoco() {
   elConteudo.innerHTML = `
-    <h2 class="secao-titulo">Agendamentos</h2>
-    <p class="secao-subtitulo">Registre um cliente que chegou sem horário e gerencie seu almoço</p>
+    <h2 class="secao-titulo">Almoço</h2>
+    <p class="secao-subtitulo">Bloqueie seu horário de almoço (60 minutos)</p>
 
     <div class="bloco">
-      <h3 class="bloco-titulo">Marcar agendamento</h3>
-      <div class="form-linha">
+      <h3 class="bloco-titulo">Almoço fixo (todo dia)</h3>
+      <p class="secao-subtitulo" style="margin-top:0;">Vale automaticamente pra todos os dias. Remova pra marcar manual.</p>
+      <div class="form-linha" style="align-items:flex-end;">
         <div class="form-grupo">
-          <label class="campo-label" for="ag-barbeiro">Barbeiro</label>
-          <select id="ag-barbeiro" class="campo-input"></select>
+          <label class="campo-label" for="alm-fixo-hora">Começa às</label>
+          <input type="time" id="alm-fixo-hora" class="campo-input" />
         </div>
-        <div class="form-grupo">
-          <label class="campo-label" for="ag-servico">Serviço</label>
-          <select id="ag-servico" class="campo-input"></select>
-        </div>
-        <div class="form-grupo">
-          <label class="campo-label" for="ag-data">Data</label>
-          <input type="date" id="ag-data" class="campo-input" />
-        </div>
-        <div class="form-grupo">
-          <label class="campo-label" for="ag-hora">Hora</label>
-          <input type="time" id="ag-hora" class="campo-input" />
-        </div>
+        <button class="btn-mini" id="alm-fixo-salvar">Salvar fixo</button>
+        <button class="btn-mini perigo" id="alm-fixo-remover" hidden>Remover fixo</button>
       </div>
-      <div class="form-linha">
-        <div class="form-grupo" style="flex:1;min-width:150px;">
-          <label class="campo-label" for="ag-nome">Nome do cliente</label>
-          <input type="text" id="ag-nome" class="campo-input" placeholder="Nome" />
-        </div>
-        <div class="form-grupo" style="flex:1;min-width:140px;">
-          <label class="campo-label" for="ag-telefone">Telefone (opcional)</label>
-          <input type="tel" id="ag-telefone" class="campo-input" placeholder="(11) 99999-9999" />
-        </div>
-        <button class="btn-mini" id="btn-add-agendamento">Adicionar</button>
-      </div>
-      <p class="secao-subtitulo" style="margin:0;">Use para registrar um cliente que chegou sem horário marcado.</p>
-      <p class="login-erro" id="ag-erro" style="margin-top:8px;"></p>
+      <p class="secao-subtitulo" id="alm-fixo-status" style="margin:8px 0 0;"></p>
+      <p class="login-erro" id="alm-fixo-erro" style="margin-top:4px;"></p>
+    </div>
 
-      <div class="acao-almoco" id="acao-almoco" hidden>
+    <div class="bloco">
+      <h3 class="bloco-titulo">Almoço só hoje (${formatarDataBR(hojeISO())})</h3>
+      <p class="secao-subtitulo" style="margin-top:0;">Bloqueio pontual, só pro dia de hoje.</p>
+      <div class="acao-almoco" id="acao-almoco">
         <span class="secao-subtitulo" id="acao-almoco-label" style="margin:0;"></span>
         <button class="btn-mini btn-almoco" id="ag-almoco" hidden></button>
       </div>
     </div>
   `;
 
-  configurarFormNovoAgendamento();
-  atualizarBotaoAlmoco(hojeISO());   // almoço opera no dia de hoje
+  carregarAlmocoFixo();
+  document.getElementById("alm-fixo-salvar").addEventListener("click", salvarAlmocoFixo);
+  document.getElementById("alm-fixo-remover").addEventListener("click", removerAlmocoFixoUI);
+  atualizarBotaoAlmoco(hojeISO());   // almoço manual opera no dia de hoje
 }
 
 /* =====================================================
    SEÇÃO: CADERNINHO VIRTUAL
-   Anotação rápida de encaixe: horário + cliente + serviço.
-   Pode sobrescrever/encaixar em cima de outro horário (sem
-   restrição de conflito). Só barbeiro/master (dono também corta).
+   Marcador principal de encaixe: horário + cliente + telefone
+   (opcional) + serviço (com foto, toque pra escolher). Pode
+   sobrescrever/encaixar em cima de outro horário. Barbeiro/master
+   usa o próprio; salão escolhe o barbeiro no seletor.
    ===================================================== */
 async function renderCaderninho() {
-  const barbeiroId = API.admin.barbeiroId();   // 1 = JP (master); próprio id p/ barbeiro
+  const ehSalao = API.admin.papel() === "salao";
   const hoje = hojeISO();
+
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Caderninho virtual</h2>
-    <p class="secao-subtitulo">Anote rapidinho um corte de encaixe: horário, cliente e serviço</p>
+    <p class="secao-subtitulo">Anote rapidinho um corte de encaixe</p>
 
     <div class="bloco">
+      ${ehSalao ? `
+      <div class="form-grupo" style="margin-bottom:12px;">
+        <label class="campo-label" for="cad-barbeiro">Barbeiro</label>
+        <select id="cad-barbeiro" class="campo-input"></select>
+      </div>` : ""}
       <div class="form-linha">
         <div class="form-grupo">
           <label class="campo-label" for="cad-hora">Horário</label>
           <input type="time" id="cad-hora" class="campo-input" />
         </div>
-        <div class="form-grupo" style="flex:1;min-width:150px;">
+        <div class="form-grupo" style="flex:1;min-width:140px;">
           <label class="campo-label" for="cad-nome">Cliente</label>
           <input type="text" id="cad-nome" class="campo-input" placeholder="Nome" />
         </div>
-        <div class="form-grupo" style="flex:1;min-width:150px;">
-          <label class="campo-label" for="cad-servico">Serviço</label>
-          <select id="cad-servico" class="campo-input"></select>
+        <div class="form-grupo" style="flex:1;min-width:130px;">
+          <label class="campo-label" for="cad-telefone">Telefone (opcional)</label>
+          <input type="tel" id="cad-telefone" class="campo-input" placeholder="(11) 99999-9999" />
         </div>
-        <button class="btn-mini" id="cad-add">Anotar</button>
       </div>
-      <p class="secao-subtitulo" style="margin:0;">Pode encaixar em cima de outro horário — sem restrição.</p>
+      <label class="campo-label" style="margin-top:6px;">Serviço</label>
+      <div class="cad-servicos" id="cad-servicos">${carregando()}</div>
       <p class="login-erro" id="cad-erro" style="margin-top:8px;"></p>
+      <button class="btn btn-primario" id="cad-add" style="width:100%;margin-top:8px;">Anotar corte</button>
     </div>
 
     <div class="bloco">
@@ -603,39 +609,76 @@ async function renderCaderninho() {
     </div>
   `;
 
+  // Salão escolhe o barbeiro; barbeiro/master usa o próprio.
+  if (ehSalao) {
+    try {
+      const barbs = await API.listarBarbeiros();
+      const sel = document.getElementById("cad-barbeiro");
+      sel.innerHTML = barbs.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("");
+      sel.addEventListener("change", () => carregarCaderninhoLista(cadBarbeiroAtual(), hoje));
+    } catch (_) { /* segue */ }
+  }
+
+  // Grid de serviços com foto (toque pra escolher).
   try {
     const servicos = await carregarServicosCache();
-    document.getElementById("cad-servico").innerHTML =
-      servicos.map((s) => `<option value="${s.id}">${escapeHTML(s.nome)}</option>`).join("");
-  } catch (_) { /* segue sem lista */ }
+    const grid = document.getElementById("cad-servicos");
+    grid.innerHTML = servicos.map((s) => `
+      <button type="button" class="cad-servico-card" data-servico-id="${s.id}">
+        ${s.imagem ? `<img src="img/${s.imagem}" alt="" loading="lazy">` : `<span class="cad-servico-ph"></span>`}
+        <span class="cad-servico-nome">${escapeHTML(s.nome)}</span>
+        <span class="cad-servico-preco">${formatarMoeda(s.preco)}</span>
+      </button>`).join("");
+    grid.querySelectorAll(".cad-servico-card").forEach((c) => {
+      c.addEventListener("click", () => {
+        grid.querySelectorAll(".cad-servico-card").forEach((x) => x.classList.remove("selecionado"));
+        c.classList.add("selecionado");
+      });
+    });
+  } catch (_) {
+    document.getElementById("cad-servicos").innerHTML = vazio("Não foi possível carregar os serviços.");
+  }
 
-  document.getElementById("cad-add").addEventListener("click", () => anotarCaderninho(barbeiroId, hoje));
-  carregarCaderninhoLista(barbeiroId, hoje);
+  document.getElementById("cad-add").addEventListener("click", anotarCaderninho);
+  carregarCaderninhoLista(cadBarbeiroAtual(), hoje);
 }
 
-async function anotarCaderninho(barbeiroId, data) {
+// Barbeiro atual do caderninho: o do seletor (salão) ou o próprio (barbeiro/master).
+function cadBarbeiroAtual() {
+  const sel = document.getElementById("cad-barbeiro");
+  return sel ? Number(sel.value) : API.admin.barbeiroId();
+}
+
+async function anotarCaderninho() {
   const erroEl = document.getElementById("cad-erro");
   erroEl.textContent = "";
+  const barbeiroId = cadBarbeiroAtual();
   const hora = document.getElementById("cad-hora").value;
   const nome = document.getElementById("cad-nome").value.trim();
-  const servico_id = document.getElementById("cad-servico").value;
+  const telefone = document.getElementById("cad-telefone").value.trim();
+  const sel = document.querySelector(".cad-servico-card.selecionado");
+  if (!barbeiroId) { erroEl.textContent = "Selecione o barbeiro."; return; }
   if (!hora) { erroEl.textContent = "Informe o horário."; return; }
   if (!nome) { erroEl.textContent = "Informe o nome do cliente."; return; }
+  if (!sel) { erroEl.textContent = "Escolha o serviço."; return; }
 
   const btn = document.getElementById("cad-add");
   btn.disabled = true; btn.textContent = "...";
   try {
     await API.admin.criarAgendamento({
-      barbeiro_id: barbeiroId, servico_id, data, hora, nome_cliente: nome, encaixe: true
+      barbeiro_id: barbeiroId, servico_id: sel.dataset.servicoId, data: hojeISO(),
+      hora, nome_cliente: nome, telefone: telefone || "", encaixe: true
     });
     document.getElementById("cad-hora").value = "";
     document.getElementById("cad-nome").value = "";
-    carregarCaderninhoLista(barbeiroId, data);
+    document.getElementById("cad-telefone").value = "";
+    sel.classList.remove("selecionado");
+    carregarCaderninhoLista(barbeiroId, hojeISO());
   } catch (erro) {
     const msg = tratarErro(erro);
     if (msg !== null) erroEl.textContent = msg;
   } finally {
-    btn.disabled = false; btn.textContent = "Anotar";
+    btn.disabled = false; btn.textContent = "Anotar corte";
   }
 }
 
@@ -677,57 +720,43 @@ async function carregarCaderninhoLista(barbeiroId, data) {
   }
 }
 
-// Popula os selects (barbeiros/serviços) e liga o botão de adicionar.
-async function configurarFormNovoAgendamento() {
-  const selBarb = document.getElementById("ag-barbeiro");
-  const selServ = document.getElementById("ag-servico");
-  document.getElementById("ag-data").value = hojeISO(); // pré-seleciona hoje
-
+// Almoço fixo (todo dia): carrega o estado atual e ajusta o input/botão.
+async function carregarAlmocoFixo() {
+  const status = document.getElementById("alm-fixo-status");
+  const btnRem = document.getElementById("alm-fixo-remover");
+  const input = document.getElementById("alm-fixo-hora");
+  if (!status) return;
   try {
-    const [barbeiros, servicos] = await Promise.all([API.listarBarbeiros(), API.listarServicos()]);
-    selBarb.innerHTML = barbeiros.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("");
-    selServ.innerHTML = servicos.map((s) => `<option value="${s.id}">${escapeHTML(s.nome)} — ${formatarMoeda(s.preco)}</option>`).join("");
-  } catch (erro) {
-    document.getElementById("ag-erro").textContent = "Não foi possível carregar barbeiros/serviços.";
-  }
-
-  document.getElementById("btn-add-agendamento").addEventListener("click", adicionarAgendamento);
+    const r = await API.admin.obterAlmocoFixo();
+    if (r && r.almoco_fixo) {
+      input.value = r.almoco_fixo.slice(0, 5);
+      status.textContent = `Almoço fixo ativo às ${r.almoco_fixo.slice(0, 5)} (todo dia).`;
+      btnRem.hidden = false;
+    } else {
+      status.textContent = "Nenhum almoço fixo — você marca manual quando quiser.";
+      btnRem.hidden = true;
+    }
+  } catch (e) { const m = tratarErro(e); if (m !== null) status.textContent = m; }
 }
 
-async function adicionarAgendamento() {
-  const erroEl = document.getElementById("ag-erro");
-  const btn = document.getElementById("btn-add-agendamento");
+async function salvarAlmocoFixo() {
+  const erroEl = document.getElementById("alm-fixo-erro");
   erroEl.textContent = "";
-
-  const dados = {
-    barbeiro_id: document.getElementById("ag-barbeiro").value,
-    servico_id: document.getElementById("ag-servico").value,
-    data: document.getElementById("ag-data").value,
-    hora: document.getElementById("ag-hora").value,
-    nome_cliente: document.getElementById("ag-nome").value.trim(),
-    telefone: document.getElementById("ag-telefone").value.trim() || null
-  };
-
-  if (!dados.nome_cliente) { erroEl.textContent = "Informe o nome do cliente."; return; }
-  if (!dados.data || !dados.hora) { erroEl.textContent = "Escolha a data e a hora."; return; }
-
+  const hora = document.getElementById("alm-fixo-hora").value;
+  if (!hora) { erroEl.textContent = "Escolha o horário do almoço."; return; }
+  const btn = document.getElementById("alm-fixo-salvar");
   btn.disabled = true;
-  btn.textContent = "...";
   try {
-    await API.admin.criarAgendamento(dados);
-    // Limpa os campos do cliente/hora, mantendo barbeiro e data (facilita
-    // registrar vários seguidos no mesmo dia).
-    document.getElementById("ag-nome").value = "";
-    document.getElementById("ag-telefone").value = "";
-    document.getElementById("ag-hora").value = "";
-    recarregarAgenda();
-  } catch (erro) {
-    const msg = tratarErro(erro);
-    if (msg !== null) erroEl.textContent = msg;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Adicionar";
-  }
+    await API.admin.definirAlmocoFixo(hora);
+    carregarAlmocoFixo();
+  } catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
+  finally { btn.disabled = false; }
+}
+
+async function removerAlmocoFixoUI() {
+  if (!confirm("Remover o almoço fixo? Você volta a marcar manualmente por dia.")) return;
+  try { await API.admin.removerAlmocoFixo(); carregarAlmocoFixo(); }
+  catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
 }
 
 async function carregarAgenda(data) {
@@ -747,7 +776,6 @@ async function carregarAgenda(data) {
 
     const ags = await API.admin.listarAgendamentos({ data });
     renderTimeline(corpo, data, colunas, ags);
-    atualizarBotaoAlmoco(data);
   } catch (erro) {
     const msg = tratarErro(erro);
     if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
@@ -761,8 +789,9 @@ async function atualizarBotaoAlmoco(data) {
   const wrap = document.getElementById("acao-almoco");
   const label = document.getElementById("acao-almoco-label");
   if (!btn) return;
-  // Só o barbeiro gerencia o próprio almoço. Salão/master não veem a seção.
-  if (API.admin.papel() !== "barbeiro") {
+  // Barbeiro e master (JP também corta) gerenciam o próprio almoço; salão não.
+  const papel = API.admin.papel();
+  if (papel !== "barbeiro" && papel !== "master") {
     if (wrap) wrap.hidden = true;
     btn.hidden = true;
     return;

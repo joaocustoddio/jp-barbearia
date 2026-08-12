@@ -252,21 +252,31 @@ def horarios_disponiveis():
            WHERE data = %s AND (barbeiro_id IS NULL OR barbeiro_id = %s)""",
         (data_str, barbeiro_id)
     ).fetchall()
+    # Almoço fixo do barbeiro (se tiver) — repete todo dia, bloqueia 60min.
+    row_barb = conn.execute(
+        "SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)
+    ).fetchone()
+    almoco_fixo = row_barb["almoco_fixo"] if row_barb else None
     conn.close()
 
     def _min(hhmm):
         return int(hhmm[:2]) * 60 + int(hhmm[3:5])
 
-    for b in bloqueios:
-        if b["hora"] is None:
-            return jsonify({"data": data_str, "horarios_disponiveis": [], "bloqueio_dia": True})
-        ini = _min(b["hora"])
-        fim_b = ini + (b["duracao_min"] or INTERVALO_MINUTOS)
+    def _bloquear(ini, dur):
+        fim_b = ini + dur
         # Marca ocupado todo slot cuja janela [S, S+intervalo) encoste no bloqueio.
         for h in todos:
             hm = _min(h)
             if hm < fim_b and hm + INTERVALO_MINUTOS > ini:
                 horarios_ocupados.add(h)
+
+    for b in bloqueios:
+        if b["hora"] is None:
+            return jsonify({"data": data_str, "horarios_disponiveis": [], "bloqueio_dia": True})
+        _bloquear(_min(b["hora"]), b["duracao_min"] or INTERVALO_MINUTOS)
+
+    if almoco_fixo:
+        _bloquear(_min(almoco_fixo), 60)
 
     disponiveis = [h for h in todos if h not in horarios_ocupados]
 
@@ -1057,11 +1067,12 @@ def remover_bloqueio(bloqueio_id):
 # Não é @somente_master: o próprio barbeiro gerencia o almoço dele.
 # -------------------------------------------------------
 def _barbeiro_alvo_almoco(fonte):
-    """Descobre o barbeiro do almoço: o do escopo (barbeiro logado) ou, se for
-    master/salão, o barbeiro_id vindo da requisição. Retorna (id, erro)."""
+    """Descobre o barbeiro do almoço: o do escopo (barbeiro logado), o barbeiro_id
+    do token (master = JP) ou o que vier na requisição (salão escolhendo).
+    Retorna (id, erro)."""
     barbeiro_id = barbeiro_do_escopo()
     if barbeiro_id is None:
-        barbeiro_id = fonte.get("barbeiro_id")
+        barbeiro_id = g.usuario.get("barbeiro_id") or fonte.get("barbeiro_id")
     if not barbeiro_id:
         return None, "barbeiro_id é obrigatório"
     return barbeiro_id, None
@@ -1142,6 +1153,60 @@ def liberar_almoco():
     conn.commit()
     conn.close()
     return jsonify({"mensagem": "Almoço liberado."})
+
+
+def _barbeiro_do_usuario():
+    """Barbeiro do usuário logado: escopo (barbeiro) ou o barbeiro_id do token
+    (master = JP). Retorna None se não tiver (ex: salão)."""
+    return barbeiro_do_escopo() or g.usuario.get("barbeiro_id")
+
+
+@app.route("/api/admin/almoco-fixo", methods=["GET"])
+@token_requerido
+def obter_almoco_fixo():
+    """Almoço fixo (todo dia) do barbeiro logado."""
+    barbeiro_id = _barbeiro_do_usuario()
+    if not barbeiro_id:
+        return jsonify({"erro": "Sem barbeiro associado"}), 400
+    conn = get_connection()
+    row = conn.execute("SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone()
+    conn.close()
+    return jsonify({"almoco_fixo": row["almoco_fixo"] if row else None})
+
+
+@app.route("/api/admin/almoco-fixo", methods=["PUT"])
+@token_requerido
+def definir_almoco_fixo():
+    """Define o almoço fixo (repete todo dia, 60min). Corpo: { hora }."""
+    dados = request.get_json(silent=True) or {}
+    hora = dados.get("hora")
+    if not hora:
+        return jsonify({"erro": "Hora é obrigatória"}), 400
+    valido, erro = validar_hora(hora)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    barbeiro_id = _barbeiro_do_usuario()
+    if not barbeiro_id:
+        return jsonify({"erro": "Sem barbeiro associado"}), 400
+    conn = get_connection()
+    conn.execute("UPDATE barbeiros SET almoco_fixo = %s WHERE id = %s", (hora, barbeiro_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": f"Almoço fixo definido às {hora} (todo dia)."})
+
+
+@app.route("/api/admin/almoco-fixo", methods=["DELETE"])
+@token_requerido
+def remover_almoco_fixo():
+    """Remove o almoço fixo do barbeiro (volta a marcar manualmente por dia)."""
+    barbeiro_id = _barbeiro_do_usuario()
+    if not barbeiro_id:
+        return jsonify({"erro": "Sem barbeiro associado"}), 400
+    conn = get_connection()
+    conn.execute("UPDATE barbeiros SET almoco_fixo = NULL WHERE id = %s", (barbeiro_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Almoço fixo removido."})
 
 
 @app.route("/api/admin/relatorio", methods=["GET"])
@@ -1266,7 +1331,26 @@ def contagem_dia():
         GROUP BY barbeiros.id
         ORDER BY barbeiros.id
     """, params).fetchall()
+
+    # Detalhe: quantos de cada serviço, por barbeiro (ex: 3 Degradê, 1 Corte Social).
+    detalhe = conn.execute(f"""
+        SELECT barbeiros.id AS barbeiro_id, servicos.nome AS servico_nome,
+               COUNT(agendamentos.id) AS quantidade
+        FROM barbeiros
+        JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
+             AND agendamentos.data = %s AND agendamentos.status != 'cancelado'
+        JOIN servicos ON agendamentos.servico_id = servicos.id
+        {filtro}
+        GROUP BY barbeiros.id, servicos.nome
+        ORDER BY quantidade DESC, servicos.nome
+    """, params).fetchall()
     conn.close()
+
+    por_barbeiro = {}
+    for d in detalhe:
+        por_barbeiro.setdefault(d["barbeiro_id"], []).append(
+            {"nome": d["servico_nome"], "quantidade": d["quantidade"]}
+        )
 
     # Salão (tablet) NÃO vê valores — só a quantidade de cortes.
     ver_valores = pode_ver_valores()
@@ -1282,7 +1366,8 @@ def contagem_dia():
         item = {
             "barbeiro_id": r["barbeiro_id"],
             "barbeiro_nome": r["barbeiro_nome"],
-            "clientes": r["clientes"]
+            "clientes": r["clientes"],
+            "servicos": por_barbeiro.get(r["barbeiro_id"], [])
         }
         if ver_valores:
             item.update({
