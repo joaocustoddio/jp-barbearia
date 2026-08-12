@@ -232,6 +232,7 @@ table.tabela tr:last-child td { border-bottom: none; }
 table.tabela tfoot .linha-totais td {
   border-top: 2px solid var(--acento);
   background: var(--acento-fraco);
+  
 }
 /* Título do fechamento (substitui "Totais" por "JP BARBEARIA") — centralizado */
 .totais-titulo { text-align: center; }
@@ -673,23 +674,29 @@ table.tabela .btn-mini {
   table.tabela td.td-acao::before { content: none; }
   table.tabela td.td-acao .btn-mini { width: 100%; }
 
-  /* Totais (fechamento da barbearia): card com contorno laranja e
-     título "JP BARBEARIA" no topo (sem rótulo à esquerda). */
-  table.tabela tr.linha-totais {
+  /* Totais (fechamento da barbearia): a borda/fundo laranja ficam SÓ no card
+     inteiro (a tr). Nas células removemos a borda/fundo pra não virar listras. */
+  #contagem-corpo table.tabela tr.linha-totais {
     border: 2px solid var(--acento);
     background: var(--acento-fraco);
+    padding: 4px 14px 10px;
+  }
+  #contagem-corpo table.tabela tr.linha-totais td {
+    border-top: none;
+    background: none;
+    padding: 9px 0;
   }
   /* Espaço maior entre os barbeiros (cards) na Contagem */
   #contagem-corpo table.tabela tr { margin-bottom: 18px; }
 
-  table.tabela td.totais-titulo {
+  #contagem-corpo table.tabela td.totais-titulo {
     display: block;
     text-align: left;   /* no celular fica à esquerda */
     color: var(--acento);
-    font-size: 14px;
-    padding: 2px 0 8px;
+    font-size: 15px;
+    padding: 2px 0 9px;
     border-bottom: 1px solid var(--acento);
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }
-  table.tabela td.totais-titulo::before { content: none; }
+  #contagem-corpo table.tabela td.totais-titulo::before { content: none; }
 }
