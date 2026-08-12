@@ -1332,10 +1332,12 @@ def contagem_dia():
         ORDER BY barbeiros.id
     """, params).fetchall()
 
-    # Detalhe: quantos de cada serviço, por barbeiro (ex: 3 Degradê, 1 Corte Social).
+    # Detalhe: quantos de cada serviço + o valor somado, por barbeiro
+    # (ex: 3 Degradê = R$120, 1 Corte Social = R$35).
     detalhe = conn.execute(f"""
         SELECT barbeiros.id AS barbeiro_id, servicos.nome AS servico_nome,
-               COUNT(agendamentos.id) AS quantidade
+               COUNT(agendamentos.id) AS quantidade,
+               COALESCE(SUM(servicos.preco), 0) AS valor
         FROM barbeiros
         JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
              AND agendamentos.data = %s AND agendamentos.status != 'cancelado'
@@ -1349,7 +1351,8 @@ def contagem_dia():
     por_barbeiro = {}
     for d in detalhe:
         por_barbeiro.setdefault(d["barbeiro_id"], []).append(
-            {"nome": d["servico_nome"], "quantidade": d["quantidade"]}
+            {"nome": d["servico_nome"], "quantidade": d["quantidade"],
+             "valor": round(float(d["valor"] or 0), 2)}
         )
 
     # Salão (tablet) NÃO vê valores — só a quantidade de cortes.
@@ -1363,11 +1366,14 @@ def contagem_dia():
         recebe_barbeiro = round(total * pct / 100, 2)
         recebe_barbearia = round(total - recebe_barbeiro, 2)
 
+        servicos_b = por_barbeiro.get(r["barbeiro_id"], [])
+        if not ver_valores:   # salão vê só a quantidade, sem valor
+            servicos_b = [{"nome": s["nome"], "quantidade": s["quantidade"]} for s in servicos_b]
         item = {
             "barbeiro_id": r["barbeiro_id"],
             "barbeiro_nome": r["barbeiro_nome"],
             "clientes": r["clientes"],
-            "servicos": por_barbeiro.get(r["barbeiro_id"], [])
+            "servicos": servicos_b
         }
         if ver_valores:
             item.update({

@@ -351,10 +351,14 @@ function renderAgendaHoje(container, ags) {
    ===================================================== */
 let dataContagem = ""; // vazio = hoje
 
-// Breakdown por serviço, um por linha (ex: "1× Degradê" / "2× Corte + Barba").
+// Breakdown por serviço, um por linha (ex: "1× Degradê — R$40,00").
+// Mostra o valor quando disponível (salão não recebe valor).
 function servicosResumo(b) {
   if (!b.servicos || !b.servicos.length) return "";
-  return b.servicos.map((s) => `<div>${s.quantidade}× ${escapeHTML(s.nome)}</div>`).join("");
+  return b.servicos.map((s) => {
+    const val = (s.valor != null) ? ` — ${formatarMoeda(s.valor)}` : "";
+    return `<div>${s.quantidade}× ${escapeHTML(s.nome)}${val}</div>`;
+  }).join("");
 }
 
 async function renderContagem() {
