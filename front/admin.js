@@ -854,32 +854,10 @@ async function atualizarBotaoAlmoco(data) {
   }
 }
 
-// Distribui cards que se sobrepõem no tempo em "faixas" (lanes) lado a lado,
-// tipo Google Calendar. Cada card recebe .lane (índice) e .lanes (total no grupo).
-function atribuirLanes(cards) {
+// Empilha cards em ordem cronológica. Quando dois se sobrepõem no tempo,
+// empurra o segundo para baixo para não cobrir o anterior.
+function empilharCards(cards) {
   const ordenados = cards.slice().sort((a, b) => a.s - b.s || a.e - b.e);
-  let grupo = [];
-  let grupoFim = -1;
-  const fechar = () => {
-    const fins = []; // fins[k] = fim do último card na faixa k
-    grupo.forEach((card) => {
-      let k = 0;
-      for (; k < fins.length; k++) {
-        if (card.s >= fins[k]) { break; }   // cabe nessa faixa (não sobrepõe)
-      }
-      card.lane = k;
-      fins[k] = card.e;
-    });
-    grupo.forEach((card) => (card.lanes = fins.length));
-    grupo = [];
-    grupoFim = -1;
-  };
-  ordenados.forEach((card) => {
-    if (grupo.length && card.s >= grupoFim) fechar();  // sem sobreposição com o grupo → novo grupo
-    grupo.push(card);
-    grupoFim = Math.max(grupoFim, card.e);
-  });
-  fechar();
   return ordenados;
 }
 
@@ -923,14 +901,17 @@ function renderTimeline(container, data, colunas, ags) {
       const dur = a.servico_duracao || 30;
       return { a, s, e: s + dur, dur };
     });
-    const cards = atribuirLanes(lista).map((p) => {
+    let prevBottom = -Infinity;
+    const GAP = 6;
+    const cards = empilharCards(lista).map((p) => {
       const a = p.a;
       const s = p.s;
       const dur = p.dur;
-      const top = (s - Hs * 60) / 60 * ALTURA_HORA;
-      const h = Math.max(dur / 60 * ALTURA_HORA, 50) - 2;   // -2px de respiro entre cards
-      const w = 100 / p.lanes;
-      const pos = `top:${top}px;height:${h}px;left:calc(${p.lane * w}% + 2px);width:calc(${w}% - 4px);`;
+      let top = (s - Hs * 60) / 60 * ALTURA_HORA;
+      const h = Math.max(dur / 60 * ALTURA_HORA, 50) - 2;
+      if (top < prevBottom + GAP) top = prevBottom + GAP;
+      prevBottom = top + h;
+      const pos = `top:${top}px;height:${h}px;left:3px;right:3px;`;
       const canc = a.status === "cancelado";
       const valor = (verValores && a.servico_preco != null)
         ? `<span class="agenda-card-valor">${formatarMoeda(a.servico_preco)}</span>` : "";
@@ -943,7 +924,10 @@ function renderTimeline(container, data, colunas, ags) {
       const btnRep = canc ? "" : `<button class="agenda-rep" data-repetir="${a.id}" title="Repetir este agendamento daqui a 7 dias">
              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
            </button>`;
-      const acoes = canc ? "" : `<span class="agenda-acoes">${btnWpp}${btnRep}<button class="agenda-x" data-cancelar="${a.id}" title="Cancelar">×</button></span>`;
+      const btnInfo = canc ? "" : `<button class="agenda-info" data-info="${a.id}" title="Detalhes do serviço">
+             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+           </button>`;
+      const acoes = canc ? "" : `<span class="agenda-acoes">${btnInfo}${btnWpp}${btnRep}<button class="agenda-x" data-cancelar="${a.id}" title="Cancelar">×</button></span>`;
       return `
         <div class="agenda-card${canc ? " cancelado" : ""}" style="${pos}">
           <div class="agenda-card-topo">
@@ -1013,6 +997,27 @@ function renderTimeline(container, data, colunas, ags) {
       ev.stopPropagation();
       const a = porId[btn.dataset.repetir];
       if (a) abrirModalRepetir(a, addDiasISO(data, 7));
+    });
+  });
+
+  // Detalhes (no card)
+  container.querySelectorAll("[data-info]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const a = porId[btn.dataset.info];
+      if (!a) return;
+      const dur = a.servico_duracao || 30;
+      const fim = minParaHHMM(minutosDe(a.hora) + dur);
+      const tel = a.cliente_telefone ? `\nTelefone: ${a.cliente_telefone}` : "";
+      const val = a.servico_preco != null ? `\nValor: ${formatarMoeda(a.servico_preco)}` : "";
+      alert(
+        `Cliente: ${a.cliente_nome}` +
+        tel +
+        `\n\nServiço: ${a.servico_nome}` +
+        `\nHorário: ${a.hora} – ${fim} (${dur}min)` +
+        val +
+        (a.encaixe ? "\n\n⚡ Encaixe" : "")
+      );
     });
   });
 }

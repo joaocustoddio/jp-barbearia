@@ -544,7 +544,6 @@ table.tabela .btn-mini {
 
 .agenda-card {
   position: absolute;
-  /* left/width vêm inline (lanes lado a lado quando há sobreposição) */
   background: var(--acento-fraco);
   border: 1px solid var(--acento);
   border-left: 3px solid var(--acento);
@@ -616,6 +615,19 @@ table.tabela .btn-mini {
   line-height: 0;
 }
 .agenda-rep:hover { background: var(--acento-fraco); }
+.agenda-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--texto-sec);
+  cursor: pointer;
+  padding: 1px 2px;
+  border-radius: 4px;
+  line-height: 0;
+}
+.agenda-info:hover { background: var(--acento-fraco); color: var(--acento); }
 .agenda-x {
   background: none;
   border: none;

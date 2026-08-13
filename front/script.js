@@ -759,7 +759,7 @@ function dataLocalISO(data = new Date()) {
    ANTECEDENCIA_MINIMA_MINUTOS no .env do backend, senão os
    dois lados vão discordar sobre o que é "muito em cima da hora".
    ===================================================== */
-const COOLDOWN_MINUTOS = 30;
+const COOLDOWN_MINUTOS = 15;
 
 function filtrarHorariosFuturos(horarios, dataISO) {
   const agora = new Date();

@@ -45,7 +45,7 @@ if EM_PRODUCAO and app.config["SECRET_KEY"] == SECRET_KEY_PADRAO:
     )
 
 HORARIO_ABERTURA      = os.getenv("HORARIO_ABERTURA", "09:00")
-HORARIO_FECHAMENTO    = os.getenv("HORARIO_FECHAMENTO", "19:00")
+HORARIO_FECHAMENTO    = os.getenv("HORARIO_FECHAMENTO", "20:00")
 INTERVALO_MINUTOS     = int(os.getenv("INTERVALO_MINUTOS", "30"))
 
 # Horário de funcionamento ESPECIAL por dia da semana (weekday(): 0=seg..6=dom).
@@ -60,7 +60,7 @@ HORARIOS_ESPECIAIS = {
 # Exemplo: 30 = o cliente precisa agendar com pelo menos 30min de antecedência.
 # Mude o valor no .env (ANTECEDENCIA_MINIMA_MINUTOS) quando quiser ajustar —
 # esse "30" aqui só é usado se a variável não existir no .env.
-ANTECEDENCIA_MINIMA   = int(os.getenv("ANTECEDENCIA_MINIMA_MINUTOS", "30"))
+ANTECEDENCIA_MINIMA   = int(os.getenv("ANTECEDENCIA_MINIMA_MINUTOS", "15"))
 
 # Janela máxima de agendamento pelo site (em dias). O cliente só pode marcar
 # de hoje até hoje + esse limite. Padrão 7 (1 semana). Vale só pro fluxo público;
