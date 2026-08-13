@@ -854,6 +854,35 @@ async function atualizarBotaoAlmoco(data) {
   }
 }
 
+// Distribui cards que se sobrepõem no tempo em "faixas" (lanes) lado a lado,
+// tipo Google Calendar. Cada card recebe .lane (índice) e .lanes (total no grupo).
+function atribuirLanes(cards) {
+  const ordenados = cards.slice().sort((a, b) => a.s - b.s || a.e - b.e);
+  let grupo = [];
+  let grupoFim = -1;
+  const fechar = () => {
+    const fins = []; // fins[k] = fim do último card na faixa k
+    grupo.forEach((card) => {
+      let k = 0;
+      for (; k < fins.length; k++) {
+        if (card.s >= fins[k]) { break; }   // cabe nessa faixa (não sobrepõe)
+      }
+      card.lane = k;
+      fins[k] = card.e;
+    });
+    grupo.forEach((card) => (card.lanes = fins.length));
+    grupo = [];
+    grupoFim = -1;
+  };
+  ordenados.forEach((card) => {
+    if (grupo.length && card.s >= grupoFim) fechar();  // sem sobreposição com o grupo → novo grupo
+    grupo.push(card);
+    grupoFim = Math.max(grupoFim, card.e);
+  });
+  fechar();
+  return ordenados;
+}
+
 function renderTimeline(container, data, colunas, ags) {
   // Janela do dia (horas): a partir dos agendamentos, com margem 8h–20h.
   let ini = 8 * 60, fim = 20 * 60;
@@ -889,11 +918,19 @@ function renderTimeline(container, data, colunas, ags) {
   }
 
   const colunasHTML = colunas.map((c, i) => {
-    const cards = (porBarbeiro[c.id] || []).map((a) => {
+    const lista = (porBarbeiro[c.id] || []).map((a) => {
       const s = minutosDe(a.hora);
       const dur = a.servico_duracao || 30;
+      return { a, s, e: s + dur, dur };
+    });
+    const cards = atribuirLanes(lista).map((p) => {
+      const a = p.a;
+      const s = p.s;
+      const dur = p.dur;
       const top = (s - Hs * 60) / 60 * ALTURA_HORA;
-      const h = Math.max(dur / 60 * ALTURA_HORA, 50);
+      const h = Math.max(dur / 60 * ALTURA_HORA, 50) - 2;   // -2px de respiro entre cards
+      const w = 100 / p.lanes;
+      const pos = `top:${top}px;height:${h}px;left:calc(${p.lane * w}% + 2px);width:calc(${w}% - 4px);`;
       const canc = a.status === "cancelado";
       const valor = (verValores && a.servico_preco != null)
         ? `<span class="agenda-card-valor">${formatarMoeda(a.servico_preco)}</span>` : "";
@@ -908,7 +945,7 @@ function renderTimeline(container, data, colunas, ags) {
            </button>`;
       const acoes = canc ? "" : `<span class="agenda-acoes">${btnWpp}${btnRep}<button class="agenda-x" data-cancelar="${a.id}" title="Cancelar">×</button></span>`;
       return `
-        <div class="agenda-card${canc ? " cancelado" : ""}" style="top:${top}px;height:${h}px">
+        <div class="agenda-card${canc ? " cancelado" : ""}" style="${pos}">
           <div class="agenda-card-topo">
             <span>${escapeHTML(a.hora)}–${minParaHHMM(s + dur)}</span>
             ${acoes}

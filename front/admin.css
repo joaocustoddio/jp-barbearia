@@ -544,14 +544,14 @@ table.tabela .btn-mini {
 
 .agenda-card {
   position: absolute;
-  left: 3px;
-  right: 3px;
+  /* left/width vêm inline (lanes lado a lado quando há sobreposição) */
   background: var(--acento-fraco);
   border: 1px solid var(--acento);
   border-left: 3px solid var(--acento);
   border-radius: 6px;
   padding: 3px 6px;
   overflow: hidden;
+  box-sizing: border-box;
 }
 .agenda-card.cancelado {
   background: var(--erro-fundo);
