@@ -467,6 +467,7 @@ async function renderContagem() {
    os barbeiros em colunas lado a lado; no celular, um seletor troca a coluna.
    ===================================================== */
 let dataAgenda = "";          // vazio = hoje
+let statusAgenda = "ativos";  // "ativos" (confirmados) ou "cancelados" — filtro da timeline
 const ALTURA_HORA = 80;       // px por hora na timeline (dá espaço pros 3 textos do card)
 
 function minutosDe(hhmm) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
@@ -505,10 +506,15 @@ async function renderAgendaDia() {
 
     <div class="bloco">
       <div class="agenda-nav">
-        <button class="btn-mini" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
+        <button class="btn-mini nav-seta" id="ag-dia-ant" aria-label="Dia anterior">‹</button>
         <input type="date" id="ag-dia" class="campo-input" value="${dataAgenda || hojeISO()}" />
-        <button class="btn-mini" id="ag-dia-prox" aria-label="Próximo dia">›</button>
-        <button class="btn-mini" id="ag-hoje">Hoje</button>
+        <button class="btn-mini nav-seta" id="ag-dia-prox" aria-label="Próximo dia">›</button>
+        <button class="btn-mini nav-btn" id="ag-hoje">Hoje</button>
+        <button class="btn-mini nav-btn" id="ag-amanha">Amanhã</button>
+      </div>
+      <div class="agenda-status">
+        <button class="chip-filtro${statusAgenda === "ativos" ? " ativo" : ""}" data-status="ativos">Agendamentos</button>
+        <button class="chip-filtro${statusAgenda === "cancelados" ? " ativo" : ""}" data-status="cancelados">Cancelados</button>
       </div>
       <div id="agenda-corpo">${carregando()}</div>
     </div>
@@ -524,6 +530,16 @@ async function renderAgendaDia() {
   });
   document.getElementById("ag-hoje").addEventListener("click", () => {
     dataAgenda = hojeISO(); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+  document.getElementById("ag-amanha").addEventListener("click", () => {
+    dataAgenda = addDiasISO(hojeISO(), 1); inputDia.value = dataAgenda; recarregarAgenda();
+  });
+  document.querySelectorAll(".agenda-status .chip-filtro").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      statusAgenda = chip.dataset.status;
+      document.querySelectorAll(".agenda-status .chip-filtro").forEach((c) => c.classList.toggle("ativo", c === chip));
+      recarregarAgenda();
+    });
   });
 
   recarregarAgenda();
@@ -779,7 +795,12 @@ async function carregarAgenda(data) {
     }
 
     const ags = await API.admin.listarAgendamentos({ data });
-    renderTimeline(corpo, data, colunas, ags);
+    // Filtra pela aba escolhida: "ativos" (não cancelados) ou "cancelados".
+    // Separa os dois pra não sobrescreverem no mesmo horário (fica ilegível).
+    const filtrados = ags.filter((a) =>
+      statusAgenda === "cancelados" ? a.status === "cancelado" : a.status !== "cancelado"
+    );
+    renderTimeline(corpo, data, colunas, filtrados);
   } catch (erro) {
     const msg = tratarErro(erro);
     if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;

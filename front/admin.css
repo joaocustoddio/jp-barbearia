@@ -454,7 +454,19 @@ table.tabela .btn-mini {
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
-.agenda-nav .campo-input { width: auto; }
+.agenda-nav .campo-input { width: auto; margin-bottom: 0; height: 40px; }
+/* Botões da nav com tamanhos uniformes: setas quadradas, Hoje/Amanhã iguais */
+.agenda-nav .btn-mini {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.agenda-nav .nav-seta { width: 40px; padding: 0; font-size: 18px; line-height: 1; }
+.agenda-nav .nav-btn { min-width: 84px; }
+
+/* Seletor Agendamentos / Cancelados (na Agenda do dia) */
+.agenda-status { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 
 .agenda-seletor { display: none; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
