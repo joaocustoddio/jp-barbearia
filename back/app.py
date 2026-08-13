@@ -50,10 +50,10 @@ INTERVALO_MINUTOS     = int(os.getenv("INTERVALO_MINUTOS", "30"))
 
 # Horário de funcionamento ESPECIAL por dia da semana (weekday(): 0=seg..6=dom).
 # (abertura, fechamento). Dias não listados usam HORARIO_ABERTURA/FECHAMENTO.
-# Sexta (4): 08:20–19:30 | Sábado (5): 08:00–19:30 | domingo (6) é fechado.
+# Sexta (4): 08:20–19:30 | Sábado (5): 08:00–19:00 | domingo (6) é fechado.
 HORARIOS_ESPECIAIS = {
     4: ("08:20", "19:30"),
-    5: ("08:00", "19:30"),
+    5: ("08:00", "19:00"),
 }
 
 # Antecedência mínima para agendamento (em minutos) = o "cooldown".
