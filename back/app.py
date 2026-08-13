@@ -48,6 +48,14 @@ HORARIO_ABERTURA      = os.getenv("HORARIO_ABERTURA", "09:00")
 HORARIO_FECHAMENTO    = os.getenv("HORARIO_FECHAMENTO", "19:00")
 INTERVALO_MINUTOS     = int(os.getenv("INTERVALO_MINUTOS", "30"))
 
+# Horário de funcionamento ESPECIAL por dia da semana (weekday(): 0=seg..6=dom).
+# (abertura, fechamento). Dias não listados usam HORARIO_ABERTURA/FECHAMENTO.
+# Sexta (4): 08:20–19:30 | Sábado (5): 08:00–19:30 | domingo (6) é fechado.
+HORARIOS_ESPECIAIS = {
+    4: ("08:20", "19:30"),
+    5: ("08:00", "19:30"),
+}
+
 # Antecedência mínima para agendamento (em minutos) = o "cooldown".
 # Exemplo: 30 = o cliente precisa agendar com pelo menos 30min de antecedência.
 # Mude o valor no .env (ANTECEDENCIA_MINIMA_MINUTOS) quando quiser ajustar —
@@ -145,6 +153,18 @@ def dia_fechado(data_str):
         return True, NOMES_DIAS[data.weekday()]
     return False, None
 
+def _hhmm_min(hhmm):
+    """'HH:MM' -> minutos desde 00:00."""
+    return int(hhmm[:2]) * 60 + int(hhmm[3:5])
+
+def horario_do_dia(data_str):
+    """(abertura, fechamento) da data conforme o dia da semana (ver HORARIOS_ESPECIAIS)."""
+    try:
+        wd = datetime.strptime(data_str, "%Y-%m-%d").date().weekday()
+    except (ValueError, TypeError):
+        wd = None
+    return HORARIOS_ESPECIAIS.get(wd, (HORARIO_ABERTURA, HORARIO_FECHAMENTO))
+
 def validar_hora(hora_str, data_str=None):
     if not hora_str:
         return False, "Hora é obrigatória"
@@ -215,6 +235,7 @@ def horarios_disponiveis():
     """
     data_str     = request.args.get("data")
     barbeiro_id  = request.args.get("barbeiro_id")
+    servico_id   = request.args.get("servico_id")
 
     valido, erro = validar_data(data_str)
     if not valido:
@@ -224,101 +245,93 @@ def horarios_disponiveis():
         return jsonify({"erro": "barbeiro_id é obrigatório"}), 400
 
     # Dia sem atendimento (ex: domingo): devolve lista vazia com status 200.
-    # Importante NÃO retornar erro aqui — o front, ao receber erro, cai no mock
-    # e mostraria horários falsos. Vazio faz o fluxo pular pro próximo dia.
     fechado, _ = dia_fechado(data_str)
     if fechado:
         return jsonify({"data": data_str, "barbeiro_id": barbeiro_id,
                         "horarios_disponiveis": [], "fechado": True})
 
-    todos = _gerar_horarios_do_dia(data_str)
-
     conn = get_connection()
 
-    # Horários já ocupados DESTE barbeiro nesta data
+    # Duração do serviço escolhido = PASSO dos slots. Sem servico_id, usa o padrão.
+    dur_serv = INTERVALO_MINUTOS
+    if servico_id:
+        srow = conn.execute("SELECT duracao_min FROM servicos WHERE id = %s", (servico_id,)).fetchone()
+        if srow:
+            dur_serv = srow["duracao_min"]
+
+    todos = _gerar_horarios_do_dia(data_str, dur_serv)
+
+    # Agendamentos existentes DESTE barbeiro (com a duração de cada serviço).
     ocupados = conn.execute(
-        """SELECT hora FROM agendamentos
-           WHERE data = %s AND barbeiro_id = %s AND status != 'cancelado'""",
+        """SELECT agendamentos.hora, servicos.duracao_min
+           FROM agendamentos
+           JOIN servicos ON agendamentos.servico_id = servicos.id
+           WHERE agendamentos.data = %s AND agendamentos.barbeiro_id = %s
+             AND agendamentos.status != 'cancelado'""",
         (data_str, barbeiro_id)
     ).fetchall()
 
-    horarios_ocupados = {row["hora"] for row in ocupados}
-
-    # Bloqueios: os globais (barbeiro_id NULL) valem pra todos; os com
-    # barbeiro_id valem só pra esse barbeiro (ex: almoço). Cada bloqueio tem
-    # uma janela (duracao_min); sem duração, vale por 1 slot.
+    # Bloqueios (globais + do barbeiro, ex: almoço manual) e almoço fixo.
     bloqueios = conn.execute(
         """SELECT hora, duracao_min FROM bloqueios
            WHERE data = %s AND (barbeiro_id IS NULL OR barbeiro_id = %s)""",
         (data_str, barbeiro_id)
     ).fetchall()
-    # Almoço fixo do barbeiro (se tiver) — repete todo dia, bloqueia 60min.
     row_barb = conn.execute(
         "SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)
     ).fetchone()
     almoco_fixo = row_barb["almoco_fixo"] if row_barb else None
     conn.close()
 
-    def _min(hhmm):
-        return int(hhmm[:2]) * 60 + int(hhmm[3:5])
-
-    def _bloquear(ini, dur):
-        fim_b = ini + dur
-        # Marca ocupado todo slot cuja janela [S, S+intervalo) encoste no bloqueio.
-        for h in todos:
-            hm = _min(h)
-            if hm < fim_b and hm + INTERVALO_MINUTOS > ini:
-                horarios_ocupados.add(h)
-
+    # Monta as janelas ocupadas [inicio, fim) em minutos (agendamentos + bloqueios).
+    ocupadas = []
+    for o in ocupados:
+        a = _hhmm_min(o["hora"])
+        ocupadas.append((a, a + (o["duracao_min"] or dur_serv)))
     for b in bloqueios:
-        if b["hora"] is None:
+        if b["hora"] is None:                # bloqueio do dia inteiro
             return jsonify({"data": data_str, "horarios_disponiveis": [], "bloqueio_dia": True})
-        _bloquear(_min(b["hora"]), b["duracao_min"] or INTERVALO_MINUTOS)
-
+        a = _hhmm_min(b["hora"])
+        ocupadas.append((a, a + (b["duracao_min"] or INTERVALO_MINUTOS)))
     if almoco_fixo:
-        _bloquear(_min(almoco_fixo), 60)
+        a = _hhmm_min(almoco_fixo)
+        ocupadas.append((a, a + 60))
 
-    disponiveis = [h for h in todos if h not in horarios_ocupados]
+    # Um slot só é livre se o serviço couber ali SEM sobrepor nenhuma janela ocupada.
+    def livre(inicio):
+        fim_slot = inicio + dur_serv
+        return all(not (inicio < oc_fim and oc_ini < fim_slot) for (oc_ini, oc_fim) in ocupadas)
+
+    disponiveis = [h for h in todos if livre(_hhmm_min(h))]
 
     return jsonify({"data": data_str, "barbeiro_id": barbeiro_id, "horarios_disponiveis": disponiveis})
 
 
-def _gerar_horarios_do_dia(data_str=None):
+def _gerar_horarios_do_dia(data_str, duracao_servico):
     """
-    Gera todos os slots do dia dentro do horário de funcionamento.
+    Gera os slots do dia com PASSO = duração do serviço (ex: Degradê 40min →
+    09:00, 09:40, 10:20…), começando na abertura do dia e indo enquanto o
+    serviço couber ANTES do fechamento (slot + duração <= fechamento).
+    O horário de abertura/fechamento varia por dia da semana (horario_do_dia).
 
-    Se a data for HOJE, filtra automaticamente:
-    - Horários que já passaram
-    - Horários que estão dentro da janela de antecedência mínima
-      (ex: se agora são 20:00 e a antecedência é 75min,
-       o próximo horário possível seria 21:15 — mas a barbearia
-       já está fechada, então não aparece nada hoje)
-
-    Se for um dia futuro, devolve todos os slots normalmente.
+    Se a data for HOJE, remove os horários que já passaram ou estão dentro da
+    janela de antecedência mínima.
     """
-    inicio = datetime.strptime(HORARIO_ABERTURA, "%H:%M")
-    fim    = datetime.strptime(HORARIO_FECHAMENTO, "%H:%M")
+    abertura, fechamento = horario_do_dia(data_str)
+    ini = _hhmm_min(abertura)
+    fim = _hhmm_min(fechamento)
+    passo = max(int(duracao_servico or INTERVALO_MINUTOS), 5)
 
-    # Gera lista completa de slots
     horarios = []
-    atual = inicio
-    while atual < fim:
-        horarios.append(atual.strftime("%H:%M"))
-        total_min = atual.hour * 60 + atual.minute + INTERVALO_MINUTOS
-        atual = atual.replace(hour=total_min // 60, minute=total_min % 60)
+    s = ini
+    while s + passo <= fim:                 # o serviço tem que terminar até o fechamento
+        horarios.append("%02d:%02d" % (s // 60, s % 60))
+        s += passo
 
-    # Se for hoje, remove horários que já passaram ou estão muito próximos
-    if data_str and data_str == date.today().isoformat():
+    if data_str == date.today().isoformat():
         agora = datetime.now()
-
-        # Limite mínimo = agora + antecedência mínima configurada
         limite_minimo = agora.hour * 60 + agora.minute + ANTECEDENCIA_MINIMA
-
-        horarios = [
-            h for h in horarios
-            # Converte "HH:MM" em minutos e compara com o limite
-            if (int(h.split(":")[0]) * 60 + int(h.split(":")[1])) > limite_minimo
-        ]
+        horarios = [h for h in horarios if _hhmm_min(h) > limite_minimo]
 
     return horarios
 
@@ -388,15 +401,35 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
 
     # Verifica conflito de horário PARA ESTE barbeiro (só quando não é permitido
     # sobrescrever — o barbeiro pelo painel/caderninho pode encaixar em cima).
+    # Usa SOBREPOSIÇÃO por duração (o serviço novo não pode encostar em outro).
     if not permitir_conflito:
-        ocupado = conn.execute(
-            """SELECT id FROM agendamentos
-               WHERE data = %s AND hora = %s AND barbeiro_id = %s AND status != 'cancelado'""",
-            (dados["data"], dados["hora"], barbeiro_id)
+        srow = conn.execute(
+            "SELECT duracao_min FROM servicos WHERE id = %s", (dados["servico_id"],)
         ).fetchone()
-        if ocupado:
+        dur_novo = srow["duracao_min"] if srow else INTERVALO_MINUTOS
+        s_ini = _hhmm_min(dados["hora"])
+        s_fim = s_ini + dur_novo
+
+        # Precisa caber no horário de funcionamento do dia.
+        ab, fe = horario_do_dia(dados["data"])
+        if s_ini < _hhmm_min(ab) or s_fim > _hhmm_min(fe):
             conn.close()
-            return {"erro": "Esse horário já foi reservado com este barbeiro. Escolha outro."}, 409
+            return {"erro": "Horário fora do funcionamento da barbearia nesse dia."}, 400
+
+        existentes = conn.execute(
+            """SELECT agendamentos.hora, servicos.duracao_min
+               FROM agendamentos
+               JOIN servicos ON agendamentos.servico_id = servicos.id
+               WHERE agendamentos.data = %s AND agendamentos.barbeiro_id = %s
+                 AND agendamentos.status != 'cancelado'""",
+            (dados["data"], barbeiro_id)
+        ).fetchall()
+        for ex in existentes:
+            a = _hhmm_min(ex["hora"])
+            b = a + (ex["duracao_min"] or dur_novo)
+            if s_ini < b and a < s_fim:       # sobrepõe
+                conn.close()
+                return {"erro": "Esse horário já foi reservado com este barbeiro. Escolha outro."}, 409
 
     # Salva cliente + agendamento (RETURNING id — Postgres não tem lastrowid)
     cursor = conn.cursor()

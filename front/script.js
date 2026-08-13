@@ -827,17 +827,18 @@ async function carregarBarbeiros() {
 }
 
 async function carregarHorarios(data, barbeiroId) {
+  const servicoId = state.servico ? state.servico.id : null; // slots dependem do serviço
   let horarios;
   if (EH_LOCAL) {
     try {
-      horarios = (await API.listarHorariosDisponiveis(data, barbeiroId)).horarios_disponiveis;
+      horarios = (await API.listarHorariosDisponiveis(data, barbeiroId, servicoId)).horarios_disponiveis;
     } catch (erro) {
       console.warn("Backend offline (dev): usando mock.", erro.message);
       horarios = MOCK_HORARIOS;
     }
   } else {
     try {
-      horarios = (await chamarComRetry(() => API.listarHorariosDisponiveis(data, barbeiroId))).horarios_disponiveis;
+      horarios = (await chamarComRetry(() => API.listarHorariosDisponiveis(data, barbeiroId, servicoId))).horarios_disponiveis;
     } catch (erro) {
       // Produção: sem mock. Degrada pra "sem horários" (nunca horário falso).
       horarios = [];

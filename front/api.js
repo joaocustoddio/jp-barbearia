@@ -86,9 +86,10 @@ const API = (() => {
       return request("/api/barbeiros");
     },
 
-    /** GET /api/horarios-disponiveis?data=YYYY-MM-DD&barbeiro_id=1 */
-    listarHorariosDisponiveis(data, barbeiroId) {
-      return request(`/api/horarios-disponiveis?data=${encodeURIComponent(data)}&barbeiro_id=${barbeiroId}`);
+    /** GET /api/horarios-disponiveis?data=&barbeiro_id=&servico_id= (slots pela duração do serviço) */
+    listarHorariosDisponiveis(data, barbeiroId, servicoId) {
+      const s = servicoId != null ? `&servico_id=${encodeURIComponent(servicoId)}` : "";
+      return request(`/api/horarios-disponiveis?data=${encodeURIComponent(data)}&barbeiro_id=${barbeiroId}${s}`);
     },
 
     /**
