@@ -265,6 +265,26 @@ const API = (() => {
         return requestAuth("/api/admin/almoco-fixo", { method: "DELETE" });
       },
 
+      /** GET /api/admin/expedientes?data= → jornada de cada barbeiro no dia (master) */
+      listarExpedientes(data) {
+        return requestAuth(`/api/admin/expedientes?data=${encodeURIComponent(data)}`);
+      },
+
+      /** PUT /api/admin/expediente → define jornada { barbeiro_id, data, inicio, fim } */
+      definirExpediente(barbeiro_id, data, inicio, fim) {
+        return requestAuth("/api/admin/expediente", {
+          method: "PUT",
+          body: JSON.stringify({ barbeiro_id, data, inicio, fim })
+        });
+      },
+
+      /** DELETE /api/admin/expediente?barbeiro_id=&data= → volta ao horário padrão */
+      removerExpediente(barbeiro_id, data) {
+        return requestAuth(`/api/admin/expediente?barbeiro_id=${encodeURIComponent(barbeiro_id)}&data=${encodeURIComponent(data)}`, {
+          method: "DELETE"
+        });
+      },
+
       /** GET /api/admin/acessos → lista todos os logins (master) */
       listarAcessos() {
         return requestAuth("/api/admin/acessos");

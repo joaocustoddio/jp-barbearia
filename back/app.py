@@ -165,6 +165,17 @@ def horario_do_dia(data_str):
         wd = None
     return HORARIOS_ESPECIAIS.get(wd, (HORARIO_ABERTURA, HORARIO_FECHAMENTO))
 
+def horario_efetivo(data_str, barbeiro_id, conn):
+    """(abertura, fechamento) que valem pra ESTE barbeiro nesta data: se o master
+    definiu um expediente especial pro dia, usa ele; senão, o horário padrão do dia."""
+    row = conn.execute(
+        "SELECT inicio, fim FROM expedientes WHERE barbeiro_id = %s AND data = %s",
+        (barbeiro_id, data_str)
+    ).fetchone()
+    if row:
+        return row["inicio"], row["fim"]
+    return horario_do_dia(data_str)
+
 def validar_hora(hora_str, data_str=None):
     if not hora_str:
         return False, "Hora é obrigatória"
@@ -259,7 +270,9 @@ def horarios_disponiveis():
         if srow:
             dur_serv = srow["duracao_min"]
 
-    todos = _gerar_horarios_do_dia(data_str, dur_serv)
+    # Horário efetivo do barbeiro no dia (expediente especial, se houver).
+    abertura, fechamento = horario_efetivo(data_str, barbeiro_id, conn)
+    todos = _gerar_horarios_do_dia(data_str, dur_serv, abertura, fechamento)
 
     # Agendamentos existentes DESTE barbeiro (com a duração de cada serviço).
     ocupados = conn.execute(
@@ -307,17 +320,16 @@ def horarios_disponiveis():
     return jsonify({"data": data_str, "barbeiro_id": barbeiro_id, "horarios_disponiveis": disponiveis})
 
 
-def _gerar_horarios_do_dia(data_str, duracao_servico):
+def _gerar_horarios_do_dia(data_str, duracao_servico, abertura, fechamento):
     """
     Gera os slots do dia com PASSO = duração do serviço (ex: Degradê 40min →
-    09:00, 09:40, 10:20…), começando na abertura do dia e indo enquanto o
-    serviço couber ANTES do fechamento (slot + duração <= fechamento).
-    O horário de abertura/fechamento varia por dia da semana (horario_do_dia).
+    09:00, 09:40, 10:20…), começando na 'abertura' e indo enquanto o serviço
+    couber ANTES do 'fechamento' (slot + duração <= fechamento).
+    Abertura/fechamento vêm do chamador (horário do dia, com expediente do barbeiro).
 
     Se a data for HOJE, remove os horários que já passaram ou estão dentro da
     janela de antecedência mínima.
     """
-    abertura, fechamento = horario_do_dia(data_str)
     ini = _hhmm_min(abertura)
     fim = _hhmm_min(fechamento)
     passo = max(int(duracao_servico or INTERVALO_MINUTOS), 5)
@@ -410,11 +422,11 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
         s_ini = _hhmm_min(dados["hora"])
         s_fim = s_ini + dur_novo
 
-        # Precisa caber no horário de funcionamento do dia.
-        ab, fe = horario_do_dia(dados["data"])
+        # Precisa caber no expediente do barbeiro nesse dia (horário do dia + ajuste).
+        ab, fe = horario_efetivo(dados["data"], barbeiro_id, conn)
         if s_ini < _hhmm_min(ab) or s_fim > _hhmm_min(fe):
             conn.close()
-            return {"erro": "Horário fora do funcionamento da barbearia nesse dia."}, 400
+            return {"erro": "Horário fora do expediente do barbeiro nesse dia."}, 400
 
         existentes = conn.execute(
             """SELECT agendamentos.hora, servicos.duracao_min
@@ -1299,6 +1311,103 @@ def remover_almoco_fixo():
     conn.commit()
     conn.close()
     return jsonify({"mensagem": "Almoço fixo removido."})
+
+
+# -------------------------------------------------------
+# EXPEDIENTE — o master ajusta a jornada (início/fim) de cada barbeiro por dia.
+# Sobrepõe o horário padrão do dia SÓ pra aquele barbeiro naquela data.
+# -------------------------------------------------------
+@app.route("/api/admin/expedientes", methods=["GET"])
+@token_requerido
+@somente_master
+def listar_expedientes():
+    """Barbeiros ativos com o horário que vale pra eles numa data (expediente
+    especial, se definido, ou o padrão do dia). ?data=YYYY-MM-DD"""
+    data = request.args.get("data")
+    if not data:
+        return jsonify({"erro": "Data é obrigatória"}), 400
+    padrao_ini, padrao_fim = horario_do_dia(data)
+    fechado, _ = dia_fechado(data)
+    conn = get_connection()
+    barbeiros = conn.execute(
+        "SELECT id, nome FROM barbeiros WHERE ativo = 1 ORDER BY id"
+    ).fetchall()
+    exps = conn.execute(
+        "SELECT barbeiro_id, inicio, fim FROM expedientes WHERE data = %s", (data,)
+    ).fetchall()
+    conn.close()
+    por_barb = {e["barbeiro_id"]: (e["inicio"], e["fim"]) for e in exps}
+    lista = []
+    for b in barbeiros:
+        ov = por_barb.get(b["id"])
+        lista.append({
+            "barbeiro_id": b["id"],
+            "barbeiro_nome": b["nome"],
+            "inicio": ov[0] if ov else padrao_ini,
+            "fim": ov[1] if ov else padrao_fim,
+            "personalizado": ov is not None,
+        })
+    return jsonify({
+        "data": data,
+        "fechado": fechado,
+        "padrao": {"inicio": padrao_ini, "fim": padrao_fim},
+        "barbeiros": lista,
+    })
+
+
+@app.route("/api/admin/expediente", methods=["PUT"])
+@token_requerido
+@somente_master
+def definir_expediente():
+    """Define/atualiza o expediente de um barbeiro num dia.
+    Corpo: { barbeiro_id, data, inicio, fim }."""
+    dados = request.get_json(silent=True) or {}
+    barbeiro_id = dados.get("barbeiro_id")
+    data = dados.get("data")
+    inicio = dados.get("inicio")
+    fim = dados.get("fim")
+    if not (barbeiro_id and data and inicio and fim):
+        return jsonify({"erro": "barbeiro_id, data, início e fim são obrigatórios"}), 400
+    valido, erro = validar_data(data)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    for h in (inicio, fim):
+        ok, e = validar_hora(h)
+        if not ok:
+            return jsonify({"erro": e}), 400
+    if _hhmm_min(inicio) >= _hhmm_min(fim):
+        return jsonify({"erro": "A hora de início tem que ser antes do fim"}), 400
+    conn = get_connection()
+    if not conn.execute("SELECT id FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone():
+        conn.close()
+        return jsonify({"erro": "Barbeiro não encontrado"}), 404
+    conn.execute(
+        """INSERT INTO expedientes (barbeiro_id, data, inicio, fim)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (barbeiro_id, data)
+           DO UPDATE SET inicio = EXCLUDED.inicio, fim = EXCLUDED.fim""",
+        (barbeiro_id, data, inicio, fim)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": f"Expediente definido ({inicio}–{fim})."})
+
+
+@app.route("/api/admin/expediente", methods=["DELETE"])
+@token_requerido
+@somente_master
+def remover_expediente():
+    """Remove o expediente especial (volta pro horário padrão do dia).
+    ?barbeiro_id=&data="""
+    barbeiro_id = request.args.get("barbeiro_id")
+    data = request.args.get("data")
+    if not (barbeiro_id and data):
+        return jsonify({"erro": "barbeiro_id e data são obrigatórios"}), 400
+    conn = get_connection()
+    conn.execute("DELETE FROM expedientes WHERE barbeiro_id = %s AND data = %s", (barbeiro_id, data))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Expediente removido (voltou ao normal)."})
 
 
 @app.route("/api/admin/relatorio", methods=["GET"])

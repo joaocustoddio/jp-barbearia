@@ -349,6 +349,30 @@ button.admin-link { background: none; cursor: pointer; }
 .cad-servico-nome { font-size: 12px; font-weight: 600; color: var(--texto); line-height: 1.15; }
 .cad-servico-preco { font-size: 11px; color: var(--acento); font-weight: 600; }
 
+/* Expediente (jornada por barbeiro no dia) */
+.exp-lista { display: flex; flex-direction: column; gap: 12px; }
+.exp-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+}
+.exp-nome { font-weight: 600; color: var(--texto); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.exp-horas { display: flex; align-items: center; gap: 8px; }
+.exp-horas .campo-input { width: auto; margin-bottom: 0; height: 38px; }
+.exp-horas span { color: var(--texto-suave); font-size: 13px; }
+.exp-acoes { display: flex; gap: 8px; }
+.exp-item .exp-erro { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .exp-item { grid-template-columns: 1fr; }
+  .exp-horas, .exp-acoes { justify-content: space-between; }
+  .exp-horas .campo-input { flex: 1; }
+}
+
 /* Contagem: colunas se ajustam ao conteúdo (barbeiro fica mais largo pro
    breakdown) e o conteúdo alinha no topo (números não boiam no meio). */
 #contagem-corpo table.tabela { table-layout: auto; }

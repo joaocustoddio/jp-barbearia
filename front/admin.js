@@ -168,6 +168,7 @@ const ABAS_POR_PAPEL = {
     { chave: "caderninho", rotulo: "Caderninho" },
     { chave: "almoco",     rotulo: "Almoço" },
     { chave: "contagem",   rotulo: "Contagem" },
+    { chave: "expediente", rotulo: "Expediente" },
     { chave: "dashboard",  rotulo: "Dashboard" },
     { chave: "barbeiros",  rotulo: "Barbeiros" },
     { chave: "horarios",   rotulo: "Horários" }
@@ -190,6 +191,7 @@ const SECOES = {
   caderninho: renderCaderninho,
   almoco:     renderAlmoco,
   contagem:   renderContagem,
+  expediente: renderExpediente,
   dashboard:  renderDashboard,
   barbeiros:  renderBarbeiros,
   horarios:   renderHorarios
@@ -350,6 +352,7 @@ function renderAgendaHoje(container, ags) {
    Barbeiro vê só a linha dele (o backend já filtra).
    ===================================================== */
 let dataContagem = ""; // vazio = hoje
+let dataExpediente = ""; // vazio = hoje (aba Expediente)
 
 // Breakdown por serviço, um por linha (ex: "1× Degradê — R$40,00").
 // Mostra o valor quando disponível (salão não recebe valor).
@@ -1059,6 +1062,91 @@ async function abrirModalRepetir(a, dataPadrao) {
    SEÇÃO: BARBEIROS
    Inativar (folga/imprevisto) e reativar.
    ===================================================== */
+/* =====================================================
+   SEÇÃO: EXPEDIENTE (só master)
+   Ajusta o horário (início/fim) de cada barbeiro num dia específico.
+   Afeta os horários que o cliente vê pra marcar naquele barbeiro/dia.
+   ===================================================== */
+async function renderExpediente() {
+  const data = dataExpediente || hojeISO();
+  elConteudo.innerHTML = `
+    <h2 class="secao-titulo">Expediente</h2>
+    <p class="secao-subtitulo">Ajuste o horário de cada barbeiro no dia (quem chega mais tarde ou sai mais cedo)</p>
+
+    <div class="bloco">
+      <div class="agenda-nav">
+        <button class="btn-mini nav-seta" id="exp-ant" aria-label="Dia anterior">‹</button>
+        <input type="date" id="exp-data" class="campo-input" value="${data}" />
+        <button class="btn-mini nav-seta" id="exp-prox" aria-label="Próximo dia">›</button>
+        <button class="btn-mini nav-btn" id="exp-hoje">Hoje</button>
+        <button class="btn-mini nav-btn" id="exp-amanha">Amanhã</button>
+      </div>
+      <div id="exp-corpo">${carregando()}</div>
+    </div>
+  `;
+  const input = document.getElementById("exp-data");
+  input.addEventListener("change", () => { dataExpediente = input.value; renderExpediente(); });
+  document.getElementById("exp-ant").addEventListener("click", () => { dataExpediente = addDiasISO(input.value, -1); renderExpediente(); });
+  document.getElementById("exp-prox").addEventListener("click", () => { dataExpediente = addDiasISO(input.value, 1); renderExpediente(); });
+  document.getElementById("exp-hoje").addEventListener("click", () => { dataExpediente = hojeISO(); renderExpediente(); });
+  document.getElementById("exp-amanha").addEventListener("click", () => { dataExpediente = addDiasISO(hojeISO(), 1); renderExpediente(); });
+
+  carregarExpedientes(data);
+}
+
+async function carregarExpedientes(data) {
+  const corpo = document.getElementById("exp-corpo");
+  if (!corpo) return;
+  corpo.innerHTML = carregando();
+  try {
+    const r = await API.admin.listarExpedientes(data);
+    if (r.fechado) { corpo.innerHTML = vazio("A barbearia não abre nesse dia."); return; }
+    if (!r.barbeiros || !r.barbeiros.length) { corpo.innerHTML = vazio("Nenhum barbeiro ativo."); return; }
+    corpo.innerHTML = `
+      <p class="secao-subtitulo" style="margin:0 0 14px;">Horário padrão do dia: <strong>${r.padrao.inicio}–${r.padrao.fim}</strong></p>
+      <div class="exp-lista">
+        ${r.barbeiros.map((b) => `
+          <div class="exp-item" data-barb="${b.barbeiro_id}">
+            <div class="exp-nome">
+              ${escapeHTML(b.barbeiro_nome)}
+              ${b.personalizado ? '<span class="tag-encaixe">ajustado</span>' : ''}
+            </div>
+            <div class="exp-horas">
+              <input type="time" class="campo-input exp-ini" value="${b.inicio}" />
+              <span>até</span>
+              <input type="time" class="campo-input exp-fim" value="${b.fim}" />
+            </div>
+            <div class="exp-acoes">
+              <button class="btn-mini exp-salvar">Salvar</button>
+              <button class="btn-mini exp-normal"${b.personalizado ? "" : " hidden"}>Normal</button>
+            </div>
+            <p class="login-erro exp-erro" style="margin:6px 0 0;"></p>
+          </div>`).join("")}
+      </div>
+    `;
+    corpo.querySelectorAll(".exp-item").forEach((item) => {
+      const barb = item.dataset.barb;
+      const erroEl = item.querySelector(".exp-erro");
+      item.querySelector(".exp-salvar").addEventListener("click", async () => {
+        erroEl.textContent = "";
+        const ini = item.querySelector(".exp-ini").value;
+        const fim = item.querySelector(".exp-fim").value;
+        if (!ini || !fim) { erroEl.textContent = "Preencha início e fim."; return; }
+        try { await API.admin.definirExpediente(barb, data, ini, fim); carregarExpedientes(data); }
+        catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
+      });
+      item.querySelector(".exp-normal").addEventListener("click", async () => {
+        erroEl.textContent = "";
+        try { await API.admin.removerExpediente(barb, data); carregarExpedientes(data); }
+        catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
+      });
+    });
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
+}
+
 async function renderBarbeiros() {
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Barbeiros</h2>

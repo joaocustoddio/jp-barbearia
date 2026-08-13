@@ -173,6 +173,22 @@ def init_db():
     cur.execute("ALTER TABLE bloqueios ADD COLUMN IF NOT EXISTS barbeiro_id INTEGER REFERENCES barbeiros (id)")
     cur.execute("ALTER TABLE bloqueios ADD COLUMN IF NOT EXISTS duracao_min INTEGER")
 
+    # ---------------------------------------------------------
+    # EXPEDIENTE — jornada de um barbeiro num DIA específico (o master define
+    # que o fulano hoje trabalha das 'inicio' às 'fim'). Sobrepõe o horário
+    # padrão do dia SÓ pra aquele barbeiro naquela data. Um por barbeiro/dia.
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS expedientes (
+            id SERIAL PRIMARY KEY,
+            barbeiro_id INTEGER NOT NULL REFERENCES barbeiros (id),
+            data   TEXT NOT NULL,   -- 'YYYY-MM-DD'
+            inicio TEXT NOT NULL,   -- 'HH:MM'
+            fim    TEXT NOT NULL,   -- 'HH:MM'
+            UNIQUE (barbeiro_id, data)
+        )
+    """)
+
     conn.commit()
 
     # ---------------------------------------------------------
