@@ -256,7 +256,7 @@ def criar_admin_padrao(usuario=None, senha=None):
     # o valor inteiro fica com ele — barbeiro e barbearia são a mesma pessoa).
     nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
     foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
-    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "100"))
+    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "0"))
     conn.execute(
         "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
         (nome_jp, foto_jp, comissao_jp)
