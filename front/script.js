@@ -851,6 +851,106 @@ async function carregarHorarios(data, barbeiroId) {
 
 
 /* =====================================================
+   CANCELAMENTO PELO CLIENTE (por telefone)
+   Reaproveita os helpers do wizard (cabeçalho, voltar, carregando).
+   ===================================================== */
+function abrirCancelamento() {
+  elStepper.style.display = "none";     // esconde a barra de passos
+  renderCancelamento();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function voltarAoAgendamento() {
+  elStepper.style.display = "";         // mostra a barra de passos de novo
+  renderTudo();
+}
+
+function renderCancelamento() {
+  elConteudo.innerHTML = "";
+  elConteudo.appendChild(botaoVoltar(voltarAoAgendamento));
+  elConteudo.insertAdjacentHTML("beforeend",
+    cabecalhoPasso("Cancelar agendamento", "Informe seu telefone para ver e cancelar seus agendamentos"));
+
+  const bloco = document.createElement("div");
+  bloco.className = "bloco-cancelar";
+  bloco.innerHTML = `
+    <div class="campo-cancelar">
+      <input type="tel" id="canc-telefone" class="campo-input" placeholder="Telefone com DDD (ex: 11999998888)" />
+      <button class="btn btn-primario" id="canc-buscar">Buscar</button>
+    </div>
+    <p class="login-erro canc-erro" id="canc-erro"></p>
+    <div id="canc-lista"></div>
+  `;
+  elConteudo.appendChild(bloco);
+
+  const input = document.getElementById("canc-telefone");
+  document.getElementById("canc-buscar").addEventListener("click", buscarAgendamentosCancelar);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") buscarAgendamentosCancelar(); });
+  input.focus();
+}
+
+async function buscarAgendamentosCancelar() {
+  const input = document.getElementById("canc-telefone");
+  const erroEl = document.getElementById("canc-erro");
+  const lista = document.getElementById("canc-lista");
+  erroEl.textContent = "";
+  const tel = input.value.trim();
+  if (!/^\d{10,11}$/.test(tel.replace(/\D/g, ""))) {
+    erroEl.textContent = "Digite um telefone válido com DDD.";
+    return;
+  }
+  mostrarCarregando(lista, "Buscando seus agendamentos...");
+  try {
+    const ags = await API.consultarAgendamentos(tel);
+    renderListaCancelar(ags, tel);
+  } catch (erro) {
+    lista.innerHTML = "";
+    erroEl.textContent = erro.message || "Não foi possível buscar seus agendamentos.";
+  }
+}
+
+function renderListaCancelar(ags, telefone) {
+  const lista = document.getElementById("canc-lista");
+  if (!ags.length) {
+    lista.innerHTML = `<div class="canc-vazio">${ICONES.vazio}<span>Nenhum agendamento futuro encontrado para esse telefone.</span></div>`;
+    return;
+  }
+  lista.innerHTML = ags.map((a) => `
+    <div class="canc-item" data-item="${a.id}">
+      <div class="canc-item-info">
+        <strong>${formatarDataBR(a.data)} às ${a.hora.slice(0, 5)}</strong>
+        <span>${a.servico_nome} · ${a.barbeiro_nome}</span>
+      </div>
+      <button class="btn-cancelar-item" data-cancelar="${a.id}">Cancelar</button>
+    </div>
+  `).join("");
+
+  lista.querySelectorAll("[data-cancelar]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Cancelar este agendamento? Essa ação não pode ser desfeita.")) return;
+      btn.disabled = true;
+      btn.textContent = "...";
+      try {
+        await API.cancelarAgendamentoCliente(btn.dataset.cancelar, telefone);
+        const item = btn.closest(".canc-item");
+        item.classList.add("cancelado");
+        btn.remove();
+        item.querySelector(".canc-item-info").insertAdjacentHTML("beforeend",
+          `<span class="canc-ok">Cancelado ✓</span>`);
+      } catch (erro) {
+        btn.disabled = false;
+        btn.textContent = "Cancelar";
+        alert(erro.message || "Não foi possível cancelar.");
+      }
+    });
+  });
+}
+
+/* =====================================================
    START
    ===================================================== */
+document.getElementById("link-cancelar").addEventListener("click", (e) => {
+  e.preventDefault();
+  abrirCancelamento();
+});
 renderTudo();

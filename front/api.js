@@ -102,6 +102,19 @@ const API = (() => {
       });
     },
 
+    /** GET /api/agendamentos/consultar?telefone= → agendamentos futuros do cliente */
+    consultarAgendamentos(telefone) {
+      return request(`/api/agendamentos/consultar?telefone=${encodeURIComponent(telefone)}`);
+    },
+
+    /** POST /api/agendamentos/cancelar → cliente cancela o próprio (confere telefone) */
+    cancelarAgendamentoCliente(agendamento_id, telefone) {
+      return request("/api/agendamentos/cancelar", {
+        method: "POST",
+        body: JSON.stringify({ agendamento_id, telefone })
+      });
+    },
+
     /* =====================================================
        ÁREA ADMINISTRATIVA (painel do barbeiro)
        Todas as rotas abaixo exigem token JWT.

@@ -430,6 +430,65 @@ def criar_agendamento():
     return jsonify(corpo), status
 
 
+@app.route("/api/agendamentos/consultar", methods=["GET"])
+def consultar_agendamentos_cliente():
+    """Público: lista os agendamentos FUTUROS (não cancelados) de um telefone,
+    pro cliente poder cancelar pelo site. ?telefone=..."""
+    telefone = (request.args.get("telefone") or "").strip()
+    if not telefone:
+        return jsonify({"erro": "Informe o telefone"}), 400
+    valido, erro = validar_telefone(telefone)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    tel_num = re.sub(r"\D", "", telefone)
+    hoje = date.today().isoformat()
+    conn = get_connection()
+    rows = conn.execute(
+        r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
+                   servicos.nome  AS servico_nome,
+                   barbeiros.nome AS barbeiro_nome
+            FROM agendamentos
+            JOIN clientes  ON agendamentos.cliente_id  = clientes.id
+            JOIN servicos  ON agendamentos.servico_id  = servicos.id
+            JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
+            WHERE regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
+              AND agendamentos.status != 'cancelado'
+              AND agendamentos.data >= %s
+            ORDER BY agendamentos.data, agendamentos.hora""",
+        (tel_num, hoje)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/agendamentos/cancelar", methods=["POST"])
+def cancelar_agendamento_cliente():
+    """Público: cliente cancela o próprio agendamento (confere o telefone).
+    Corpo: { agendamento_id, telefone }."""
+    dados = request.get_json(silent=True) or {}
+    agendamento_id = dados.get("agendamento_id")
+    telefone = (dados.get("telefone") or "").strip()
+    if not agendamento_id or not telefone:
+        return jsonify({"erro": "Agendamento e telefone são obrigatórios"}), 400
+    tel_num = re.sub(r"\D", "", telefone)
+    conn = get_connection()
+    row = conn.execute(
+        r"""SELECT agendamentos.id FROM agendamentos
+            JOIN clientes ON agendamentos.cliente_id = clientes.id
+            WHERE agendamentos.id = %s
+              AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
+              AND agendamentos.status != 'cancelado'""",
+        (agendamento_id, tel_num)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"erro": "Agendamento não encontrado para esse telefone"}), 404
+    conn.execute("UPDATE agendamentos SET status = 'cancelado' WHERE id = %s", (agendamento_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Agendamento cancelado com sucesso."})
+
+
 @app.route("/api/agendamentos", methods=["GET"])
 def listar_agendamentos():
     data_filtro = request.args.get("data")
