@@ -949,15 +949,15 @@ table.tabela .btn-mini {
     justify-content: space-evenly;
     margin-bottom: 20px;
   }
+  .agenda-head-spacer{
+    display:none;
+  }
 
   .agenda-head:not(.selecionada),
   .agenda-col:not(.selecionada) {
     display: none;
   }
-  .agenda-heads{
-    display: none;
-  }
-}
+} 
 
 /* =====================================================
    RESPONSIVO — telas estreitas (celular)
