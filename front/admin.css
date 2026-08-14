@@ -435,7 +435,6 @@ button.admin-link {
   grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   gap: 8px;
   margin: 4px 0;
-  justify-items: center;
 }
 
 .cad-servico-card {
@@ -485,44 +484,6 @@ button.admin-link {
   font-weight: 600;
 }
 
-/* Caderninho: lista de cortes de hoje */
-.cad-lista-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.cad-lista-item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: var(--bg-elevada);
-  border: 1px solid var(--borda);
-  border-radius: var(--raio-sm);
-  flex-wrap: wrap;
-}
-
-.cad-lista-hora {
-  font-weight: 700;
-  color: var(--acento);
-  font-size: 14px;
-  min-width: 50px;
-  text-align: center;
-}
-
-.cad-lista-nome {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--texto);
-}
-
-.cad-lista-servico {
-  font-size: 13px;
-  color: var(--texto-suave);
-}
-
 /* Expediente (jornada por barbeiro no dia) */
 .exp-lista {
   display: flex;
@@ -553,7 +514,6 @@ button.admin-link {
 .exp-horas {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
 }
 
@@ -571,7 +531,6 @@ button.admin-link {
 .exp-acoes {
   display: flex;
   gap: 8px;
-  justify-content: center;
 }
 
 .exp-item .exp-erro {
@@ -603,11 +562,6 @@ button.admin-link {
   vertical-align: top;
   padding-top: 16px;
   padding-bottom: 16px;
-  text-align: center;
-}
-
-#contagem-corpo table.tabela th {
-  text-align: center;
 }
 
 /* Detalhe de serviços por barbeiro na Contagem */
@@ -615,7 +569,7 @@ button.admin-link {
   font-size: 11px;
   color: var(--texto-suave);
   margin-top: 6px;
-  text-align: center;
+  text-align: left;
 }
 
 .contagem-servicos div {
@@ -630,7 +584,6 @@ button.admin-link {
 .acao-almoco {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 14px;
@@ -694,7 +647,6 @@ table.tabela .btn-mini {
   gap: 10px;
   flex-wrap: wrap;
   align-items: flex-end;
-  justify-content: center;
   margin-bottom: 16px;
 }
 
@@ -851,12 +803,9 @@ table.tabela .btn-mini {
   border: 1px solid var(--acento);
   border-left: 3px solid var(--acento);
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 3px 6px;
   overflow: hidden;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .agenda-card.cancelado {

@@ -557,13 +557,13 @@ async function renderAlmoco() {
     <div class="bloco">
       <h3 class="bloco-titulo">Almoço fixo (todo dia)</h3>
       <p class="secao-subtitulo" style="margin-top:0;">Vale automaticamente pra todos os dias. Remova pra marcar manual.</p>
-      <div class="form-linha" style="align-items:flex-end;justify-content:center;">
+      <div class="form-linha" style="align-items:flex-end;">
         <div class="form-grupo">
           <label class="campo-label" for="alm-fixo-hora">Começa às</label>
           <input type="time" id="alm-fixo-hora" class="campo-input" />
         </div>
-        <button class="btn-mini nav-btn" id="alm-fixo-salvar">Salvar fixo</button>
-        <button class="btn-mini perigo nav-btn" id="alm-fixo-remover" hidden>Remover fixo</button>
+        <button class="btn-mini" id="alm-fixo-salvar">Salvar fixo</button>
+        <button class="btn-mini perigo" id="alm-fixo-remover" hidden>Remover fixo</button>
       </div>
       <p class="secao-subtitulo" id="alm-fixo-status" style="margin:8px 0 0;"></p>
       <p class="login-erro" id="alm-fixo-erro" style="margin-top:4px;"></p>
@@ -715,15 +715,18 @@ async function carregarCaderninhoLista(barbeiroId, data) {
     ags.sort((a, b) => a.hora.localeCompare(b.hora));
     if (!ags.length) { alvo.innerHTML = vazio("Nenhum corte anotado hoje."); return; }
     alvo.innerHTML = `
-      <div class="cad-lista-grid">
-        ${ags.map((a) => `
-          <div class="cad-lista-item">
-            <span class="cad-lista-hora">${escapeHTML(a.hora.slice(0, 5))}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</span>
-            <span class="cad-lista-nome">${escapeHTML(a.cliente_nome)}</span>
-            <span class="cad-lista-servico">${escapeHTML(a.servico_nome)}</span>
-            <button class="btn-mini perigo" data-rem-cad="${a.id}">Remover</button>
-          </div>`).join("")}
-      </div>
+      <table class="tabela">
+        <thead><tr><th>Hora</th><th>Cliente</th><th>Serviço</th><th></th></tr></thead>
+        <tbody>
+          ${ags.map((a) => `
+            <tr>
+              <td data-rotulo="Hora">${escapeHTML(a.hora.slice(0, 5))}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</td>
+              <td data-rotulo="Cliente">${escapeHTML(a.cliente_nome)}</td>
+              <td data-rotulo="Serviço">${escapeHTML(a.servico_nome)}</td>
+              <td data-rotulo=""><button class="btn-mini perigo" data-rem-cad="${a.id}">Remover</button></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
     `;
     alvo.querySelectorAll("[data-rem-cad]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -867,7 +870,7 @@ function renderTimeline(container, data, colunas, ags) {
     if (s < ini) ini = s;
     if (e > fim) fim = e;
   });
-  const Hs = Math.floor(ini / 60), He = Math.ceil(fim / 60) + 1;
+  const Hs = Math.floor(ini / 60), He = Math.ceil(fim / 60);
   const altura = (He - Hs) * ALTURA_HORA;
   const verValores = API.admin.podeVerValores();
 
@@ -1156,8 +1159,8 @@ async function carregarExpedientes(data) {
               <input type="time" class="campo-input exp-fim" value="${b.fim}" />
             </div>
             <div class="exp-acoes">
-              <button class="btn-mini nav-btn exp-salvar">Salvar</button>
-              <button class="btn-mini nav-btn exp-normal"${b.personalizado ? "" : " hidden"}>Normal</button>
+              <button class="btn-mini exp-salvar">Salvar</button>
+              <button class="btn-mini exp-normal"${b.personalizado ? "" : " hidden"}>Normal</button>
             </div>
             <p class="login-erro exp-erro" style="margin:6px 0 0;"></p>
           </div>`).join("")}
