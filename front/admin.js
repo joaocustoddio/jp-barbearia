@@ -550,6 +550,9 @@ async function renderAgendaDia() {
 
 // ABA — ALMOÇO: gerenciar o almoço (fixo todo dia OU manual só hoje).
 async function renderAlmoco() {
+  // Master e salão podem gerenciar o almoço fixo de QUALQUER barbeiro (escolhem
+  // no seletor). Barbeiro comum mexe só no próprio.
+  const ehGestor = API.admin.ehMaster() || API.admin.papel() === "salao";
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Almoço</h2>
     <p class="secao-subtitulo">Bloqueie seu horário de almoço (60 minutos)</p>
@@ -557,6 +560,11 @@ async function renderAlmoco() {
     <div class="bloco">
       <h3 class="bloco-titulo">Almoço fixo (todo dia)</h3>
       <p class="secao-subtitulo" style="margin-top:0;">Vale automaticamente pra todos os dias. Remova pra marcar manual.</p>
+      ${ehGestor ? `
+      <div class="form-grupo" style="margin-bottom:12px;">
+        <label class="campo-label" for="alm-fixo-barbeiro">Barbeiro</label>
+        <select id="alm-fixo-barbeiro" class="campo-input"></select>
+      </div>` : ""}
       <div class="form-linha" style="align-items:flex-end;">
         <div class="form-grupo">
           <label class="campo-label" for="alm-fixo-hora">Começa às</label>
@@ -579,10 +587,26 @@ async function renderAlmoco() {
     </div>
   `;
 
+  if (ehGestor) {
+    try {
+      const barbs = await API.listarBarbeiros();
+      const sel = document.getElementById("alm-fixo-barbeiro");
+      sel.innerHTML = barbs.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("");
+      sel.addEventListener("change", carregarAlmocoFixo);
+    } catch (_) { /* segue sem seletor */ }
+  }
+
   carregarAlmocoFixo();
   document.getElementById("alm-fixo-salvar").addEventListener("click", salvarAlmocoFixo);
   document.getElementById("alm-fixo-remover").addEventListener("click", removerAlmocoFixoUI);
   atualizarBotaoAlmoco(hojeISO());   // almoço manual opera no dia de hoje
+}
+
+// Barbeiro alvo do almoço fixo: o do seletor (master/salão) ou o próprio (null =
+// o backend usa o barbeiro do token).
+function almocoFixoBarbeiro() {
+  const sel = document.getElementById("alm-fixo-barbeiro");
+  return sel ? Number(sel.value) : null;
 }
 
 /* =====================================================
@@ -750,7 +774,7 @@ async function carregarAlmocoFixo() {
   const input = document.getElementById("alm-fixo-hora");
   if (!status) return;
   try {
-    const r = await API.admin.obterAlmocoFixo();
+    const r = await API.admin.obterAlmocoFixo(almocoFixoBarbeiro());
     if (r && r.almoco_fixo) {
       input.value = r.almoco_fixo.slice(0, 5);
       status.textContent = `Almoço fixo ativo às ${r.almoco_fixo.slice(0, 5)} (todo dia).`;
@@ -770,7 +794,7 @@ async function salvarAlmocoFixo() {
   const btn = document.getElementById("alm-fixo-salvar");
   btn.disabled = true;
   try {
-    await API.admin.definirAlmocoFixo(hora);
+    await API.admin.definirAlmocoFixo(hora, almocoFixoBarbeiro());
     carregarAlmocoFixo();
   } catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
   finally { btn.disabled = false; }
@@ -778,7 +802,7 @@ async function salvarAlmocoFixo() {
 
 async function removerAlmocoFixoUI() {
   if (!confirm("Remover o almoço fixo? Você volta a marcar manualmente por dia.")) return;
-  try { await API.admin.removerAlmocoFixo(); carregarAlmocoFixo(); }
+  try { await API.admin.removerAlmocoFixo(almocoFixoBarbeiro()); carregarAlmocoFixo(); }
   catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
 }
 

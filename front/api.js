@@ -247,22 +247,26 @@ const API = (() => {
         });
       },
 
-      /** GET /api/admin/almoco-fixo → almoço fixo (todo dia) do barbeiro */
-      obterAlmocoFixo() {
-        return requestAuth("/api/admin/almoco-fixo");
+      /** GET /api/admin/almoco-fixo → almoço fixo (todo dia). Master/salão pode
+       *  passar barbeiroId pra consultar o de outro barbeiro. */
+      obterAlmocoFixo(barbeiroId) {
+        const q = barbeiroId ? `?barbeiro_id=${encodeURIComponent(barbeiroId)}` : "";
+        return requestAuth(`/api/admin/almoco-fixo${q}`);
       },
 
-      /** PUT /api/admin/almoco-fixo → define almoço fixo { hora } */
-      definirAlmocoFixo(hora) {
+      /** PUT /api/admin/almoco-fixo → define almoço fixo { hora, barbeiro_id? } */
+      definirAlmocoFixo(hora, barbeiroId) {
+        const body = barbeiroId ? { hora, barbeiro_id: barbeiroId } : { hora };
         return requestAuth("/api/admin/almoco-fixo", {
           method: "PUT",
-          body: JSON.stringify({ hora })
+          body: JSON.stringify(body)
         });
       },
 
-      /** DELETE /api/admin/almoco-fixo → remove o almoço fixo */
-      removerAlmocoFixo() {
-        return requestAuth("/api/admin/almoco-fixo", { method: "DELETE" });
+      /** DELETE /api/admin/almoco-fixo → remove o almoço fixo (barbeiroId opcional) */
+      removerAlmocoFixo(barbeiroId) {
+        const q = barbeiroId ? `?barbeiro_id=${encodeURIComponent(barbeiroId)}` : "";
+        return requestAuth(`/api/admin/almoco-fixo${q}`, { method: "DELETE" });
       },
 
       /** GET /api/admin/expedientes?data= → jornada de cada barbeiro no dia (master) */

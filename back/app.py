@@ -52,7 +52,7 @@ INTERVALO_MINUTOS     = int(os.getenv("INTERVALO_MINUTOS", "30"))
 # (abertura, fechamento). Dias não listados usam HORARIO_ABERTURA/FECHAMENTO.
 # Sexta (4): 08:20–19:30 | Sábado (5): 08:00–19:00 | domingo (6) é fechado.
 HORARIOS_ESPECIAIS = {
-    4: ("08:20", "19:30"),
+    4: ("08:20", "20:00"),
     5: ("08:00", "19:00"),
 }
 
@@ -76,6 +76,15 @@ DIAS_FECHADOS = {int(d.strip()) for d in _dias_fechados_raw.split(",") if d.stri
 
 # Nomes dos dias na ordem do weekday() do Python (pra montar mensagens de erro).
 NOMES_DIAS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+
+# Barbeiro "dono" (JP). Tem tratamento especial: é o único que entra antes das
+# 9h nos dias de abertura antecipada (sex/sáb) e tem folga semanal. Os demais
+# barbeiros só começam a partir de PISO_ABERTURA_OUTROS.
+BARBEIRO_DONO_ID       = int(os.getenv("BARBEIRO_DONO_ID", "1"))
+PISO_ABERTURA_OUTROS   = os.getenv("PISO_ABERTURA_OUTROS", "09:00")
+# Folga semanal do dono (weekday do Python: 0=seg..6=dom). Vazio = sem folga.
+_folga_dono_raw        = os.getenv("FOLGA_DONO_WEEKDAY", "0")
+FOLGA_DONO_WEEKDAY     = int(_folga_dono_raw) if _folga_dono_raw.strip() != "" else None
 
 # CORS: em produção trava no domínio configurado (CORS_ORIGIN); em
 # desenvolvimento libera geral, pra rodar o front local (localhost) sem
@@ -166,15 +175,37 @@ def horario_do_dia(data_str):
     return HORARIOS_ESPECIAIS.get(wd, (HORARIO_ABERTURA, HORARIO_FECHAMENTO))
 
 def horario_efetivo(data_str, barbeiro_id, conn):
-    """(abertura, fechamento) que valem pra ESTE barbeiro nesta data: se o master
-    definiu um expediente especial pro dia, usa ele; senão, o horário padrão do dia."""
+    """(abertura, fechamento) que valem pra ESTE barbeiro nesta data.
+
+    Ordem de prioridade:
+    1. Expediente manual do master pro dia (sobrepõe tudo);
+    2. Folga semanal do dono → devolve abertura==fechamento (nenhum horário);
+    3. Piso de abertura dos demais barbeiros (só o dono entra antes das 9h);
+    4. Horário padrão do dia.
+    """
     row = conn.execute(
         "SELECT inicio, fim FROM expedientes WHERE barbeiro_id = %s AND data = %s",
         (barbeiro_id, data_str)
     ).fetchone()
     if row:
         return row["inicio"], row["fim"]
-    return horario_do_dia(data_str)
+
+    abertura, fechamento = horario_do_dia(data_str)
+    try:
+        wd = datetime.strptime(data_str, "%Y-%m-%d").date().weekday()
+    except (ValueError, TypeError):
+        wd = None
+    eh_dono = int(barbeiro_id) == BARBEIRO_DONO_ID
+
+    # Folga semanal do dono: fecha o dia pra ele (abertura == fechamento → 0 slots).
+    if eh_dono and FOLGA_DONO_WEEKDAY is not None and wd == FOLGA_DONO_WEEKDAY:
+        return abertura, abertura
+
+    # Só o dono entra antes do piso (ex: 09:00). Os demais começam no piso.
+    if not eh_dono and _hhmm_min(abertura) < _hhmm_min(PISO_ABERTURA_OUTROS):
+        abertura = PISO_ABERTURA_OUTROS
+
+    return abertura, fechamento
 
 def validar_hora(hora_str, data_str=None):
     if not hora_str:
@@ -270,9 +301,8 @@ def horarios_disponiveis():
         if srow:
             dur_serv = srow["duracao_min"]
 
-    # Horário efetivo do barbeiro no dia (expediente especial, se houver).
+    # Horário efetivo do barbeiro no dia (expediente/piso/folga).
     abertura, fechamento = horario_efetivo(data_str, barbeiro_id, conn)
-    todos = _gerar_horarios_do_dia(data_str, dur_serv, abertura, fechamento)
 
     # Agendamentos existentes DESTE barbeiro (com a duração de cada serviço).
     ocupados = conn.execute(
@@ -310,35 +340,51 @@ def horarios_disponiveis():
         a = _hhmm_min(almoco_fixo)
         ocupadas.append((a, a + 60))
 
-    # Um slot só é livre se o serviço couber ali SEM sobrepor nenhuma janela ocupada.
-    def livre(inicio):
-        fim_slot = inicio + dur_serv
-        return all(not (inicio < oc_fim and oc_ini < fim_slot) for (oc_ini, oc_fim) in ocupadas)
-
-    disponiveis = [h for h in todos if livre(_hhmm_min(h))]
+    # Horários gerados de forma DINÂMICA: encaixa nas brechas livres começando
+    # onde o corte anterior terminou (packing), sem desperdiçar espaço.
+    disponiveis = _slots_dinamicos(abertura, fechamento, ocupadas, dur_serv, data_str)
 
     return jsonify({"data": data_str, "barbeiro_id": barbeiro_id, "horarios_disponiveis": disponiveis})
 
 
-def _gerar_horarios_do_dia(data_str, duracao_servico, abertura, fechamento):
+def _intervalos_livres(ab_min, fe_min, ocupadas):
+    """Brechas livres dentro de [ab_min, fe_min], descontando as janelas ocupadas.
+    Devolve lista de (inicio, fim) em minutos, já ordenada e sem sobreposição."""
+    livres = []
+    cursor = ab_min
+    for (oi, of) in sorted(ocupadas):
+        if of <= cursor:                    # janela já ficou pra trás
+            continue
+        if oi > cursor:                     # há espaço livre antes dela
+            livres.append((cursor, min(oi, fe_min)))
+        cursor = max(cursor, of)
+        if cursor >= fe_min:
+            break
+    if cursor < fe_min:
+        livres.append((cursor, fe_min))
+    return [(a, b) for (a, b) in livres if b > a]
+
+
+def _slots_dinamicos(abertura, fechamento, ocupadas, duracao, data_str):
     """
-    Gera os slots do dia com PASSO = duração do serviço (ex: Degradê 40min →
-    09:00, 09:40, 10:20…), começando na 'abertura' e indo enquanto o serviço
-    couber ANTES do 'fechamento' (slot + duração <= fechamento).
-    Abertura/fechamento vêm do chamador (horário do dia, com expediente do barbeiro).
+    Gera os horários de forma DINÂMICA: em cada brecha livre do dia começa no
+    início da brecha (logo após o corte anterior ou a abertura) e vai somando a
+    duração do serviço enquanto ele couber. Assim nenhuma brecha é desperdiçada —
+    um corte que termina 18:10 libera o próximo às 18:10, não às 18:40.
 
     Se a data for HOJE, remove os horários que já passaram ou estão dentro da
     janela de antecedência mínima.
     """
     ini = _hhmm_min(abertura)
     fim = _hhmm_min(fechamento)
-    passo = max(int(duracao_servico or INTERVALO_MINUTOS), 5)
+    passo = max(int(duracao or INTERVALO_MINUTOS), 5)
 
     horarios = []
-    s = ini
-    while s + passo <= fim:                 # o serviço tem que terminar até o fechamento
-        horarios.append("%02d:%02d" % (s // 60, s % 60))
-        s += passo
+    for (a, b) in _intervalos_livres(ini, fim, ocupadas):
+        s = a
+        while s + passo <= b:               # o serviço tem que terminar dentro da brecha
+            horarios.append("%02d:%02d" % (s // 60, s % 60))
+            s += passo
 
     if data_str == date.today().isoformat():
         agora = datetime.now()
@@ -1171,12 +1217,14 @@ def remover_bloqueio(bloqueio_id):
 # Não é @somente_master: o próprio barbeiro gerencia o almoço dele.
 # -------------------------------------------------------
 def _barbeiro_alvo_almoco(fonte):
-    """Descobre o barbeiro do almoço: o do escopo (barbeiro logado), o barbeiro_id
-    do token (master = JP) ou o que vier na requisição (salão escolhendo).
-    Retorna (id, erro)."""
-    barbeiro_id = barbeiro_do_escopo()
-    if barbeiro_id is None:
-        barbeiro_id = g.usuario.get("barbeiro_id") or fonte.get("barbeiro_id")
+    """Descobre o barbeiro do almoço. Retorna (id, erro).
+    - Barbeiro logado: SEMPRE o próprio (não mexe no de ninguém);
+    - Master/salão: o barbeiro_id informado (pode escolher qualquer um) e,
+      se não vier, cai no barbeiro do token (master = JP)."""
+    escopo = barbeiro_do_escopo()          # barbeiro → seu id; master/salão → None
+    if escopo is not None:
+        return escopo, None
+    barbeiro_id = fonte.get("barbeiro_id") or g.usuario.get("barbeiro_id")
     if not barbeiro_id:
         return None, "barbeiro_id é obrigatório"
     return barbeiro_id, None
@@ -1259,19 +1307,14 @@ def liberar_almoco():
     return jsonify({"mensagem": "Almoço liberado."})
 
 
-def _barbeiro_do_usuario():
-    """Barbeiro do usuário logado: escopo (barbeiro) ou o barbeiro_id do token
-    (master = JP). Retorna None se não tiver (ex: salão)."""
-    return barbeiro_do_escopo() or g.usuario.get("barbeiro_id")
-
-
 @app.route("/api/admin/almoco-fixo", methods=["GET"])
 @token_requerido
 def obter_almoco_fixo():
-    """Almoço fixo (todo dia) do barbeiro logado."""
-    barbeiro_id = _barbeiro_do_usuario()
-    if not barbeiro_id:
-        return jsonify({"erro": "Sem barbeiro associado"}), 400
+    """Almoço fixo (todo dia). Barbeiro vê o próprio; master/salão pode consultar
+    outro passando ?barbeiro_id=."""
+    barbeiro_id, erro = _barbeiro_alvo_almoco(request.args)
+    if erro:
+        return jsonify({"erro": erro}), 400
     conn = get_connection()
     row = conn.execute("SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone()
     conn.close()
@@ -1289,9 +1332,9 @@ def definir_almoco_fixo():
     valido, erro = validar_hora(hora)
     if not valido:
         return jsonify({"erro": erro}), 400
-    barbeiro_id = _barbeiro_do_usuario()
-    if not barbeiro_id:
-        return jsonify({"erro": "Sem barbeiro associado"}), 400
+    barbeiro_id, erro = _barbeiro_alvo_almoco(dados)
+    if erro:
+        return jsonify({"erro": erro}), 400
     conn = get_connection()
     conn.execute("UPDATE barbeiros SET almoco_fixo = %s WHERE id = %s", (hora, barbeiro_id))
     conn.commit()
@@ -1302,10 +1345,11 @@ def definir_almoco_fixo():
 @app.route("/api/admin/almoco-fixo", methods=["DELETE"])
 @token_requerido
 def remover_almoco_fixo():
-    """Remove o almoço fixo do barbeiro (volta a marcar manualmente por dia)."""
-    barbeiro_id = _barbeiro_do_usuario()
-    if not barbeiro_id:
-        return jsonify({"erro": "Sem barbeiro associado"}), 400
+    """Remove o almoço fixo (volta a marcar manualmente por dia). Master/salão
+    pode remover o de outro passando ?barbeiro_id=."""
+    barbeiro_id, erro = _barbeiro_alvo_almoco(request.args)
+    if erro:
+        return jsonify({"erro": erro}), 400
     conn = get_connection()
     conn.execute("UPDATE barbeiros SET almoco_fixo = NULL WHERE id = %s", (barbeiro_id,))
     conn.commit()
