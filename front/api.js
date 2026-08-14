@@ -269,6 +269,11 @@ const API = (() => {
         return requestAuth(`/api/admin/almoco-fixo${q}`, { method: "DELETE" });
       },
 
+      /** GET /api/admin/almocos?data= → almoços do dia (fixo+manual) por barbeiro */
+      listarAlmocos(data) {
+        return requestAuth(`/api/admin/almocos?data=${encodeURIComponent(data)}`);
+      },
+
       /** GET /api/admin/expedientes?data= → jornada de cada barbeiro no dia (master) */
       listarExpedientes(data) {
         return requestAuth(`/api/admin/expedientes?data=${encodeURIComponent(data)}`);

@@ -1357,6 +1357,50 @@ def remover_almoco_fixo():
     return jsonify({"mensagem": "Almoço fixo removido."})
 
 
+@app.route("/api/admin/almocos", methods=["GET"])
+@token_requerido
+def listar_almocos():
+    """Almoços do dia (fixo + manual) por barbeiro, pra desenhar na agenda como
+    um bloco. Barbeiro vê o próprio; master/salão vê todos. ?data=YYYY-MM-DD"""
+    data = request.args.get("data")
+    if not data:
+        return jsonify({"erro": "Data é obrigatória"}), 400
+    escopo = barbeiro_do_escopo()   # barbeiro → seu id; master/salão → None
+    conn = get_connection()
+
+    q_manual = """SELECT b.barbeiro_id, b.hora, b.duracao_min, bb.nome AS barbeiro_nome
+                  FROM bloqueios b JOIN barbeiros bb ON b.barbeiro_id = bb.id
+                  WHERE b.data = %s AND b.motivo = 'Almoço'"""
+    pm = [data]
+    if escopo is not None:
+        q_manual += " AND b.barbeiro_id = %s"
+        pm.append(escopo)
+    manuais = conn.execute(q_manual, pm).fetchall()
+
+    q_fixo = ("SELECT id AS barbeiro_id, nome AS barbeiro_nome, almoco_fixo "
+              "FROM barbeiros WHERE ativo = 1 AND almoco_fixo IS NOT NULL")
+    pf = []
+    if escopo is not None:
+        q_fixo += " AND id = %s"
+        pf.append(escopo)
+    fixos = conn.execute(q_fixo, pf).fetchall()
+    conn.close()
+
+    saida, vistos = [], set()
+    for m in manuais:
+        hora = m["hora"][:5]
+        saida.append({"barbeiro_id": m["barbeiro_id"], "barbeiro_nome": m["barbeiro_nome"],
+                      "hora": hora, "duracao_min": m["duracao_min"] or 60, "tipo": "manual"})
+        vistos.add((m["barbeiro_id"], hora))
+    for f in fixos:
+        hora = f["almoco_fixo"][:5]
+        if (f["barbeiro_id"], hora) in vistos:   # manual do dia já cobre esse horário
+            continue
+        saida.append({"barbeiro_id": f["barbeiro_id"], "barbeiro_nome": f["barbeiro_nome"],
+                      "hora": hora, "duracao_min": 60, "tipo": "fixo"})
+    return jsonify(saida)
+
+
 # -------------------------------------------------------
 # EXPEDIENTE — o master ajusta a jornada (início/fim) de cada barbeiro por dia.
 # Sobrepõe o horário padrão do dia SÓ pra aquele barbeiro naquela data.

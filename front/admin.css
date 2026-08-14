@@ -819,6 +819,16 @@ table.tabela .btn-mini {
   text-decoration: line-through;
 }
 
+/* Card de ALMOÇO na timeline — cor azul, pra destacar que não é atendimento */
+.agenda-card.agenda-almoco {
+  background: rgba(96, 165, 250, 0.15);
+  border-color: #60a5fa;
+  border-left-color: #60a5fa;
+}
+.agenda-card.agenda-almoco .agenda-card-topo { color: #60a5fa; }
+.agenda-card.agenda-almoco .agenda-card-cliente { color: #bfdbfe; font-weight: 700; }
+.agenda-card.agenda-almoco .agenda-card-servico { color: #93c5fd; }
+
 .agenda-card-topo {
   display: flex;
   justify-content: space-between;

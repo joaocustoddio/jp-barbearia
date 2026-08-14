@@ -827,7 +827,12 @@ async function carregarAgenda(data) {
     const filtrados = ags.filter((a) =>
       statusAgenda === "cancelados" ? a.status === "cancelado" : a.status !== "cancelado"
     );
-    renderTimeline(corpo, data, colunas, filtrados);
+    // Almoços aparecem na timeline como bloco (cor diferente) — só na aba de ativos.
+    let almocos = [];
+    if (statusAgenda !== "cancelados") {
+      try { almocos = await API.admin.listarAlmocos(data); } catch (_) { /* segue sem almoços */ }
+    }
+    renderTimeline(corpo, data, colunas, filtrados, almocos);
   } catch (erro) {
     const msg = tratarErro(erro);
     if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
@@ -885,8 +890,9 @@ function empilharCards(cards) {
   return ordenados;
 }
 
-function renderTimeline(container, data, colunas, ags) {
-  // Janela do dia (horas): a partir dos agendamentos, com margem 8h–20h.
+function renderTimeline(container, data, colunas, ags, almocos) {
+  almocos = almocos || [];
+  // Janela do dia (horas): a partir dos agendamentos + almoços, com margem 8h–20h.
   let ini = 8 * 60, fim = 20 * 60;
   ags.forEach((a) => {
     const s = minutosDe(a.hora);
@@ -894,14 +900,22 @@ function renderTimeline(container, data, colunas, ags) {
     if (s < ini) ini = s;
     if (e > fim) fim = e;
   });
+  almocos.forEach((al) => {
+    const s = minutosDe(al.hora);
+    const e = s + (al.duracao_min || 60);
+    if (s < ini) ini = s;
+    if (e > fim) fim = e;
+  });
   const Hs = Math.floor(ini / 60), He = Math.ceil(fim / 60);
   const altura = (He - Hs) * ALTURA_HORA;
   const verValores = API.admin.podeVerValores();
 
-  // Agrupa por barbeiro
+  // Agrupa por barbeiro (agendamentos e almoços)
   const porBarbeiro = {};
-  colunas.forEach((c) => (porBarbeiro[c.id] = []));
+  const porAlmoco = {};
+  colunas.forEach((c) => { porBarbeiro[c.id] = []; porAlmoco[c.id] = []; });
   ags.forEach((a) => { if (porBarbeiro[a.barbeiro_id]) porBarbeiro[a.barbeiro_id].push(a); });
+  almocos.forEach((al) => { if (porAlmoco[al.barbeiro_id]) porAlmoco[al.barbeiro_id].push(al); });
 
   // Régua de horas
   let regua = "";
@@ -923,12 +937,16 @@ function renderTimeline(container, data, colunas, ags) {
     const lista = (porBarbeiro[c.id] || []).map((a) => {
       const s = minutosDe(a.hora);
       const dur = a.servico_duracao || 30;
-      return { a, s, e: s + dur, dur };
+      return { tipo: "ag", a, s, e: s + dur, dur };
+    });
+    (porAlmoco[c.id] || []).forEach((al) => {
+      const s = minutosDe(al.hora);
+      const dur = al.duracao_min || 60;
+      lista.push({ tipo: "almoco", al, s, e: s + dur, dur });
     });
     let prevBottom = -Infinity;
     const GAP = 6;
     const cards = empilharCards(lista).map((p) => {
-      const a = p.a;
       const s = p.s;
       const dur = p.dur;
       let top = (s - Hs * 60) / 60 * ALTURA_HORA;
@@ -936,6 +954,20 @@ function renderTimeline(container, data, colunas, ags) {
       if (top < prevBottom + GAP) top = prevBottom + GAP;
       prevBottom = top + h;
       const pos = `top:${top}px;height:${h}px;left:3px;right:3px;`;
+
+      // Card de ALMOÇO: cor diferente, sem ações. Só pra o barbeiro visualizar.
+      if (p.tipo === "almoco") {
+        const al = p.al;
+        const rot = al.tipo === "fixo" ? "todo dia" : "só hoje";
+        return `
+          <div class="agenda-card agenda-almoco" style="${pos}">
+            <div class="agenda-card-topo"><span>${escapeHTML(al.hora)}–${minParaHHMM(s + dur)}</span></div>
+            <div class="agenda-card-cliente">🍽️ Almoço</div>
+            <div class="agenda-card-servico">${rot}</div>
+          </div>`;
+      }
+
+      const a = p.a;
       const canc = a.status === "cancelado";
       const valor = (verValores && a.servico_preco != null)
         ? `<span class="agenda-card-valor">${formatarMoeda(a.servico_preco)}</span>` : "";
