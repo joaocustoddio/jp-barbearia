@@ -9,7 +9,9 @@
    a classe define um display (ex: .login-page usa display:flex).
    Sem isso, a tela "escondida" continua aparecendo — o que deixava
    o painel visível antes do login. */
-[hidden] { display: none !important; }
+[hidden] {
+  display: none !important;
+}
 
 /* ---------- Login ---------- */
 .login-page {
@@ -53,6 +55,7 @@
   font-family: inherit;
   transition: border-color 0.15s ease;
 }
+
 .campo-input:focus {
   outline: none;
   border-color: var(--acento);
@@ -73,7 +76,10 @@
   font-size: 13px;
   text-decoration: none;
 }
-.voltar-site:hover { color: var(--texto); }
+
+.voltar-site:hover {
+  color: var(--texto);
+}
 
 /* ---------- Botão "Sair" (segue o padrão dos chips: borda + hover laranja) ---------- */
 #btn-logout {
@@ -82,6 +88,7 @@
   color: var(--texto-suave);
   border: 1px solid var(--borda-forte);
 }
+
 #btn-logout:hover {
   background: var(--acento-fraco);
   border-color: var(--acento);
@@ -109,7 +116,11 @@
   white-space: nowrap;
   transition: color 0.15s ease, border-color 0.15s ease;
 }
-.aba:hover { color: var(--texto); }
+
+.aba:hover {
+  color: var(--texto);
+}
+
 .aba.ativa {
   color: var(--acento);
   border-bottom-color: var(--acento);
@@ -122,6 +133,7 @@
   font-weight: 700;
   margin: 0 0 4px;
 }
+
 .secao-subtitulo {
   color: var(--texto-suave);
   font-size: 14px;
@@ -142,6 +154,7 @@
   border-radius: var(--raio-md);
   padding: 18px;
 }
+
 .kpi-rotulo {
   color: var(--texto-suave);
   font-size: 12px;
@@ -149,13 +162,17 @@
   letter-spacing: 0.04em;
   margin: 0 0 8px;
 }
+
 .kpi-valor {
   font-family: var(--fonte-titulo);
   font-size: 26px;
   font-weight: 800;
   margin: 0;
 }
-.kpi-valor.acento { color: var(--acento); }
+
+.kpi-valor.acento {
+  color: var(--acento);
+}
 
 /* ---------- Filtro de período ---------- */
 .filtros {
@@ -165,6 +182,7 @@
   flex-wrap: wrap;
   margin-bottom: 20px;
 }
+
 .chip-filtro {
   background: var(--card);
   border: 1px solid var(--borda);
@@ -176,7 +194,12 @@
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.chip-filtro:hover { border-color: var(--borda-forte); color: var(--texto); }
+
+.chip-filtro:hover {
+  border-color: var(--borda-forte);
+  color: var(--texto);
+}
+
 .chip-filtro.ativo {
   background: var(--acento-fraco);
   border-color: var(--acento);
@@ -191,6 +214,7 @@
   padding: 20px;
   margin-bottom: 20px;
 }
+
 .bloco-titulo {
   font-family: var(--fonte-titulo);
   font-size: 15px;
@@ -202,13 +226,17 @@
    table-layout: fixed + width 100% faz a tabela SEMPRE caber na largura
    disponível (computador/tablet), sem rolagem horizontal. O conteúdo quebra
    linha dentro da célula em vez de esticar a tabela pra fora. */
-.tabela-wrap { overflow-x: auto; }
+.tabela-wrap {
+  overflow-x: auto;
+}
+
 table.tabela {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
 }
+
 table.tabela th {
   text-align: left;
   color: var(--texto-suave);
@@ -219,6 +247,7 @@ table.tabela th {
   padding: 9px 7px;
   border-bottom: 1px solid var(--borda);
 }
+
 table.tabela td {
   padding: 10px 7px;
   border-bottom: 1px solid var(--borda);
@@ -226,7 +255,10 @@ table.tabela td {
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-table.tabela tr:last-child td { border-bottom: none; }
+
+table.tabela tr:last-child td {
+  border-bottom: none;
+}
 
 /* Linha de totais (contagem do dia — só o master vê) — destaque laranja */
 table.tabela tfoot .linha-totais td {
@@ -234,9 +266,16 @@ table.tabela tfoot .linha-totais td {
   background: var(--acento-fraco);
 
 }
+
 /* Título do fechamento (substitui "Totais" por "JP BARBEARIA") — centralizado */
-.totais-titulo { text-align: center; }
-.totais-titulo strong { color: var(--acento); letter-spacing: 0.4px; }
+.totais-titulo {
+  text-align: center;
+}
+
+.totais-titulo strong {
+  color: var(--acento);
+  letter-spacing: 0.4px;
+}
 
 /* ---------- Badge de status ---------- */
 .badge {
@@ -247,10 +286,26 @@ table.tabela tfoot .linha-totais td {
   border-radius: 999px;
   white-space: nowrap;
 }
-.badge.confirmado { background: rgba(76,175,125,0.14); color: var(--sucesso); }
-.badge.cancelado  { background: var(--erro-fundo); color: var(--erro); }
-.badge.inativo    { background: var(--erro-fundo); color: var(--erro); }
-.badge.ativo      { background: rgba(76,175,125,0.14); color: var(--sucesso); }
+
+.badge.confirmado {
+  background: rgba(76, 175, 125, 0.14);
+  color: var(--sucesso);
+}
+
+.badge.cancelado {
+  background: var(--erro-fundo);
+  color: var(--erro);
+}
+
+.badge.inativo {
+  background: var(--erro-fundo);
+  color: var(--erro);
+}
+
+.badge.ativo {
+  background: rgba(76, 175, 125, 0.14);
+  color: var(--sucesso);
+}
 
 /* ---------- Botões menores em tabela ---------- */
 .btn-mini {
@@ -264,12 +319,37 @@ table.tabela tfoot .linha-totais td {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.btn-mini:hover { border-color: var(--acento); }
-.btn-mini.perigo { color: var(--erro); border-color: rgba(239,83,80,0.4); }
-.btn-mini.perigo:hover { background: var(--erro-fundo); }
-.btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
-.topbar-acoes { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-button.admin-link { background: none; cursor: pointer; }
+
+.btn-mini:hover {
+  border-color: var(--acento);
+}
+
+.btn-mini.perigo {
+  color: var(--erro);
+  border-color: rgba(239, 83, 80, 0.4);
+}
+
+.btn-mini.perigo:hover {
+  background: var(--erro-fundo);
+}
+
+.btn-mini:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.topbar-acoes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+button.admin-link {
+  background: none;
+  cursor: pointer;
+}
+
 .usuario-atual {
   font-size: 13px;
   font-weight: 600;
@@ -292,6 +372,7 @@ button.admin-link { background: none; cursor: pointer; }
   padding: 16px;
   z-index: 1000;
 }
+
 .modal-box {
   background: var(--bg-elevada);
   border: 1px solid var(--borda-forte);
@@ -301,12 +382,39 @@ button.admin-link { background: none; cursor: pointer; }
   max-width: 380px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
 }
-.modal-titulo { margin: 0 0 6px; font-size: 18px; color: var(--texto); }
-.modal-cliente { margin: 0 0 14px; font-size: 14px; color: var(--texto-suave); }
-.modal-linha { display: flex; gap: 12px; }
-.modal-campo { flex: 1; }
-.modal-box .campo-label { margin-top: 10px; }
-.modal-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+.modal-titulo {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: var(--texto);
+}
+
+.modal-cliente {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--texto-suave);
+}
+
+.modal-linha {
+  display: flex;
+  gap: 12px;
+}
+
+.modal-campo {
+  flex: 1;
+}
+
+.modal-box .campo-label {
+  margin-top: 10px;
+}
+
+.modal-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .tag-encaixe {
   display: inline-block;
   font-size: 9px;
@@ -328,6 +436,7 @@ button.admin-link { background: none; cursor: pointer; }
   gap: 8px;
   margin: 4px 0;
 }
+
 .cad-servico-card {
   display: flex;
   flex-direction: column;
@@ -340,17 +449,48 @@ button.admin-link { background: none; cursor: pointer; }
   cursor: pointer;
   text-align: center;
 }
-.cad-servico-card:hover { border-color: var(--acento); }
-.cad-servico-card.selecionado { border-color: var(--acento); background: var(--acento-fraco); }
-.cad-servico-card img, .cad-servico-ph {
-  width: 46px; height: 46px; border-radius: 10px; object-fit: cover;
+
+.cad-servico-card:hover {
+  border-color: var(--acento);
 }
-.cad-servico-ph { background: var(--card); }
-.cad-servico-nome { font-size: 12px; font-weight: 600; color: var(--texto); line-height: 1.15; }
-.cad-servico-preco { font-size: 11px; color: var(--acento); font-weight: 600; }
+
+.cad-servico-card.selecionado {
+  border-color: var(--acento);
+  background: var(--acento-fraco);
+}
+
+.cad-servico-card img,
+.cad-servico-ph {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.cad-servico-ph {
+  background: var(--card);
+}
+
+.cad-servico-nome {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto);
+  line-height: 1.15;
+}
+
+.cad-servico-preco {
+  font-size: 11px;
+  color: var(--acento);
+  font-weight: 600;
+}
 
 /* Expediente (jornada por barbeiro no dia) */
-.exp-lista { display: flex; flex-direction: column; gap: 12px; }
+.exp-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .exp-item {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -361,22 +501,68 @@ button.admin-link { background: none; cursor: pointer; }
   border: 1px solid var(--borda);
   border-radius: var(--raio-sm);
 }
-.exp-nome { font-weight: 600; color: var(--texto); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.exp-horas { display: flex; align-items: center; gap: 8px; }
-.exp-horas .campo-input { width: auto; margin-bottom: 0; height: 38px; }
-.exp-horas span { color: var(--texto-suave); font-size: 13px; }
-.exp-acoes { display: flex; gap: 8px; }
-.exp-item .exp-erro { grid-column: 1 / -1; }
+
+.exp-nome {
+  font-weight: 600;
+  color: var(--texto);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exp-horas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exp-horas .campo-input {
+  width: auto;
+  margin-bottom: 0;
+  height: 38px;
+}
+
+.exp-horas span {
+  color: var(--texto-suave);
+  font-size: 13px;
+}
+
+.exp-acoes {
+  display: flex;
+  gap: 8px;
+}
+
+.exp-item .exp-erro {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 640px) {
-  .exp-item { grid-template-columns: 1fr; }
-  .exp-horas, .exp-acoes { justify-content: space-between; }
-  .exp-horas .campo-input { flex: 1; }
+  .exp-item {
+    grid-template-columns: 1fr;
+  }
+
+  .exp-horas,
+  .exp-acoes {
+    justify-content: space-between;
+  }
+
+  .exp-horas .campo-input {
+    flex: 1;
+  }
 }
 
 /* Contagem: colunas se ajustam ao conteúdo (barbeiro fica mais largo pro
    breakdown) e o conteúdo alinha no topo (números não boiam no meio). */
-#contagem-corpo table.tabela { table-layout: auto; }
-#contagem-corpo table.tabela td { vertical-align: top; padding-top: 16px; padding-bottom: 16px; }
+#contagem-corpo table.tabela {
+  table-layout: auto;
+}
+
+#contagem-corpo table.tabela td {
+  vertical-align: top;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
 
 /* Detalhe de serviços por barbeiro na Contagem */
 .contagem-servicos {
@@ -385,11 +571,16 @@ button.admin-link { background: none; cursor: pointer; }
   margin-top: 6px;
   text-align: left;
 }
+
 .contagem-servicos div {
   margin-top: 6px;
   line-height: 1.3;
 }
-.contagem-servicos div:first-child { margin-top: 0; }
+
+.contagem-servicos div:first-child {
+  margin-top: 0;
+}
+
 .acao-almoco {
   display: flex;
   align-items: center;
@@ -399,6 +590,7 @@ button.admin-link { background: none; cursor: pointer; }
   padding-top: 14px;
   border-top: 1px solid var(--borda);
 }
+
 .btn-almoco.marcado {
   color: var(--acento);
   border-color: var(--acento);
@@ -420,9 +612,21 @@ table.tabela .btn-mini {
   align-items: center;
   margin-bottom: 12px;
 }
-.ranking-item:last-child { margin-bottom: 0; }
-.ranking-nome { font-size: 14px; font-weight: 600; }
-.ranking-num  { font-size: 13px; color: var(--texto-suave); }
+
+.ranking-item:last-child {
+  margin-bottom: 0;
+}
+
+.ranking-nome {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ranking-num {
+  font-size: 13px;
+  color: var(--texto-suave);
+}
+
 .ranking-barra-fundo {
   grid-column: 1 / -1;
   height: 6px;
@@ -430,6 +634,7 @@ table.tabela .btn-mini {
   border-radius: 999px;
   overflow: hidden;
 }
+
 .ranking-barra {
   height: 100%;
   background: var(--acento);
@@ -444,12 +649,16 @@ table.tabela .btn-mini {
   align-items: flex-end;
   margin-bottom: 16px;
 }
+
 .form-grupo {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.form-grupo .campo-input { margin-bottom: 0; }
+
+.form-grupo .campo-input {
+  margin-bottom: 0;
+}
 
 /* ---------- Estados vazio/carregando/erro ---------- */
 .estado-vazio {
@@ -458,9 +667,10 @@ table.tabela .btn-mini {
   padding: 32px 16px;
   font-size: 14px;
 }
+
 .painel-erro {
   background: var(--erro-fundo);
-  border: 1px solid rgba(239,83,80,0.3);
+  border: 1px solid rgba(239, 83, 80, 0.3);
   color: var(--erro);
   border-radius: var(--raio-md);
   padding: 12px 16px;
@@ -477,8 +687,15 @@ table.tabela .btn-mini {
   align-items: center;
   margin-bottom: 16px;
   flex-wrap: wrap;
+  justify-content: center;
 }
-.agenda-nav .campo-input { width: auto; margin-bottom: 0; height: 40px; }
+
+.agenda-nav .campo-input {
+  width: auto;
+  margin-bottom: 0;
+  height: 40px;
+}
+
 /* Botões da nav com tamanhos uniformes: setas quadradas, Hoje/Amanhã iguais */
 .agenda-nav .btn-mini {
   height: 40px;
@@ -486,13 +703,33 @@ table.tabela .btn-mini {
   align-items: center;
   justify-content: center;
 }
-.agenda-nav .nav-seta { width: 40px; padding: 0; font-size: 18px; line-height: 1; }
-.agenda-nav .nav-btn { min-width: 84px; }
+
+.agenda-nav .nav-seta {
+  width: 40px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.agenda-nav .nav-btn {
+  min-width: 84px;
+}
 
 /* Seletor Agendamentos / Cancelados (na Agenda do dia) */
-.agenda-status { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.agenda-status {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  justify-content: center;
+}
 
-.agenda-seletor { display: none; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.agenda-seletor {
+  display: none;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
 
 .agenda-heads {
   display: flex;
@@ -500,10 +737,15 @@ table.tabela .btn-mini {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--card);   /* mesmo fundo do card, pra não destoar */
+  background: var(--card);
+  /* mesmo fundo do card, pra não destoar */
   padding-bottom: 10px;
 }
-.agenda-head-spacer { flex: 0 0 46px; }
+
+.agenda-head-spacer {
+  flex: 0 0 46px;
+}
+
 .agenda-head {
   flex: 1;
   min-width: 0;
@@ -523,8 +765,17 @@ table.tabela .btn-mini {
   text-overflow: ellipsis;
 }
 
-.agenda-corpo-grid { display: flex; gap: 6px; padding-top: 12px; }
-.agenda-gutter { flex: 0 0 46px; position: relative; }
+.agenda-corpo-grid {
+  display: flex;
+  gap: 6px;
+  padding-top: 12px;
+}
+
+.agenda-gutter {
+  flex: 0 0 46px;
+  position: relative;
+}
+
 .agenda-hora {
   position: absolute;
   right: 6px;
@@ -534,7 +785,11 @@ table.tabela .btn-mini {
   color: var(--acento);
 }
 
-.agenda-col { flex: 1; min-width: 0; }
+.agenda-col {
+  flex: 1;
+  min-width: 0;
+}
+
 .agenda-col-body {
   position: relative;
   background: var(--bg-elevada);
@@ -552,13 +807,18 @@ table.tabela .btn-mini {
   overflow: hidden;
   box-sizing: border-box;
 }
+
 .agenda-card.cancelado {
   background: var(--erro-fundo);
   border-color: rgba(239, 83, 80, 0.4);
   border-left-color: var(--erro);
   opacity: 0.65;
 }
-.agenda-card.cancelado .agenda-card-cliente { text-decoration: line-through; }
+
+.agenda-card.cancelado .agenda-card-cliente {
+  text-decoration: line-through;
+}
+
 .agenda-card-topo {
   display: flex;
   justify-content: space-between;
@@ -568,6 +828,7 @@ table.tabela .btn-mini {
   font-weight: 600;
   color: var(--acento);
 }
+
 .agenda-card-cliente {
   font-size: 12px;
   line-height: 1.2;
@@ -577,6 +838,7 @@ table.tabela .btn-mini {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .agenda-card-servico {
   font-size: 11px;
   line-height: 1.2;
@@ -585,23 +847,35 @@ table.tabela .btn-mini {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.agenda-card-valor { color: var(--acento); font-weight: 600; margin-left: 4px; }
+
+.agenda-card-valor {
+  color: var(--acento);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
 .agenda-acoes {
   display: flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
 }
+
 .agenda-wpp {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #25d366;              /* verde do WhatsApp */
+  color: #25d366;
+  /* verde do WhatsApp */
   padding: 1px 2px;
   border-radius: 4px;
   line-height: 0;
 }
-.agenda-wpp:hover { background: rgba(37, 211, 102, 0.15); }
+
+.agenda-wpp:hover {
+  background: rgba(37, 211, 102, 0.15);
+}
+
 .agenda-rep {
   display: inline-flex;
   align-items: center;
@@ -614,7 +888,11 @@ table.tabela .btn-mini {
   border-radius: 4px;
   line-height: 0;
 }
-.agenda-rep:hover { background: var(--acento-fraco); }
+
+.agenda-rep:hover {
+  background: var(--acento-fraco);
+}
+
 .agenda-info {
   display: inline-flex;
   align-items: center;
@@ -627,7 +905,12 @@ table.tabela .btn-mini {
   border-radius: 4px;
   line-height: 0;
 }
-.agenda-info:hover { background: var(--acento-fraco); color: var(--acento); }
+
+.agenda-info:hover {
+  background: var(--acento-fraco);
+  color: var(--acento);
+}
+
 .agenda-x {
   background: none;
   border: none;
@@ -647,6 +930,7 @@ table.tabela .btn-mini {
   background: var(--erro);
   z-index: 3;
 }
+
 .agenda-agora::before {
   content: "";
   position: absolute;
@@ -660,9 +944,19 @@ table.tabela .btn-mini {
 
 /* Celular: mostra o seletor e uma coluna por vez */
 @media (max-width: 640px) {
-  .agenda-seletor { display: flex; }
+  .agenda-seletor {
+    display: flex;
+    justify-content: space-evenly;
+    margin-bottom: 20px;
+  }
+
   .agenda-head:not(.selecionada),
-  .agenda-col:not(.selecionada) { display: none; }
+  .agenda-col:not(.selecionada) {
+    display: none;
+  }
+  .agenda-heads{
+    display: none;
+  }
 }
 
 /* =====================================================
@@ -673,7 +967,14 @@ table.tabela .btn-mini {
    precisa de rolagem horizontal.
    ===================================================== */
 @media (max-width: 560px) {
-  .tabela-wrap { overflow-x: visible; }
+  .tabela-wrap {
+    overflow-x: visible;
+  }
+
+  .agenda-status {
+    display: flex;
+    justify-content: center;
+  }
 
   table.tabela,
   table.tabela tbody,
@@ -683,7 +984,9 @@ table.tabela .btn-mini {
     width: 100%;
   }
 
-  table.tabela thead { display: none; }
+  table.tabela thead {
+    display: none;
+  }
 
   table.tabela tr {
     border: 1px solid var(--borda);
@@ -701,7 +1004,10 @@ table.tabela .btn-mini {
     gap: 12px;
     text-align: right;
   }
-  table.tabela tr td:last-child { border-bottom: none; }
+
+  table.tabela tr td:last-child {
+    border-bottom: none;
+  }
 
   /* Rótulo da coluna (vem do data-label de cada célula) */
   table.tabela td::before {
@@ -719,8 +1025,14 @@ table.tabela .btn-mini {
   table.tabela td.td-acao {
     padding-top: 12px;
   }
-  table.tabela td.td-acao::before { content: none; }
-  table.tabela td.td-acao .btn-mini { width: 100%; }
+
+  table.tabela td.td-acao::before {
+    content: none;
+  }
+
+  table.tabela td.td-acao .btn-mini {
+    width: 100%;
+  }
 
   /* Totais (fechamento da barbearia): a borda/fundo laranja ficam SÓ no card
      inteiro (a tr). Nas células removemos a borda/fundo pra não virar listras. */
@@ -730,22 +1042,30 @@ table.tabela .btn-mini {
     padding: 4px 14px 10px;
     margin: 10px 50px;
   }
+
   #contagem-corpo table.tabela tr.linha-totais td {
     border-top: none;
     background: none;
     padding: 9px 0;
   }
+
   /* Espaço maior entre os barbeiros (cards) na Contagem */
-  #contagem-corpo table.tabela tr { margin-bottom: 18px; }
+  #contagem-corpo table.tabela tr {
+    margin-bottom: 18px;
+  }
 
   #contagem-corpo table.tabela td.totais-titulo {
     display: block;
-    text-align: left;   /* no celular fica à esquerda */
+    text-align: left;
+    /* no celular fica à esquerda */
     color: var(--acento);
     font-size: 15px;
     padding: 2px 0 9px;
     border-bottom: 1px solid var(--acento);
     margin-bottom: 2px;
   }
-  #contagem-corpo table.tabela td.totais-titulo::before { content: none; }
+
+  #contagem-corpo table.tabela td.totais-titulo::before {
+    content: none;
+  }
 }
