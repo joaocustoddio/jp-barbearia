@@ -958,12 +958,10 @@ function renderTimeline(container, data, colunas, ags, almocos) {
       // Card de ALMOÇO: cor diferente, sem ações. Só pra o barbeiro visualizar.
       if (p.tipo === "almoco") {
         const al = p.al;
-        const rot = al.tipo === "fixo" ? "todo dia" : "só hoje";
         return `
           <div class="agenda-card agenda-almoco" style="${pos}">
             <div class="agenda-card-topo"><span>${escapeHTML(al.hora)}–${minParaHHMM(s + dur)}</span></div>
-            <div class="agenda-card-cliente">🍽️ Almoço</div>
-            <div class="agenda-card-servico">${rot}</div>
+            <div class="agenda-card-cliente">Almoço</div>
           </div>`;
       }
 
