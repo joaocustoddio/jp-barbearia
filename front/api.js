@@ -169,6 +169,32 @@ const API = (() => {
         return requestAuth(`/api/admin/agendamentos/${id}/cancelar`, { method: "PATCH" });
       },
 
+      /** PATCH .../:id/pagamento → registra forma de pagamento (cartao|pix|dinheiro|"") */
+      registrarPagamento(id, forma) {
+        return requestAuth(`/api/admin/agendamentos/${id}/pagamento`, {
+          method: "PATCH",
+          body: JSON.stringify({ forma })
+        });
+      },
+
+      /** GET .../:id/consumos → produtos consumidos no atendimento */
+      listarConsumos(id) {
+        return requestAuth(`/api/admin/agendamentos/${id}/consumos`);
+      },
+
+      /** POST .../:id/consumos → adiciona um produto { descricao, valor } */
+      adicionarConsumo(id, descricao, valor) {
+        return requestAuth(`/api/admin/agendamentos/${id}/consumos`, {
+          method: "POST",
+          body: JSON.stringify({ descricao, valor })
+        });
+      },
+
+      /** DELETE /api/admin/consumos/:id → remove um produto */
+      removerConsumo(consumoId) {
+        return requestAuth(`/api/admin/consumos/${consumoId}`, { method: "DELETE" });
+      },
+
       /** POST /api/admin/agendamentos → registra agendamento pelo painel (walk-in) */
       criarAgendamento(dados) {
         return requestAuth("/api/admin/agendamentos", {

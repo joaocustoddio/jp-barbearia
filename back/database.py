@@ -138,6 +138,8 @@ def init_db():
     """)
     # encaixe: marca os cortes lançados pelo caderninho virtual (encaixe do barbeiro).
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS encaixe BOOLEAN NOT NULL DEFAULT false")
+    # forma_pagamento: 'cartao' | 'pix' | 'dinheiro' | NULL (ainda não registrado).
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT")
 
     # ---------------------------------------------------------
     # ADMIN (usuários do painel — senha em hash bcrypt)
@@ -186,6 +188,22 @@ def init_db():
             inicio TEXT NOT NULL,   -- 'HH:MM'
             fim    TEXT NOT NULL,   -- 'HH:MM'
             UNIQUE (barbeiro_id, data)
+        )
+    """)
+
+    # ---------------------------------------------------------
+    # CONSUMOS — produtos consumidos no atendimento (ex: refrigerante, salgado).
+    # Não é serviço: entra no faturamento numa linha à parte e NÃO comissiona.
+    # valor_centavos guarda o preço em centavos (evita float). Free-form por
+    # enquanto (sem catálogo fixo de produtos).
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS consumos (
+            id SERIAL PRIMARY KEY,
+            agendamento_id INTEGER NOT NULL REFERENCES agendamentos (id) ON DELETE CASCADE,
+            descricao TEXT NOT NULL,
+            valor_centavos INTEGER NOT NULL DEFAULT 0,
+            criado_em TIMESTAMPTZ DEFAULT now()
         )
     """)
 

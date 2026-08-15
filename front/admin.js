@@ -436,6 +436,7 @@ async function renderContagem() {
                 <td data-label="Barbeiro">
                   <strong>${escapeHTML(b.barbeiro_nome)}</strong>
                   ${servicosResumo(b) ? `<div class="contagem-servicos">${servicosResumo(b)}</div>` : ""}
+                  ${b.produtos ? `<div class="contagem-produtos">Produtos: ${formatarMoeda(b.produtos)}${b.produtos_qtd ? ` (${b.produtos_qtd})` : ""}</div>` : ""}
                 </td>
                 <td data-label="Clientes">${b.clientes}</td>
                 <td data-label="Total">${formatarMoeda(b.total)}</td>
@@ -456,6 +457,7 @@ async function renderContagem() {
           </tfoot>` : ""}
         </table>
       </div>
+      ${ehMaster && r.totais.produtos ? `<p class="contagem-caixa">Produtos (caixa, fora da comissão): <strong>${formatarMoeda(r.totais.produtos)}</strong></p>` : ""}
     `;
   } catch (erro) {
     const msg = tratarErro(erro);
@@ -471,7 +473,8 @@ async function renderContagem() {
    ===================================================== */
 let dataAgenda = "";          // vazio = hoje
 let statusAgenda = "ativos";  // "ativos" (confirmados) ou "cancelados" — filtro da timeline
-const ALTURA_HORA = 80;       // px por hora na timeline (dá espaço pros 3 textos do card)
+const ALTURA_HORA = 104;      // px por hora na timeline (dá espaço pros textos + marcações de 30min)
+const PG_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão" };
 
 function minutosDe(hhmm) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
 function minParaHHMM(min) {
@@ -917,10 +920,12 @@ function renderTimeline(container, data, colunas, ags, almocos) {
   ags.forEach((a) => { if (porBarbeiro[a.barbeiro_id]) porBarbeiro[a.barbeiro_id].push(a); });
   almocos.forEach((al) => { if (porAlmoco[al.barbeiro_id]) porAlmoco[al.barbeiro_id].push(al); });
 
-  // Régua de horas
+  // Régua de horas — marcações de 30 em 30 min (a "meia" fica mais discreta).
   let regua = "";
-  for (let h = Hs; h <= He; h++) {
-    regua += `<div class="agenda-hora" style="top:${(h - Hs) * ALTURA_HORA}px">${String(h).padStart(2, "0")}:00</div>`;
+  for (let m = Hs * 60; m <= He * 60; m += 30) {
+    const top = (m - Hs * 60) / 60 * ALTURA_HORA;
+    const meia = m % 60 !== 0;
+    regua += `<div class="agenda-hora${meia ? " meia" : ""}" style="top:${top}px">${minParaHHMM(m)}</div>`;
   }
 
   // Linha "agora" (só se for hoje e dentro da janela)
@@ -975,13 +980,13 @@ function renderTimeline(container, data, colunas, ags, almocos) {
              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 018.413 3.488 11.82 11.82 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.489-.919zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
            </a>`
         : "";
-      const btnRep = canc ? "" : `<button class="agenda-rep" data-repetir="${a.id}" title="Repetir este agendamento daqui a 7 dias">
-             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
-           </button>`;
-      const btnInfo = canc ? "" : `<button class="agenda-info" data-info="${a.id}" title="Detalhes do serviço">
-             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-           </button>`;
-      const acoes = canc ? "" : `<span class="agenda-acoes">${btnInfo}${btnWpp}${btnRep}<button class="agenda-x" data-cancelar="${a.id}" title="Cancelar">×</button></span>`;
+      const btnMenu = canc ? "" : `<button class="agenda-menu" data-menu="${a.id}" title="Ações" onclick="event.stopPropagation()">⋮</button>`;
+      const acoes = canc ? "" : `<span class="agenda-acoes">${btnWpp}${btnMenu}</span>`;
+      const pgBadge = (verValores && a.forma_pagamento)
+        ? `<span class="pg-badge">${PG_ROTULO[a.forma_pagamento] || ""}</span>` : "";
+      const prodCent = a.consumos_total_centavos || 0;
+      const prodBadge = (verValores && prodCent)
+        ? `<span class="prod-badge">+${formatarMoeda(prodCent / 100)}</span>` : "";
       return `
         <div class="agenda-card${canc ? " cancelado" : ""}" style="${pos}">
           <div class="agenda-card-topo">
@@ -989,7 +994,7 @@ function renderTimeline(container, data, colunas, ags, almocos) {
             ${acoes}
           </div>
           <div class="agenda-card-cliente">${escapeHTML(a.cliente_nome)}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</div>
-          <div class="agenda-card-servico">${escapeHTML(a.servico_nome)}${valor}</div>
+          <div class="agenda-card-servico">${escapeHTML(a.servico_nome)}${valor}${pgBadge}${prodBadge}</div>
         </div>`;
     }).join("");
     return `
@@ -1028,51 +1033,162 @@ function renderTimeline(container, data, colunas, ags, almocos) {
     });
   });
 
-  // Cancelar (no card)
-  container.querySelectorAll("[data-cancelar]").forEach((btn) => {
-    btn.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      if (!confirm("Cancelar este agendamento? O horário voltará a ficar livre.")) return;
-      try {
-        await API.admin.cancelarAgendamento(btn.dataset.cancelar);
-        recarregarAgenda();
-      } catch (erro) {
-        const msg = tratarErro(erro);
-        if (msg !== null) alert(msg);
-      }
-    });
-  });
-
-  // Repetir (no card): recria o mesmo agendamento 7 dias depois.
+  // Menu de ações do card: WhatsApp fica direto no card; o ⋮ abre o resto
+  // (informações, forma de pagamento, produtos, remarcar, cancelar).
   const porId = {};
   ags.forEach((a) => { porId[a.id] = a; });
-  container.querySelectorAll("[data-repetir]").forEach((btn) => {
+  container.querySelectorAll("[data-menu]").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      const a = porId[btn.dataset.repetir];
-      if (a) abrirModalRepetir(a, addDiasISO(data, 7));
+      const a = porId[btn.dataset.menu];
+      if (a) abrirMenuCard(ev, a, data);
     });
   });
+}
 
-  // Detalhes (no card)
-  container.querySelectorAll("[data-info]").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const a = porId[btn.dataset.info];
-      if (!a) return;
-      const dur = a.servico_duracao || 30;
-      const fim = minParaHHMM(minutosDe(a.hora) + dur);
-      const tel = a.cliente_telefone ? `\nTelefone: ${a.cliente_telefone}` : "";
-      const val = a.servico_preco != null ? `\nValor: ${formatarMoeda(a.servico_preco)}` : "";
-      alert(
-        `Cliente: ${a.cliente_nome}` +
-        tel +
-        `\n\nServiço: ${a.servico_nome}` +
-        `\nHorário: ${a.hora} – ${fim} (${dur}min)` +
-        val +
-        (a.encaixe ? "\n\n⚡ Encaixe" : "")
-      );
+/* -------------------- Menu de ações do card (popover) -------------------- */
+function fecharMenuCard() {
+  const m = document.querySelector(".card-menu");
+  if (m) m.remove();
+}
+
+function abrirMenuCard(ev, a, dataRef) {
+  fecharMenuCard();
+  const verVal = API.admin.podeVerValores();
+  const dur = a.servico_duracao || 30;
+  const fim = minParaHHMM(minutosDe(a.hora) + dur);
+  const wpp = linkWhatsApp(a);
+  const prodTotal = (a.consumos_total_centavos || 0) / 100;
+  const infoVal = (verVal && a.servico_preco != null) ? ` · ${formatarMoeda(a.servico_preco)}` : "";
+  const tel = a.cliente_telefone ? `<div class="card-menu-info">${escapeHTML(a.cliente_telefone)}</div>` : "";
+
+  const pop = document.createElement("div");
+  pop.className = "card-menu";
+  pop.innerHTML = `
+    <div class="card-menu-nome">${escapeHTML(a.cliente_nome)}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</div>
+    <div class="card-menu-info">${escapeHTML(a.servico_nome)} · ${escapeHTML(a.hora)}–${fim} (${dur}min)${infoVal}</div>
+    ${tel}
+    ${verVal ? `
+    <div class="card-menu-sec">Pagamento</div>
+    <div class="card-menu-pgto">
+      ${["dinheiro", "pix", "cartao"].map((f) =>
+        `<button class="pg-chip${a.forma_pagamento === f ? " ativo" : ""}" data-pg="${f}">${PG_ROTULO[f]}</button>`).join("")}
+    </div>
+    <button class="card-menu-item" data-consumo>Produtos${prodTotal ? ` — ${formatarMoeda(prodTotal)}` : ""}</button>
+    ` : ""}
+    <div class="card-menu-acoes">
+      ${wpp ? `<a class="card-menu-item" href="${wpp}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+      <button class="card-menu-item" data-rep>Remarcar em 7 dias</button>
+      <button class="card-menu-item perigo" data-canc>Cancelar agendamento</button>
+    </div>`;
+  document.body.appendChild(pop);
+
+  // Posiciona perto do clique, sem sair da tela.
+  const x = Math.min(ev.clientX, window.innerWidth - pop.offsetWidth - 8);
+  const y = Math.min(ev.clientY, window.innerHeight - pop.offsetHeight - 8);
+  pop.style.left = Math.max(8, x) + "px";
+  pop.style.top = Math.max(8, y) + "px";
+
+  pop.querySelectorAll("[data-pg]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const forma = a.forma_pagamento === b.dataset.pg ? "" : b.dataset.pg;  // clicar de novo desmarca
+      try {
+        await API.admin.registrarPagamento(a.id, forma);
+        a.forma_pagamento = forma || null;
+        pop.querySelectorAll("[data-pg]").forEach((x) => x.classList.toggle("ativo", x.dataset.pg === forma));
+      } catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
     });
+  });
+  const btnCons = pop.querySelector("[data-consumo]");
+  if (btnCons) btnCons.addEventListener("click", () => { fecharMenuCard(); abrirModalConsumo(a); });
+  pop.querySelector("[data-rep]").addEventListener("click", () => {
+    fecharMenuCard();
+    abrirModalRepetir(a, addDiasISO(dataRef || hojeISO(), 7));
+  });
+  pop.querySelector("[data-canc]").addEventListener("click", async () => {
+    fecharMenuCard();
+    if (!confirm("Cancelar este agendamento? O horário voltará a ficar livre.")) return;
+    try { await API.admin.cancelarAgendamento(a.id); recarregarAgenda(); }
+    catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
+  });
+
+  // Fecha ao clicar fora (no próximo clique).
+  setTimeout(() => document.addEventListener("click", fecharMenuCard, { once: true }), 0);
+}
+
+// Modal de produtos (consumo) de um atendimento: lista + adicionar + remover.
+async function abrirModalConsumo(a) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h3 class="modal-titulo">Produtos — ${escapeHTML(a.cliente_nome)}</h3>
+      <div id="consumo-lista" class="consumo-lista">${carregando()}</div>
+      <div class="modal-linha">
+        <div class="modal-campo" style="flex:2;">
+          <label class="campo-label" for="consumo-desc">Produto</label>
+          <input type="text" id="consumo-desc" class="campo-input" placeholder="Ex: Refrigerante" />
+        </div>
+        <div class="modal-campo">
+          <label class="campo-label" for="consumo-valor">Valor (R$)</label>
+          <input type="text" id="consumo-valor" class="campo-input" inputmode="decimal" placeholder="10,00" />
+        </div>
+      </div>
+      <p class="login-erro" id="consumo-erro"></p>
+      <div class="modal-acoes">
+        <button class="btn-mini" id="consumo-fechar">Fechar</button>
+        <button class="btn btn-primario" id="consumo-add">Adicionar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const fechar = () => { overlay.remove(); recarregarAgenda(); };  // atualiza o badge do card
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+  overlay.querySelector("#consumo-fechar").addEventListener("click", fechar);
+
+  async function pintar() {
+    const box = overlay.querySelector("#consumo-lista");
+    try {
+      const itens = await API.admin.listarConsumos(a.id);
+      if (!itens.length) {
+        box.innerHTML = `<p class="secao-subtitulo" style="margin:0 0 6px;">Nenhum produto ainda.</p>`;
+        return;
+      }
+      box.innerHTML = itens.map((i) => `
+        <div class="consumo-item">
+          <span>${escapeHTML(i.descricao)}</span>
+          <span>${formatarMoeda((i.valor_centavos || 0) / 100)}
+            <button class="consumo-x" data-rem="${i.id}" title="Remover">×</button></span>
+        </div>`).join("");
+      box.querySelectorAll("[data-rem]").forEach((b) => {
+        b.addEventListener("click", async () => {
+          try { await API.admin.removerConsumo(b.dataset.rem); pintar(); }
+          catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
+        });
+      });
+    } catch (e) {
+      const m = tratarErro(e);
+      if (m !== null) box.innerHTML = `<div class="painel-erro">${escapeHTML(m)}</div>`;
+    }
+  }
+  pintar();
+
+  overlay.querySelector("#consumo-add").addEventListener("click", async () => {
+    const erroEl = overlay.querySelector("#consumo-erro");
+    erroEl.textContent = "";
+    const desc = overlay.querySelector("#consumo-desc").value.trim();
+    const valor = overlay.querySelector("#consumo-valor").value.trim();
+    if (!desc) { erroEl.textContent = "Informe o produto."; return; }
+    if (!valor) { erroEl.textContent = "Informe o valor."; return; }
+    const btn = overlay.querySelector("#consumo-add");
+    btn.disabled = true;
+    try {
+      await API.admin.adicionarConsumo(a.id, desc, valor);
+      overlay.querySelector("#consumo-desc").value = "";
+      overlay.querySelector("#consumo-valor").value = "";
+      pintar();
+    } catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
+    finally { btn.disabled = false; }
   });
 }
 

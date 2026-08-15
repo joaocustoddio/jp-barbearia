@@ -821,9 +821,13 @@ table.tabela .btn-mini {
 
 /* Card de ALMOÇO na timeline — cor azul, pra destacar que não é atendimento */
 .agenda-card.agenda-almoco {
-  background: rgba(96, 165, 250, 0.15);
-  border-color: #60a5fa;
-  border-left-color: #60a5fa;
+    flex-flow: column-reverse;
+    gap: 10px;
+    background: rgba(96, 165, 250, 0.15);
+    border-color: #60a5fa;
+    border-left-color: #60a5fa;
+    display: flex;
+    justify-content: center;
 }
 .agenda-card.agenda-almoco .agenda-card-topo { color: #60a5fa; }
 .agenda-card.agenda-almoco .agenda-card-cliente { color: #bfdbfe; font-weight: 700; }
@@ -1079,3 +1083,137 @@ table.tabela .btn-mini {
     content: none;
   }
 }
+
+/* =====================================================
+   PAGAMENTO / PRODUTOS / MENU DO CARD (adições)
+   ===================================================== */
+
+/* Régua: marcação de meia hora mais discreta */
+.agenda-hora.meia { opacity: 0.5; font-weight: 500; }
+
+/* Botão ⋮ (menu de ações) no card */
+.agenda-menu {
+  background: none;
+  border: none;
+  color: var(--acento);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.agenda-menu:hover { color: var(--texto); }
+
+/* Badges no card: forma de pagamento (verde) + produtos (azul) */
+.pg-badge, .prod-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 999px;
+  margin-left: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.pg-badge {
+  color: var(--sucesso);
+  background: rgba(76, 175, 125, 0.16);
+  border: 1px solid rgba(76, 175, 125, 0.5);
+}
+.prod-badge {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.5);
+}
+
+/* Popover do menu de ações do card */
+.card-menu {
+  position: fixed;
+  z-index: 1100;
+  width: 220px;
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-md);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 12px;
+}
+.card-menu-nome { font-weight: 700; color: var(--texto); font-size: 14px; }
+.card-menu-info { color: var(--texto-suave); font-size: 12px; margin-top: 2px; }
+.card-menu-sec {
+  color: var(--texto-fraco);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 12px 0 6px;
+}
+.card-menu-pgto { display: flex; gap: 6px; }
+.pg-chip {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+  color: var(--texto-suave);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 4px;
+  cursor: pointer;
+}
+.pg-chip.ativo {
+  background: var(--acento-fraco);
+  border-color: var(--acento);
+  color: var(--acento);
+}
+.card-menu-acoes { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.card-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--raio-sm);
+  color: var(--texto);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+.card-menu-item:hover { background: var(--acento-fraco); }
+.card-menu-item.perigo { color: var(--erro); }
+.card-menu-item.perigo:hover { background: var(--erro-fundo); }
+.card-menu [data-consumo] { margin-top: 8px; border: 1px solid var(--borda); }
+
+/* Modal de produtos (consumo) */
+.consumo-lista { margin: 4px 0 10px; display: flex; flex-direction: column; gap: 6px; }
+.consumo-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--texto);
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+}
+.consumo-x {
+  background: none;
+  border: none;
+  color: var(--erro);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+/* Contagem: produtos por barbeiro (azul) + total no caixa */
+.contagem-produtos { font-size: 11px; color: #60a5fa; margin-top: 6px; font-weight: 600; }
+.contagem-caixa {
+  text-align: center;
+  color: var(--texto-suave);
+  font-size: 13px;
+  margin: 14px 0 0;
+}
+.contagem-caixa strong { color: #60a5fa; }

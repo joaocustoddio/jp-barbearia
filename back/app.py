@@ -826,6 +826,7 @@ def painel_agendamentos():
             agendamentos.barbeiro_id,
             agendamentos.servico_id,
             agendamentos.encaixe,
+            agendamentos.forma_pagamento,
             clientes.nome       AS cliente_nome,
             clientes.telefone   AS cliente_telefone,
             servicos.nome       AS servico_nome,
@@ -858,13 +859,32 @@ def painel_agendamentos():
 
     conn = get_connection()
     resultados = conn.execute(query, parametros).fetchall()
+    lista = [dict(r) for r in resultados]
+
+    # Consumos (produtos) de cada agendamento: itens + total, pra mostrar no card.
+    ids = [r["id"] for r in lista]
+    consumos_por_ag = {}
+    if ids:
+        marcadores = ",".join(["%s"] * len(ids))
+        cons = conn.execute(
+            "SELECT id, agendamento_id, descricao, valor_centavos FROM consumos "
+            "WHERE agendamento_id IN (%s) ORDER BY id" % marcadores, ids
+        ).fetchall()
+        for c in cons:
+            consumos_por_ag.setdefault(c["agendamento_id"], []).append(dict(c))
     conn.close()
 
-    lista = [dict(r) for r in resultados]
-    # Salão (tablet compartilhado) não vê valores — remove o preço dos cards.
-    if not pode_ver_valores():
-        for r in lista:
+    # Salão (tablet compartilhado) não vê valores — remove preço e valores de consumo.
+    ver_valores = pode_ver_valores()
+    for r in lista:
+        itens = consumos_por_ag.get(r["id"], [])
+        r["consumos"] = itens
+        r["consumos_total_centavos"] = sum(i["valor_centavos"] for i in itens)
+        if not ver_valores:
             r.pop("servico_preco", None)
+            r.pop("consumos_total_centavos", None)
+            for i in itens:
+                i.pop("valor_centavos", None)
 
     return jsonify(lista)
 
@@ -931,6 +951,122 @@ def cancelar_agendamento(agendamento_id):
     conn.close()
 
     return jsonify({"mensagem": "Agendamento cancelado com sucesso"})
+
+
+# -------------------------------------------------------
+# PAGAMENTO + CONSUMOS (produtos) de um agendamento
+# -------------------------------------------------------
+FORMAS_PAGAMENTO = {"cartao", "pix", "dinheiro"}
+
+
+def _valor_para_centavos(valor):
+    """Converte reais (número ou '10', '10,50', 'R$ 10.50') em centavos (int).
+    Retorna None se inválido ou negativo."""
+    if valor is None:
+        return None
+    try:
+        s = str(valor).strip().replace("R$", "").replace(" ", "").replace(",", ".")
+        reais = float(s)
+    except (ValueError, TypeError):
+        return None
+    return int(round(reais * 100)) if reais >= 0 else None
+
+
+def _agendamento_no_escopo(conn, agendamento_id):
+    """Row do agendamento se existir E estiver no escopo do usuário (barbeiro só
+    mexe no próprio; master mexe em qualquer). Senão None."""
+    row = conn.execute(
+        "SELECT id, barbeiro_id FROM agendamentos WHERE id = %s", (agendamento_id,)
+    ).fetchone()
+    if not row:
+        return None
+    escopo = barbeiro_do_escopo()
+    if escopo is not None and row["barbeiro_id"] != escopo:
+        return None
+    return row
+
+
+@app.route("/api/admin/agendamentos/<int:agendamento_id>/pagamento", methods=["PATCH"])
+@token_requerido
+def registrar_pagamento(agendamento_id):
+    """Registra a forma de pagamento do atendimento. { forma: cartao|pix|dinheiro }
+    (forma vazia limpa o registro)."""
+    dados = request.get_json(silent=True) or {}
+    forma = (dados.get("forma") or "").strip().lower()
+    if forma and forma not in FORMAS_PAGAMENTO:
+        return jsonify({"erro": "Forma de pagamento inválida"}), 400
+    conn = get_connection()
+    if not _agendamento_no_escopo(conn, agendamento_id):
+        conn.close()
+        return jsonify({"erro": "Agendamento não encontrado"}), 404
+    conn.execute("UPDATE agendamentos SET forma_pagamento = %s WHERE id = %s",
+                 (forma or None, agendamento_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Forma de pagamento registrada.", "forma_pagamento": forma or None})
+
+
+@app.route("/api/admin/agendamentos/<int:agendamento_id>/consumos", methods=["GET", "POST"])
+@token_requerido
+def consumos_agendamento(agendamento_id):
+    """Produtos consumidos no atendimento (ex: refrigerante). GET lista; POST
+    adiciona { descricao, valor }."""
+    conn = get_connection()
+    if not _agendamento_no_escopo(conn, agendamento_id):
+        conn.close()
+        return jsonify({"erro": "Agendamento não encontrado"}), 404
+
+    if request.method == "POST":
+        dados = request.get_json(silent=True) or {}
+        descricao = (dados.get("descricao") or "").strip()
+        if not descricao:
+            conn.close()
+            return jsonify({"erro": "Descrição é obrigatória"}), 400
+        centavos = _valor_para_centavos(dados.get("valor"))
+        if centavos is None:
+            conn.close()
+            return jsonify({"erro": "Valor inválido"}), 400
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO consumos (agendamento_id, descricao, valor_centavos) "
+            "VALUES (%s, %s, %s) RETURNING id",
+            (agendamento_id, descricao[:80], centavos)
+        )
+        novo_id = cur.fetchone()["id"]
+        conn.commit()
+        conn.close()
+        return jsonify({"mensagem": "Consumo adicionado.", "id": novo_id}), 201
+
+    itens = conn.execute(
+        "SELECT id, descricao, valor_centavos FROM consumos WHERE agendamento_id = %s ORDER BY id",
+        (agendamento_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(i) for i in itens])
+
+
+@app.route("/api/admin/consumos/<int:consumo_id>", methods=["DELETE"])
+@token_requerido
+def remover_consumo(consumo_id):
+    """Remove um consumo. Barbeiro só remove os do próprio atendimento."""
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT c.id, a.barbeiro_id FROM consumos c
+           JOIN agendamentos a ON c.agendamento_id = a.id
+           WHERE c.id = %s""",
+        (consumo_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"erro": "Consumo não encontrado"}), 404
+    escopo = barbeiro_do_escopo()
+    if escopo is not None and row["barbeiro_id"] != escopo:
+        conn.close()
+        return jsonify({"erro": "Consumo não encontrado"}), 404
+    conn.execute("DELETE FROM consumos WHERE id = %s", (consumo_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Consumo removido."})
 
 
 @app.route("/api/admin/barbeiros", methods=["GET"])
@@ -1635,6 +1771,19 @@ def contagem_dia():
         GROUP BY barbeiros.id, servicos.nome
         ORDER BY quantidade DESC, servicos.nome
     """, params).fetchall()
+
+    # Produtos (consumos) do dia por barbeiro — linha à parte, NÃO comissiona.
+    produtos = conn.execute(f"""
+        SELECT barbeiros.id AS barbeiro_id,
+               COUNT(consumos.id) AS produtos_qtd,
+               COALESCE(SUM(consumos.valor_centavos), 0) AS produtos_centavos
+        FROM barbeiros
+        JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
+             AND agendamentos.data = %s AND agendamentos.status != 'cancelado'
+        JOIN consumos ON consumos.agendamento_id = agendamentos.id
+        {filtro}
+        GROUP BY barbeiros.id
+    """, params).fetchall()
     conn.close()
 
     por_barbeiro = {}
@@ -1643,17 +1792,23 @@ def contagem_dia():
             {"nome": d["servico_nome"], "quantidade": d["quantidade"],
              "valor": round(float(d["valor"] or 0), 2)}
         )
+    produtos_por_barbeiro = {
+        p["barbeiro_id"]: {"qtd": p["produtos_qtd"],
+                           "valor": round(float(p["produtos_centavos"] or 0) / 100, 2)}
+        for p in produtos
+    }
 
     # Salão (tablet) NÃO vê valores — só a quantidade de cortes.
     ver_valores = pode_ver_valores()
 
     barbeiros = []
-    tot_clientes = tot_valor = tot_barbeiro = tot_barbearia = 0
+    tot_clientes = tot_valor = tot_barbeiro = tot_barbearia = tot_produtos = 0
     for r in linhas:
         total = float(r["total"] or 0)
         pct = r["comissao_pct"]
         recebe_barbeiro = round(total * pct / 100, 2)
         recebe_barbearia = round(total - recebe_barbeiro, 2)
+        prod = produtos_por_barbeiro.get(r["barbeiro_id"], {"qtd": 0, "valor": 0})
 
         servicos_b = por_barbeiro.get(r["barbeiro_id"], [])
         if not ver_valores:   # salão vê só a quantidade, sem valor
@@ -1669,7 +1824,9 @@ def contagem_dia():
                 "total": round(total, 2),
                 "comissao_pct": pct,
                 "barbeiro_recebe": recebe_barbeiro,
-                "barbearia_recebe": recebe_barbearia
+                "barbearia_recebe": recebe_barbearia,
+                "produtos": prod["valor"],
+                "produtos_qtd": prod["qtd"]
             })
         barbeiros.append(item)
 
@@ -1677,13 +1834,15 @@ def contagem_dia():
         tot_valor += total
         tot_barbeiro += recebe_barbeiro
         tot_barbearia += recebe_barbearia
+        tot_produtos += prod["valor"]
 
     totais = {"clientes": tot_clientes}
     if ver_valores:
         totais.update({
             "total": round(tot_valor, 2),
             "barbeiro_recebe": round(tot_barbeiro, 2),
-            "barbearia_recebe": round(tot_barbearia, 2)
+            "barbearia_recebe": round(tot_barbearia, 2),
+            "produtos": round(tot_produtos, 2)
         })
 
     return jsonify({
