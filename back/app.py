@@ -867,8 +867,8 @@ def painel_agendamentos():
     if ids:
         marcadores = ",".join(["%s"] * len(ids))
         cons = conn.execute(
-            "SELECT id, agendamento_id, descricao, valor_centavos FROM consumos "
-            "WHERE agendamento_id IN (%s) ORDER BY id" % marcadores, ids
+            "SELECT id, agendamento_id, produto_id, descricao, valor_centavos, quantidade "
+            "FROM consumos WHERE agendamento_id IN (%s) ORDER BY id" % marcadores, ids
         ).fetchall()
         for c in cons:
             consumos_por_ag.setdefault(c["agendamento_id"], []).append(dict(c))
@@ -879,7 +879,7 @@ def painel_agendamentos():
     for r in lista:
         itens = consumos_por_ag.get(r["id"], [])
         r["consumos"] = itens
-        r["consumos_total_centavos"] = sum(i["valor_centavos"] for i in itens)
+        r["consumos_total_centavos"] = sum(i["valor_centavos"] * i["quantidade"] for i in itens)
         if not ver_valores:
             r.pop("servico_preco", None)
             r.pop("consumos_total_centavos", None)
@@ -958,18 +958,21 @@ def cancelar_agendamento(agendamento_id):
 # -------------------------------------------------------
 FORMAS_PAGAMENTO = {"cartao", "pix", "dinheiro"}
 
-
-def _valor_para_centavos(valor):
-    """Converte reais (número ou '10', '10,50', 'R$ 10.50') em centavos (int).
-    Retorna None se inválido ou negativo."""
-    if valor is None:
-        return None
-    try:
-        s = str(valor).strip().replace("R$", "").replace(" ", "").replace(",", ".")
-        reais = float(s)
-    except (ValueError, TypeError):
-        return None
-    return int(round(reais * 100)) if reais >= 0 else None
+# Catálogo de adicionais (produtos vendidos no balcão). O barbeiro escolhe a
+# quantidade de cada num atendimento. Preço em centavos. Pra mudar preço/itens,
+# é só editar aqui — cada consumo guarda um snapshot (nome + preço unitário).
+PRODUTOS_ADICIONAIS = [
+    {"id": 1, "nome": "Salgadinho",        "preco_centavos": 500},
+    {"id": 2, "nome": "Long neck",         "preco_centavos": 800},
+    {"id": 3, "nome": "Corona",            "preco_centavos": 1000},
+    {"id": 4, "nome": "Refrigerante",      "preco_centavos": 600},
+    {"id": 5, "nome": "Cerveja 269 ml",    "preco_centavos": 400},
+    {"id": 6, "nome": "Óleo de barba",     "preco_centavos": 2500},
+    {"id": 7, "nome": "Pomada em pó",      "preco_centavos": 2000},
+    {"id": 8, "nome": "Pomada modeladora", "preco_centavos": 2000},
+    {"id": 9, "nome": "Gel cola",          "preco_centavos": 1500},
+]
+PRODUTOS_POR_ID = {p["id"]: p for p in PRODUTOS_ADICIONAIS}
 
 
 def _agendamento_no_escopo(conn, agendamento_id):
@@ -1006,67 +1009,52 @@ def registrar_pagamento(agendamento_id):
     return jsonify({"mensagem": "Forma de pagamento registrada.", "forma_pagamento": forma or None})
 
 
-@app.route("/api/admin/agendamentos/<int:agendamento_id>/consumos", methods=["GET", "POST"])
+@app.route("/api/admin/produtos", methods=["GET"])
+@token_requerido
+def listar_produtos():
+    """Catálogo de adicionais (nome + preço) pro barbeiro escolher a quantidade."""
+    return jsonify(PRODUTOS_ADICIONAIS)
+
+
+@app.route("/api/admin/agendamentos/<int:agendamento_id>/consumos", methods=["GET", "PUT"])
 @token_requerido
 def consumos_agendamento(agendamento_id):
-    """Produtos consumidos no atendimento (ex: refrigerante). GET lista; POST
-    adiciona { descricao, valor }."""
+    """Adicionais do atendimento. GET lista o que já tem; PUT substitui tudo pelo
+    conjunto enviado: { itens: [{produto_id, quantidade}, ...] }."""
     conn = get_connection()
     if not _agendamento_no_escopo(conn, agendamento_id):
         conn.close()
         return jsonify({"erro": "Agendamento não encontrado"}), 404
 
-    if request.method == "POST":
+    if request.method == "PUT":
         dados = request.get_json(silent=True) or {}
-        descricao = (dados.get("descricao") or "").strip()
-        if not descricao:
-            conn.close()
-            return jsonify({"erro": "Descrição é obrigatória"}), 400
-        centavos = _valor_para_centavos(dados.get("valor"))
-        if centavos is None:
-            conn.close()
-            return jsonify({"erro": "Valor inválido"}), 400
+        itens = dados.get("itens") or []
         cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO consumos (agendamento_id, descricao, valor_centavos) "
-            "VALUES (%s, %s, %s) RETURNING id",
-            (agendamento_id, descricao[:80], centavos)
-        )
-        novo_id = cur.fetchone()["id"]
+        cur.execute("DELETE FROM consumos WHERE agendamento_id = %s", (agendamento_id,))
+        for it in itens:
+            prod = PRODUTOS_POR_ID.get(it.get("produto_id"))
+            try:
+                qtd = int(it.get("quantidade") or 0)
+            except (ValueError, TypeError):
+                qtd = 0
+            if not prod or qtd <= 0:
+                continue
+            cur.execute(
+                "INSERT INTO consumos (agendamento_id, produto_id, descricao, valor_centavos, quantidade) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (agendamento_id, prod["id"], prod["nome"], prod["preco_centavos"], qtd)
+            )
         conn.commit()
         conn.close()
-        return jsonify({"mensagem": "Consumo adicionado.", "id": novo_id}), 201
+        return jsonify({"mensagem": "Adicionais salvos."})
 
     itens = conn.execute(
-        "SELECT id, descricao, valor_centavos FROM consumos WHERE agendamento_id = %s ORDER BY id",
+        "SELECT id, produto_id, descricao, valor_centavos, quantidade "
+        "FROM consumos WHERE agendamento_id = %s ORDER BY id",
         (agendamento_id,)
     ).fetchall()
     conn.close()
     return jsonify([dict(i) for i in itens])
-
-
-@app.route("/api/admin/consumos/<int:consumo_id>", methods=["DELETE"])
-@token_requerido
-def remover_consumo(consumo_id):
-    """Remove um consumo. Barbeiro só remove os do próprio atendimento."""
-    conn = get_connection()
-    row = conn.execute(
-        """SELECT c.id, a.barbeiro_id FROM consumos c
-           JOIN agendamentos a ON c.agendamento_id = a.id
-           WHERE c.id = %s""",
-        (consumo_id,)
-    ).fetchone()
-    if not row:
-        conn.close()
-        return jsonify({"erro": "Consumo não encontrado"}), 404
-    escopo = barbeiro_do_escopo()
-    if escopo is not None and row["barbeiro_id"] != escopo:
-        conn.close()
-        return jsonify({"erro": "Consumo não encontrado"}), 404
-    conn.execute("DELETE FROM consumos WHERE id = %s", (consumo_id,))
-    conn.commit()
-    conn.close()
-    return jsonify({"mensagem": "Consumo removido."})
 
 
 @app.route("/api/admin/barbeiros", methods=["GET"])
@@ -1775,8 +1763,8 @@ def contagem_dia():
     # Produtos (consumos) do dia por barbeiro — linha à parte, NÃO comissiona.
     produtos = conn.execute(f"""
         SELECT barbeiros.id AS barbeiro_id,
-               COUNT(consumos.id) AS produtos_qtd,
-               COALESCE(SUM(consumos.valor_centavos), 0) AS produtos_centavos
+               COALESCE(SUM(consumos.quantidade), 0) AS produtos_qtd,
+               COALESCE(SUM(consumos.valor_centavos * consumos.quantidade), 0) AS produtos_centavos
         FROM barbeiros
         JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
              AND agendamentos.data = %s AND agendamentos.status != 'cancelado'

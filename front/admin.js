@@ -1117,78 +1117,88 @@ function abrirMenuCard(ev, a, dataRef) {
 }
 
 // Modal de produtos (consumo) de um atendimento: lista + adicionar + remover.
+// Cache do catálogo de adicionais (não muda no meio da sessão).
+let _produtosCache = null;
+async function carregarProdutosCache() {
+  if (!_produtosCache) _produtosCache = await API.admin.listarProdutos();
+  return _produtosCache;
+}
+
+// Modal de adicionais: catálogo com − / + por item, total ao vivo, salva o conjunto.
 async function abrirModalConsumo(a) {
+  let produtos = [];
+  const atuais = {};   // produto_id -> quantidade já lançada
+  try {
+    produtos = await carregarProdutosCache();
+    const cons = await API.admin.listarConsumos(a.id);
+    cons.forEach((c) => { if (c.produto_id) atuais[c.produto_id] = c.quantidade; });
+  } catch (e) { const m = tratarErro(e); if (m !== null) { alert(m); return; } }
+
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-box" role="dialog" aria-modal="true">
-      <h3 class="modal-titulo">Produtos — ${escapeHTML(a.cliente_nome)}</h3>
-      <div id="consumo-lista" class="consumo-lista">${carregando()}</div>
-      <div class="modal-linha">
-        <div class="modal-campo" style="flex:2;">
-          <label class="campo-label" for="consumo-desc">Produto</label>
-          <input type="text" id="consumo-desc" class="campo-input" placeholder="Ex: Refrigerante" />
-        </div>
-        <div class="modal-campo">
-          <label class="campo-label" for="consumo-valor">Valor (R$)</label>
-          <input type="text" id="consumo-valor" class="campo-input" inputmode="decimal" placeholder="10,00" />
-        </div>
+      <h3 class="modal-titulo">Adicionais — ${escapeHTML(a.cliente_nome)}</h3>
+      <div class="prod-catalogo">
+        ${produtos.map((p) => `
+          <div class="prod-row" data-pid="${p.id}" data-preco="${p.preco_centavos}">
+            <div class="prod-info">
+              <span class="prod-nome">${escapeHTML(p.nome)}</span>
+              <span class="prod-preco">${formatarMoeda(p.preco_centavos / 100)}</span>
+            </div>
+            <div class="prod-stepper">
+              <button class="prod-menos" type="button" aria-label="menos">−</button>
+              <span class="prod-qtd">${atuais[p.id] || 0}</span>
+              <button class="prod-mais" type="button" aria-label="mais">+</button>
+            </div>
+          </div>`).join("")}
       </div>
+      <div class="prod-total">Total: <strong id="prod-total-val">R$ 0,00</strong></div>
       <p class="login-erro" id="consumo-erro"></p>
       <div class="modal-acoes">
         <button class="btn-mini" id="consumo-fechar">Fechar</button>
-        <button class="btn btn-primario" id="consumo-add">Adicionar</button>
+        <button class="btn btn-primario" id="consumo-salvar">Salvar</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
 
-  const fechar = () => { overlay.remove(); recarregarAgenda(); };  // atualiza o badge do card
+  const fechar = () => overlay.remove();
   overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
   overlay.querySelector("#consumo-fechar").addEventListener("click", fechar);
 
-  async function pintar() {
-    const box = overlay.querySelector("#consumo-lista");
-    try {
-      const itens = await API.admin.listarConsumos(a.id);
-      if (!itens.length) {
-        box.innerHTML = `<p class="secao-subtitulo" style="margin:0 0 6px;">Nenhum produto ainda.</p>`;
-        return;
-      }
-      box.innerHTML = itens.map((i) => `
-        <div class="consumo-item">
-          <span>${escapeHTML(i.descricao)}</span>
-          <span>${formatarMoeda((i.valor_centavos || 0) / 100)}
-            <button class="consumo-x" data-rem="${i.id}" title="Remover">×</button></span>
-        </div>`).join("");
-      box.querySelectorAll("[data-rem]").forEach((b) => {
-        b.addEventListener("click", async () => {
-          try { await API.admin.removerConsumo(b.dataset.rem); pintar(); }
-          catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
-        });
-      });
-    } catch (e) {
-      const m = tratarErro(e);
-      if (m !== null) box.innerHTML = `<div class="painel-erro">${escapeHTML(m)}</div>`;
-    }
-  }
-  pintar();
+  const recalc = () => {
+    let tot = 0;
+    overlay.querySelectorAll(".prod-row").forEach((row) => {
+      const q = parseInt(row.querySelector(".prod-qtd").textContent, 10) || 0;
+      tot += q * parseInt(row.dataset.preco, 10);
+    });
+    overlay.querySelector("#prod-total-val").textContent = formatarMoeda(tot / 100);
+  };
+  recalc();
 
-  overlay.querySelector("#consumo-add").addEventListener("click", async () => {
-    const erroEl = overlay.querySelector("#consumo-erro");
-    erroEl.textContent = "";
-    const desc = overlay.querySelector("#consumo-desc").value.trim();
-    const valor = overlay.querySelector("#consumo-valor").value.trim();
-    if (!desc) { erroEl.textContent = "Informe o produto."; return; }
-    if (!valor) { erroEl.textContent = "Informe o valor."; return; }
-    const btn = overlay.querySelector("#consumo-add");
+  overlay.querySelectorAll(".prod-row").forEach((row) => {
+    const qEl = row.querySelector(".prod-qtd");
+    const set = (n) => { qEl.textContent = Math.max(0, n); recalc(); };
+    row.querySelector(".prod-mais").addEventListener("click", () => set((parseInt(qEl.textContent, 10) || 0) + 1));
+    row.querySelector(".prod-menos").addEventListener("click", () => set((parseInt(qEl.textContent, 10) || 0) - 1));
+  });
+
+  overlay.querySelector("#consumo-salvar").addEventListener("click", async () => {
+    const itens = [];
+    overlay.querySelectorAll(".prod-row").forEach((row) => {
+      const q = parseInt(row.querySelector(".prod-qtd").textContent, 10) || 0;
+      if (q > 0) itens.push({ produto_id: Number(row.dataset.pid), quantidade: q });
+    });
+    const btn = overlay.querySelector("#consumo-salvar");
     btn.disabled = true;
     try {
-      await API.admin.adicionarConsumo(a.id, desc, valor);
-      overlay.querySelector("#consumo-desc").value = "";
-      overlay.querySelector("#consumo-valor").value = "";
-      pintar();
-    } catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
-    finally { btn.disabled = false; }
+      await API.admin.salvarConsumos(a.id, itens);
+      fechar();
+      recarregarAgenda();   // atualiza o badge do card
+    } catch (e) {
+      const m = tratarErro(e);
+      if (m !== null) { overlay.querySelector("#consumo-erro").textContent = m; btn.disabled = false; }
+    }
   });
 }
 

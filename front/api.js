@@ -177,22 +177,22 @@ const API = (() => {
         });
       },
 
-      /** GET .../:id/consumos → produtos consumidos no atendimento */
+      /** GET /api/admin/produtos → catálogo de adicionais (nome + preço) */
+      listarProdutos() {
+        return requestAuth("/api/admin/produtos");
+      },
+
+      /** GET .../:id/consumos → adicionais já lançados no atendimento */
       listarConsumos(id) {
         return requestAuth(`/api/admin/agendamentos/${id}/consumos`);
       },
 
-      /** POST .../:id/consumos → adiciona um produto { descricao, valor } */
-      adicionarConsumo(id, descricao, valor) {
+      /** PUT .../:id/consumos → substitui os adicionais { itens: [{produto_id, quantidade}] } */
+      salvarConsumos(id, itens) {
         return requestAuth(`/api/admin/agendamentos/${id}/consumos`, {
-          method: "POST",
-          body: JSON.stringify({ descricao, valor })
+          method: "PUT",
+          body: JSON.stringify({ itens })
         });
-      },
-
-      /** DELETE /api/admin/consumos/:id → remove um produto */
-      removerConsumo(consumoId) {
-        return requestAuth(`/api/admin/consumos/${consumoId}`, { method: "DELETE" });
       },
 
       /** POST /api/admin/agendamentos → registra agendamento pelo painel (walk-in) */

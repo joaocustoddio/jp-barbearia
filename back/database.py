@@ -206,6 +206,11 @@ def init_db():
             criado_em TIMESTAMPTZ DEFAULT now()
         )
     """)
+    # produto_id: qual adicional do catálogo (ver PRODUTOS_ADICIONAIS no app.py).
+    # quantidade: quantos daquele item. valor_centavos passa a ser o preço UNITÁRIO
+    # (snapshot na hora do lançamento). Total do item = valor_centavos * quantidade.
+    cur.execute("ALTER TABLE consumos ADD COLUMN IF NOT EXISTS produto_id INTEGER")
+    cur.execute("ALTER TABLE consumos ADD COLUMN IF NOT EXISTS quantidade INTEGER NOT NULL DEFAULT 1")
 
     conn.commit()
 
