@@ -1,0 +1,4 @@
+# Dependências só de desenvolvimento/testes (não vão pra produção).
+# Instale com: pip install -r requirements-dev.txt
+# Rode os testes com: pytest back/tests   (ou, dentro de back/: pytest)
+pytest>=8.0,<10.0
