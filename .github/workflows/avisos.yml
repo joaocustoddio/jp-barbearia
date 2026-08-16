@@ -28,8 +28,21 @@ jobs:
   avisar:
     runs-on: ubuntu-latest
     steps:
+      - name: Conferir se já está configurado
+        id: conferir
+        # Enquanto os secrets não existirem, o workflow termina em verde sem
+        # fazer nada — em vez de falhar e mandar email de erro a cada meia hora.
+        run: |
+          if [ -z "${{ secrets.API_URL }}" ] || [ -z "${{ secrets.TAREFAS_TOKEN }}" ]; then
+            echo "::notice::Secrets API_URL e/ou TAREFAS_TOKEN ainda não cadastrados — nada a enviar."
+            echo "pronto=nao" >> "$GITHUB_OUTPUT"
+          else
+            echo "pronto=sim" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Definir o tipo do aviso
         id: definir
+        if: steps.conferir.outputs.pronto == 'sim'
         run: |
           case "${{ github.event.schedule }}" in
             "0 11 * * *")       TIPO=resumo ;;     # 08:00 BRT
@@ -42,10 +55,12 @@ jobs:
           echo "Enviando aviso do tipo: $TIPO"
 
       - name: Acordar o servidor
+        if: steps.conferir.outputs.pronto == 'sim'
         # Primeira chamada pode demorar (~50s) porque o serviço estava dormindo.
         run: curl -sS -m 120 --retry 3 --retry-delay 15 --retry-all-errors "${{ secrets.API_URL }}/" || true
 
       - name: Enviar o aviso
+        if: steps.conferir.outputs.pronto == 'sim'
         run: |
           curl -sS -f -m 120 --retry 3 --retry-delay 15 --retry-all-errors \
             -X POST \
