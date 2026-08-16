@@ -92,14 +92,12 @@ def test_resumo_do_dia_agrupa_por_barbeiro():
 @pytest.fixture
 def tarefa(monkeypatch):
     """Endpoint pronto pra rodar: token válido, Telegram fingido, agenda falsa."""
-    enviados = []   # [(chat_id, texto)]
+    enviados = []
     monkeypatch.setattr(app, "TAREFAS_TOKEN", "segredo-de-teste")
     monkeypatch.setattr(app.notificacoes, "configurado", lambda: True)
-    monkeypatch.setattr(app.notificacoes, "TELEGRAM_CHAT_ID", "-100grupo")
     monkeypatch.setattr(app.notificacoes, "enviar",
                         lambda texto, esperar=False, chat_id=None, botoes=None:
-                        enviados.append((chat_id, texto)) or True)
-    monkeypatch.setattr(app, "_canais_dos_barbeiros", lambda: [])
+                        enviados.append(texto) or True)
     monkeypatch.setattr(app, "_agendamentos_do_dia", lambda data: [
         {"hora": "15:00", "cliente": "João Silva", "telefone": "11988887777",
          "servico": "Degradê", "barbeiro": "Rian", "barbeiro_id": 2}])
@@ -119,49 +117,15 @@ def test_tarefa_de_lembretes_manda_a_agenda_de_amanha(tarefa):
     assert resposta.status_code == 200
     assert corpo["tipo"] == "lembretes" and corpo["agendamentos"] == 1 and corpo["enviado"]
     assert corpo["data"] == (app.data_hoje() + app.timedelta(days=1)).isoformat()
-    assert "Lembretes de amanhã" in enviados[0][1]
-    assert "wa.me" in enviados[0][1]
+    assert "Lembretes de amanhã" in enviados[0]
+    assert "wa.me" in enviados[0]
 
 
 def test_tarefa_de_resumo_usa_o_dia_de_hoje(tarefa):
     cliente, enviados = tarefa
     corpo = json.loads(cliente.post("/api/tarefas/avisos?token=segredo-de-teste&tipo=resumo").data)
     assert corpo["data"] == app.data_hoje().isoformat()
-    assert "Agenda de hoje" in enviados[0][1]
-
-
-def test_cada_barbeiro_recebe_so_a_agenda_dele(tarefa, monkeypatch):
-    """
-    O ponto do canal por barbeiro: o Rian não pode receber a montoeira de
-    avisos do Gabriel. O grupo geral continua vendo tudo (visão do dono).
-    """
-    cliente, enviados = tarefa
-    monkeypatch.setattr(app, "_canais_dos_barbeiros",
-                        lambda: [(2, "Rian", "111"), (3, "Gabriel", "222")])
-    monkeypatch.setattr(app, "_agendamentos_do_dia", lambda data: [
-        {"hora": "09:00", "cliente": "Ana", "telefone": None, "servico": "Barba",
-         "barbeiro": "Rian", "barbeiro_id": 2},
-        {"hora": "10:00", "cliente": "Bruno", "telefone": None, "servico": "Degradê",
-         "barbeiro": "Gabriel", "barbeiro_id": 3},
-    ])
-    corpo = json.loads(cliente.post("/api/tarefas/avisos?token=segredo-de-teste&tipo=resumo").data)
-    assert corpo["mensagens"] == 3           # grupo geral + 2 barbeiros
-    por_chat = dict(enviados)
-
-    # O grupo geral enxerga os dois barbeiros...
-    assert "Rian" in por_chat["-100grupo"] and "Gabriel" in por_chat["-100grupo"]
-    # ...mas cada barbeiro só vê a própria agenda (nome e horário dele, não do outro).
-    assert "Rian" in por_chat["111"] and "09:00" in por_chat["111"]
-    assert "Gabriel" not in por_chat["111"] and "10:00" not in por_chat["111"]
-    assert "Gabriel" in por_chat["222"] and "10:00" in por_chat["222"]
-    assert "Rian" not in por_chat["222"] and "09:00" not in por_chat["222"]
-
-
-def test_sem_canal_proprio_tudo_vai_pro_grupo(tarefa):
-    cliente, enviados = tarefa
-    cliente.post("/api/tarefas/avisos?token=segredo-de-teste&tipo=resumo")
-    assert len(enviados) == 1
-    assert enviados[0][0] == "-100grupo"
+    assert "Agenda de hoje" in enviados[0]
 
 
 def test_tarefa_aceita_token_por_header(tarefa):

@@ -1432,77 +1432,6 @@ async function carregarAcessos() {
   }
 }
 
-// Vincula o Telegram do barbeiro: ele passa a receber SÓ os agendamentos dele,
-// em vez de todo mundo receber tudo no mesmo grupo.
-async function abrirModalTelegram(barbeiroId, nome, chatAtual) {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal-box" role="dialog" aria-modal="true">
-      <h3 class="modal-titulo">Avisos de ${escapeHTML(nome)}</h3>
-      <p class="modal-cliente">Com um canal próprio, ${escapeHTML(nome)} recebe só os
-      agendamentos dele. Sem canal, tudo cai no grupo geral.</p>
-
-      <label class="campo-label">Conversas que o bot enxerga</label>
-      <div id="tg-conversas" class="tg-conversas">${carregando()}</div>
-
-      <label class="campo-label" for="tg-chat">ID do canal</label>
-      <input type="text" id="tg-chat" class="campo-input" placeholder="-1001234567890"
-             value="${escapeHTML(chatAtual || "")}" />
-      <p class="secao-subtitulo" style="margin:0;font-size:12px;">
-        O barbeiro precisa mandar uma mensagem pro bot antes de aparecer na lista.
-      </p>
-      <p class="login-erro" id="tg-erro"></p>
-      <div class="modal-acoes">
-        <button class="btn-mini" id="tg-fechar">Cancelar</button>
-        <button class="btn-mini perigo" id="tg-limpar">Usar grupo geral</button>
-        <button class="btn btn-primario" id="tg-salvar">Salvar</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const fechar = () => overlay.remove();
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
-  overlay.querySelector("#tg-fechar").addEventListener("click", fechar);
-  const inputChat = overlay.querySelector("#tg-chat");
-
-  // Lista as conversas pra escolher clicando (evita caçar o ID na mão).
-  try {
-    const conversas = await API.admin.listarConversasTelegram();
-    const box = overlay.querySelector("#tg-conversas");
-    box.innerHTML = conversas.length
-      ? conversas.map((c) => `
-          <button type="button" class="tg-item" data-id="${escapeHTML(String(c.id))}">
-            <span>${escapeHTML(c.nome)}</span>
-            <span class="tg-tipo">${escapeHTML(c.tipo || "")} · ${escapeHTML(String(c.id))}</span>
-          </button>`).join("")
-      : `<p class="secao-subtitulo" style="margin:0;">Nenhuma conversa recente. Peça pro
-         barbeiro mandar uma mensagem pro bot e reabra esta tela.</p>`;
-    box.querySelectorAll(".tg-item").forEach((item) => {
-      item.addEventListener("click", () => {
-        inputChat.value = item.dataset.id;
-        box.querySelectorAll(".tg-item").forEach((x) => x.classList.toggle("selecionado", x === item));
-      });
-    });
-  } catch (erro) {
-    const msg = tratarErro(erro);
-    if (msg !== null) overlay.querySelector("#tg-conversas").innerHTML =
-      `<p class="secao-subtitulo" style="margin:0;">${escapeHTML(msg)}</p>`;
-  }
-
-  const salvar = async (valor) => {
-    const erroEl = overlay.querySelector("#tg-erro");
-    erroEl.textContent = "";
-    try {
-      await API.admin.definirTelegramBarbeiro(barbeiroId, valor);
-      fechar();
-      carregarListaBarbeiros();
-    } catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
-  };
-  overlay.querySelector("#tg-salvar").addEventListener("click", () => salvar(inputChat.value.trim()));
-  overlay.querySelector("#tg-limpar").addEventListener("click", () => salvar(""));
-}
-
 async function carregarListaBarbeiros() {
   const lista = document.getElementById("lista-barbeiros");
   if (!lista) return;
@@ -1519,7 +1448,7 @@ async function carregarListaBarbeiros() {
       <div class="tabela-wrap">
         <table class="tabela">
           <thead>
-            <tr><th>Barbeiro</th><th>Status</th><th>Login</th><th>Comissão</th><th>Avisos</th><th></th></tr>
+            <tr><th>Barbeiro</th><th>Status</th><th>Login</th><th>Comissão</th><th></th></tr>
           </thead>
           <tbody>
             ${barbeiros.map((b) => `
@@ -1528,13 +1457,7 @@ async function carregarListaBarbeiros() {
                 <td data-label="Status"><span class="badge ${b.ativo ? "ativo" : "inativo"}">${b.ativo ? "Ativo" : "Inativo"}</span></td>
                 <td data-label="Login">${b.login_usuario ? escapeHTML(b.login_usuario) : "<span class=\"badge inativo\">sem login</span>"}</td>
                 <td data-label="Comissão">${b.comissao_pct}%</td>
-                <td data-label="Avisos">${b.telegram_chat_id
-                    ? '<span class="badge ativo">canal próprio</span>'
-                    : '<span class="badge inativo">grupo geral</span>'}</td>
                 <td class="td-acao">
-                  <button class="btn-mini" data-telegram="${b.id}" data-chat="${escapeHTML(b.telegram_chat_id || "")}" data-nome="${escapeHTML(b.nome)}">
-                    Avisos no Telegram
-                  </button>
                   <button class="btn-mini" data-login="${b.id}" data-usuario="${escapeHTML(b.login_usuario || "")}">
                     ${b.login_usuario ? "Editar login" : "Criar login"}
                   </button>
@@ -1549,11 +1472,6 @@ async function carregarListaBarbeiros() {
         </table>
       </div>
     `;
-
-    lista.querySelectorAll("[data-telegram]").forEach((btn) => {
-      btn.addEventListener("click", () => abrirModalTelegram(
-        btn.dataset.telegram, btn.dataset.nome, btn.dataset.chat));
-    });
 
     lista.querySelectorAll("[data-barbeiro]").forEach((btn) => {
       btn.addEventListener("click", async () => {

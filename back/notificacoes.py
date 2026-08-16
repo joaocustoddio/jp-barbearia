@@ -70,8 +70,8 @@ def enviar(mensagem, esperar=False, chat_id=None, botoes=None):
     Manda um aviso no Telegram. Por padrão não bloqueia a requisição
     (o cliente não fica esperando o Telegram responder).
 
-    chat_id: pra quem enviar. Sem isso, vai pro grupo geral (TELEGRAM_CHAT_ID).
-             É assim que cada barbeiro recebe só o que é dele.
+    chat_id: pra quem enviar. Sem isso (o normal hoje), vai pro grupo da equipe.
+             Fica aqui como costura caso um dia se queira canal por barbeiro.
     botoes:  lista de (texto, link) que vira botão embaixo da mensagem.
 
     Devolve False se nem tentou (não configurado / sem destino).
@@ -92,28 +92,6 @@ def enviar(mensagem, esperar=False, chat_id=None, botoes=None):
     return True
 
 
-def listar_conversas():
-    """
-    Conversas recentes que o bot enxerga (getUpdates), pro master escolher o
-    canal de cada barbeiro sem precisar mexer em URL. Devolve lista de
-    {id, nome, tipo}. Só aparece quem já mandou mensagem pro bot.
-    """
-    if not TELEGRAM_TOKEN:
-        return []
-    url = "https://api.telegram.org/bot%s/getUpdates" % TELEGRAM_TOKEN
-    with urllib.request.urlopen(url, timeout=TIMEOUT_SEGUNDOS) as resposta:
-        dados = json.load(resposta)
-    conversas = {}
-    for item in dados.get("result", []):
-        mensagem = item.get("message") or item.get("my_chat_member") or {}
-        chat = mensagem.get("chat") or {}
-        if not chat.get("id"):
-            continue
-        nome = chat.get("title") or " ".join(
-            p for p in [chat.get("first_name"), chat.get("last_name")] if p
-        ) or chat.get("username") or "(sem nome)"
-        conversas[chat["id"]] = {"id": chat["id"], "nome": nome, "tipo": chat.get("type")}
-    return list(conversas.values())
 
 
 # -------------------------------------------------------
