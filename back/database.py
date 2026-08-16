@@ -13,6 +13,7 @@ linha como um dicionário (row["coluna"]).
 """
 
 import os
+import threading
 import psycopg2
 import psycopg2.extras
 import bcrypt
@@ -21,6 +22,36 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Rede de segurança contra vazamento de conexão: cada conexão aberta numa
+# requisição fica registrada nesta thread. Se um endpoint estourar exceção antes
+# do conn.close(), o app.py chama fechar_conexoes_pendentes() no teardown e a
+# conexão é liberada (com rollback). Endpoints que já fecham normalmente não são
+# afetados — o fechamento é idempotente.
+_conexoes_thread = threading.local()
+
+
+def _registrar_conexao(conexao):
+    lista = getattr(_conexoes_thread, "lista", None)
+    if lista is None:
+        lista = []
+        _conexoes_thread.lista = lista
+    lista.append(conexao)
+
+
+def fechar_conexoes_pendentes():
+    """Fecha (com rollback) conexões desta thread que não foram fechadas."""
+    lista = getattr(_conexoes_thread, "lista", None)
+    if not lista:
+        return
+    for conexao in lista:
+        try:
+            if not conexao.fechada:
+                conexao.rollback()
+                conexao.close()
+        except Exception:
+            pass
+    _conexoes_thread.lista = []
 
 
 class _Conexao:
@@ -50,8 +81,18 @@ class _Conexao:
     def commit(self):
         self._conn.commit()
 
+    def rollback(self):
+        if not self._conn.closed:
+            self._conn.rollback()
+
+    @property
+    def fechada(self):
+        return self._conn.closed != 0
+
     def close(self):
-        self._conn.close()
+        # Idempotente: fechar duas vezes (endpoint + rede de segurança) não quebra.
+        if not self._conn.closed:
+            self._conn.close()
 
 
 def get_connection():
@@ -62,7 +103,9 @@ def get_connection():
             "Supabase no arquivo .env (veja o .env.example)."
         )
     pgconn = psycopg2.connect(DATABASE_URL, connect_timeout=15)
-    return _Conexao(pgconn)
+    conexao = _Conexao(pgconn)
+    _registrar_conexao(conexao)
+    return conexao
 
 
 def init_db():
@@ -212,6 +255,17 @@ def init_db():
     cur.execute("ALTER TABLE consumos ADD COLUMN IF NOT EXISTS produto_id INTEGER")
     cur.execute("ALTER TABLE consumos ADD COLUMN IF NOT EXISTS quantidade INTEGER NOT NULL DEFAULT 1")
 
+    # ---------------------------------------------------------
+    # ÍNDICES — aceleram as consultas mais frequentes (agenda do dia, horários
+    # disponíveis, contagem). Sem eles o Postgres varre a tabela inteira. Só
+    # criação (idempotente): não muda dado nenhum.
+    # ---------------------------------------------------------
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_agendamentos_barbeiro_data ON agendamentos (barbeiro_id, data, status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_agendamentos_data ON agendamentos (data)")
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_consumos_agendamento ON consumos (agendamento_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_bloqueios_data ON bloqueios (data, barbeiro_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_admin_barbeiro ON admin (barbeiro_id)")
+
     conn.commit()
 
     # ---------------------------------------------------------
@@ -279,7 +333,7 @@ def criar_admin_padrao(usuario=None, senha=None):
     # o valor inteiro fica com ele — barbeiro e barbearia são a mesma pessoa).
     nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
     foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
-    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "0"))
+    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "100"))
     conn.execute(
         "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
         (nome_jp, foto_jp, comissao_jp)

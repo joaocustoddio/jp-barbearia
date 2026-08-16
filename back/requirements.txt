@@ -1,7 +1,10 @@
-flask
-flask-cors
-PyJWT
-python-dotenv
-psycopg2-binary
-bcrypt
-gunicorn
+# Versões com teto no major pra um deploy não puxar uma versão que quebra.
+# (Sobe patches/minors sozinho; major só com revisão nossa.)
+flask>=3.0,<4.0
+flask-cors>=4.0,<6.0
+flask-limiter>=3.5,<4.0
+PyJWT>=2.8,<3.0
+python-dotenv>=1.0,<2.0
+psycopg2-binary>=2.9,<3.0
+bcrypt>=4.0,<5.0
+gunicorn>=21.0,<24.0

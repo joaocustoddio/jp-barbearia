@@ -11,15 +11,21 @@ Mudanças em relação à versão anterior:
 
 import os
 import re
-from datetime import datetime, date, timedelta, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import jwt
 import bcrypt
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
-from database import get_connection, init_db, criar_admin_padrao, criar_salao_padrao, criar_barbeiros_padrao, ajustar_servicos
+from database import (
+    get_connection, init_db, criar_admin_padrao, criar_salao_padrao,
+    criar_barbeiros_padrao, ajustar_servicos, fechar_conexoes_pendentes,
+)
 
 # Carrega as variáveis do arquivo .env
 # Se não existir o .env, usa os valores padrão definidos abaixo
@@ -43,6 +49,26 @@ if EM_PRODUCAO and app.config["SECRET_KEY"] == SECRET_KEY_PADRAO:
         "SECRET_KEY insegura em produção. Defina SECRET_KEY (string longa e "
         "aleatória) no .env antes de rodar com FLASK_ENV=production."
     )
+
+# Em produção, CORS liberado pra qualquer origem é inseguro. Aqui a gente só
+# AVISA (não derruba o boot, pra não quebrar deploy) — o ideal é setar o domínio
+# real do front em CORS_ORIGIN. O aviso aparece nos logs até ser corrigido.
+_avisar_cors = EM_PRODUCAO and CORS_ORIGIN == "*"
+
+# Fuso de Brasília fixo (UTC-3). O Brasil não tem horário de verão desde 2019,
+# então o offset é constante — assim a antecedência e os horários não dependem
+# do TZ do servidor (se a env TZ sumir, nada desloca). Reveja se o DST voltar.
+FUSO_BR = timezone(timedelta(hours=-3))
+
+
+def agora_br():
+    """Agora no fuso de Brasília (datetime ciente de fuso)."""
+    return datetime.now(FUSO_BR)
+
+
+def data_hoje():
+    """Data de hoje no fuso de Brasília."""
+    return agora_br().date()
 
 HORARIO_ABERTURA      = os.getenv("HORARIO_ABERTURA", "09:00")
 HORARIO_FECHAMENTO    = os.getenv("HORARIO_FECHAMENTO", "20:00")
@@ -91,6 +117,11 @@ FOLGA_DONO_WEEKDAY     = int(_folga_dono_raw) if _folga_dono_raw.strip() != "" e
 # esbarrar em CORS. Assim o valor de CORS_ORIGIN no .env local é irrelevante.
 CORS(app, origins=[CORS_ORIGIN] if EM_PRODUCAO else "*")
 
+# Rate limiting: protege o login de força bruta. Sem limite global (só onde a
+# gente marcar com @limiter.limit). Storage em memória — suficiente pra 1 serviço;
+# se um dia escalar pra vários processos/instâncias, apontar pra um Redis.
+limiter = Limiter(key_func=get_remote_address, app=app)
+
 # -------------------------------------------------------
 # TRATAMENTO DE ERRO GLOBAL
 # Em produção, erros internos não revelam detalhes do servidor
@@ -103,12 +134,63 @@ def nao_encontrado(e):
 def metodo_nao_permitido(e):
     return jsonify({"erro": "Método não permitido"}), 405
 
+@app.errorhandler(429)
+def limite_excedido(e):
+    return jsonify({"erro": "Muitas tentativas. Aguarde um minuto e tente de novo."}), 429
+
 @app.errorhandler(500)
 def erro_interno(e):
     # Em desenvolvimento mostra o erro; em produção esconde
     if EM_PRODUCAO:
         return jsonify({"erro": "Erro interno no servidor"}), 500
     return jsonify({"erro": str(e)}), 500
+
+
+# -------------------------------------------------------
+# OBSERVABILIDADE — logging + captura de erros + saúde
+# -------------------------------------------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("jpbarbearia")
+
+if _avisar_cors:
+    logger.warning("CORS_ORIGIN=* em produção — defina o domínio do front pra travar o acesso.")
+
+# Sentry é OPCIONAL: só liga se SENTRY_DSN estiver no .env e o pacote instalado.
+# (pra ativar: pip install "sentry-sdk[flask]" e definir SENTRY_DSN)
+_sentry_dsn = os.getenv("SENTRY_DSN")
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=_sentry_dsn, environment=FLASK_ENV)
+        logger.info("Sentry ativado.")
+    except Exception as exc:  # pacote ausente ou DSN inválido não derruba o app
+        logger.warning("SENTRY_DSN definido mas o Sentry não iniciou: %s", exc)
+
+
+@app.teardown_request
+def _fechar_conexoes(_exc):
+    # Rede de segurança: garante que nenhuma conexão de banco fique pendurada,
+    # mesmo se o endpoint estourou exceção antes do conn.close().
+    fechar_conexoes_pendentes()
+
+
+@app.errorhandler(Exception)
+def _erro_nao_tratado(e):
+    # Loga exceções não previstas (com stack) antes de esconder o detalhe em prod.
+    # Erros HTTP (404/405/403…) passam direto pros handlers específicos.
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    logger.exception("Erro não tratado")
+    if EM_PRODUCAO:
+        return jsonify({"erro": "Erro interno no servidor"}), 500
+    return jsonify({"erro": str(e)}), 500
+
+
+@app.route("/", methods=["GET"])
+def health():
+    """Health check simples (o Render usa pra saber que o serviço está de pé)."""
+    return jsonify({"status": "ok", "servico": "jp-barbearia"})
 
 
 # -------------------------------------------------------
@@ -144,7 +226,7 @@ def validar_data(data_str):
         data = datetime.strptime(data_str, "%Y-%m-%d").date()
     except ValueError:
         return False, "Formato de data inválido (use YYYY-MM-DD)"
-    if data < date.today():
+    if data < data_hoje():
         return False, "Não é possível agendar em datas passadas"
     return True, None
 
@@ -216,8 +298,8 @@ def validar_hora(hora_str, data_str=None):
         return False, "Formato de hora inválido (use HH:MM)"
 
     # Se for hoje, valida antecedência mínima
-    if data_str and data_str == date.today().isoformat():
-        agora = datetime.now()
+    if data_str and data_str == data_hoje().isoformat():
+        agora = agora_br()
         agora_min = agora.hour * 60 + agora.minute
         hora_min  = int(hora_str.split(":")[0]) * 60 + int(hora_str.split(":")[1])
 
@@ -386,8 +468,8 @@ def _slots_dinamicos(abertura, fechamento, ocupadas, duracao, data_str):
             horarios.append("%02d:%02d" % (s // 60, s % 60))
             s += passo
 
-    if data_str == date.today().isoformat():
-        agora = datetime.now()
+    if data_str == data_hoje().isoformat():
+        agora = agora_br()
         limite_minimo = agora.hour * 60 + agora.minute + ANTECEDENCIA_MINIMA
         horarios = [h for h in horarios if _hhmm_min(h) > limite_minimo]
 
@@ -453,7 +535,7 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     # Janela máxima (só no fluxo público): não deixa marcar além de X dias.
     if exigir_antecedencia:
         data_ag = datetime.strptime(dados["data"], "%Y-%m-%d").date()
-        if data_ag > date.today() + timedelta(days=LIMITE_DIAS_AGENDAMENTO):
+        if data_ag > data_hoje() + timedelta(days=LIMITE_DIAS_AGENDAMENTO):
             conn.close()
             return {"erro": f"Só é possível agendar até {LIMITE_DIAS_AGENDAMENTO} dias à frente."}, 400
 
@@ -532,7 +614,7 @@ def consultar_agendamentos_cliente():
     if not valido:
         return jsonify({"erro": erro}), 400
     tel_num = re.sub(r"\D", "", telefone)
-    hoje = date.today().isoformat()
+    hoje = data_hoje().isoformat()
     conn = get_connection()
     rows = conn.execute(
         r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
@@ -748,6 +830,7 @@ def somente_master(f):
 # -------------------------------------------------------
 
 @app.route("/api/admin/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def admin_login():
     """
     Recebe { usuario, senha } e devolve um token JWT se válido.
@@ -1065,7 +1148,7 @@ def painel_barbeiros():
     Lista TODOS os barbeiros (ativos e inativos), com agendamentos futuros,
     comissão e o login de cada um (se já tiver). Só o master acessa.
     """
-    hoje = date.today().isoformat()
+    hoje = data_hoje().isoformat()
     conn = get_connection()
     barbeiros = conn.execute(
         """
@@ -1636,7 +1719,7 @@ def relatorio_admin():
 
     periodo = request.args.get("periodo", "dia")
 
-    hoje = date.today()
+    hoje = data_hoje()
     if periodo == "semana":
         # Segunda-feira da semana atual até hoje
         inicio = hoje - timedelta(days=hoje.weekday())
@@ -1719,7 +1802,7 @@ def contagem_dia():
     Master vê todos os barbeiros; barbeiro vê só o dele.
     Parâmetro: ?data=YYYY-MM-DD (padrão: hoje). Aceita datas passadas (fechamento).
     """
-    data_str = request.args.get("data") or date.today().isoformat()
+    data_str = request.args.get("data") or data_hoje().isoformat()
     try:
         datetime.strptime(data_str, "%Y-%m-%d")
     except ValueError:
@@ -1848,11 +1931,14 @@ def contagem_dia():
 # quanto sob gunicorn em produção (o bloco __main__ NÃO executa sob gunicorn,
 # então init_db/seeds precisam ficar aqui fora). Tudo é idempotente
 # (CREATE TABLE / ADD COLUMN IF NOT EXISTS e seeds que checam antes de inserir).
-init_db()
-criar_admin_padrao()      # login master (dono) — do .env
-criar_salao_padrao()      # login do salão (tablet) — do .env
-criar_barbeiros_padrao()  # logins dos barbeiros comuns (2 e 3) — do .env
-ajustar_servicos()        # cardápio oficial (nome/preço/duração/imagem)
+# APP_SKIP_BOOT=1 pula o boot (usado por testes que importam o módulo sem banco).
+# Em produção a variável não existe, então roda tudo normalmente.
+if os.getenv("APP_SKIP_BOOT") != "1":
+    init_db()
+    criar_admin_padrao()      # login master (dono) — do .env
+    criar_salao_padrao()      # login do salão (tablet) — do .env
+    criar_barbeiros_padrao()  # logins dos barbeiros comuns (2 e 3) — do .env
+    ajustar_servicos()        # cardápio oficial (nome/preço/duração/imagem)
 
 if __name__ == "__main__":
     print(f"[config] Ambiente: {FLASK_ENV}")
