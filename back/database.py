@@ -163,6 +163,9 @@ def init_db():
     # almoco_fixo: hora 'HH:MM' de almoço que se repete TODO dia (bloqueia 60min);
     # NULL = sem almoço fixo (o barbeiro marca manualmente dia a dia).
     cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS almoco_fixo TEXT")
+    # Canal do Telegram DESTE barbeiro: com isso ele recebe só os avisos dos
+    # agendamentos dele. Vazio = cai no grupo geral (TELEGRAM_CHAT_ID).
+    cur.execute("ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT")
 
     # ---------------------------------------------------------
     # AGENDAMENTOS

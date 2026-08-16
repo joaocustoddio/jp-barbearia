@@ -44,33 +44,44 @@ def configurado():
     return bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID)
 
 
-def _enviar_agora(mensagem):
+def _enviar_agora(mensagem, chat_id=None, botoes=None):
     url = "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_TOKEN
-    corpo = json.dumps({
-        "chat_id": TELEGRAM_CHAT_ID,
+    dados = {
+        "chat_id": chat_id or TELEGRAM_CHAT_ID,
         "text": mensagem,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
-    }).encode("utf-8")
+    }
+    if botoes:
+        # Botões clicáveis embaixo da mensagem (ex: "Chamar no WhatsApp").
+        dados["reply_markup"] = {"inline_keyboard": [
+            [{"text": texto, "url": link}] for texto, link in botoes if link
+        ]}
     requisicao = urllib.request.Request(
-        url, data=corpo, headers={"Content-Type": "application/json"}
+        url, data=json.dumps(dados).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
     )
     with urllib.request.urlopen(requisicao, timeout=TIMEOUT_SEGUNDOS) as resposta:
         return resposta.status
 
 
-def enviar(mensagem, esperar=False):
+def enviar(mensagem, esperar=False, chat_id=None, botoes=None):
     """
-    Manda um aviso pro grupo da equipe. Por padrão não bloqueia a requisição
+    Manda um aviso no Telegram. Por padrão não bloqueia a requisição
     (o cliente não fica esperando o Telegram responder).
-    Devolve False se nem tentou (não configurado).
+
+    chat_id: pra quem enviar. Sem isso, vai pro grupo geral (TELEGRAM_CHAT_ID).
+             É assim que cada barbeiro recebe só o que é dele.
+    botoes:  lista de (texto, link) que vira botão embaixo da mensagem.
+
+    Devolve False se nem tentou (não configurado / sem destino).
     """
-    if not configurado():
+    if not TELEGRAM_TOKEN or not (chat_id or TELEGRAM_CHAT_ID):
         return False
 
     def tarefa():
         try:
-            _enviar_agora(mensagem)
+            _enviar_agora(mensagem, chat_id, botoes)
         except Exception as erro:                      # nunca propaga
             logger.warning("Não consegui avisar no Telegram: %s", erro)
 
@@ -79,6 +90,30 @@ def enviar(mensagem, esperar=False):
     else:
         threading.Thread(target=tarefa, daemon=True).start()
     return True
+
+
+def listar_conversas():
+    """
+    Conversas recentes que o bot enxerga (getUpdates), pro master escolher o
+    canal de cada barbeiro sem precisar mexer em URL. Devolve lista de
+    {id, nome, tipo}. Só aparece quem já mandou mensagem pro bot.
+    """
+    if not TELEGRAM_TOKEN:
+        return []
+    url = "https://api.telegram.org/bot%s/getUpdates" % TELEGRAM_TOKEN
+    with urllib.request.urlopen(url, timeout=TIMEOUT_SEGUNDOS) as resposta:
+        dados = json.load(resposta)
+    conversas = {}
+    for item in dados.get("result", []):
+        mensagem = item.get("message") or item.get("my_chat_member") or {}
+        chat = mensagem.get("chat") or {}
+        if not chat.get("id"):
+            continue
+        nome = chat.get("title") or " ".join(
+            p for p in [chat.get("first_name"), chat.get("last_name")] if p
+        ) or chat.get("username") or "(sem nome)"
+        conversas[chat["id"]] = {"id": chat["id"], "nome": nome, "tipo": chat.get("type")}
+    return list(conversas.values())
 
 
 # -------------------------------------------------------
@@ -168,11 +203,25 @@ def texto_resumo_do_dia(data_br, agendamentos):
     return "\n".join(linhas)
 
 
-def avisar_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=None):
-    """'Fulano acabou de agendar...' — disparado quando o cliente marca pelo site."""
-    return enviar(texto_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone))
+def avisar_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=None,
+                            chat_id=None):
+    """
+    'Fulano acabou de agendar...' — disparado quando o cliente marca pelo site.
+    Vai com um botão pra chamar o cliente no WhatsApp direto da mensagem.
+    """
+    mensagem_wpp = (
+        "*JP BARBEARIA*\n"
+        "Olá, %s! Aqui é da JP Barbearia, sobre seu horário de %s no dia %s às %s."
+        % ((cliente or "").split()[0] if cliente else "tudo bem", servico, data_br, hora)
+    )
+    botoes = [("💬 Chamar no WhatsApp", link_whatsapp(telefone, mensagem_wpp))]
+    return enviar(
+        texto_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone),
+        chat_id=chat_id, botoes=botoes,
+    )
 
 
-def avisar_cancelamento(cliente, servico, barbeiro, data_br, hora):
+def avisar_cancelamento(cliente, servico, barbeiro, data_br, hora, chat_id=None):
     """Cliente cancelou pelo site — o horário voltou a ficar livre."""
-    return enviar(texto_cancelamento(cliente, servico, barbeiro, data_br, hora))
+    return enviar(texto_cancelamento(cliente, servico, barbeiro, data_br, hora),
+                  chat_id=chat_id)

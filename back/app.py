@@ -659,16 +659,18 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     if avisar_equipe:
         detalhes = conn.execute(
             """SELECT servicos.nome AS servico, servicos.preco, servicos.duracao_min,
-                      barbeiros.nome AS barbeiro
+                      barbeiros.nome AS barbeiro, barbeiros.telegram_chat_id
                FROM servicos, barbeiros WHERE servicos.id = %s AND barbeiros.id = %s""",
             (int(dados["servico_id"]), int(barbeiro_id))
         ).fetchone()
         if detalhes:
             data_br = _data_br(dados["data"])
+            # Vai pro canal do próprio barbeiro; se ele não tiver, cai no grupo geral.
             notificacoes.avisar_novo_agendamento(
                 cliente=dados["nome_cliente"].strip(), servico=detalhes["servico"],
                 barbeiro=detalhes["barbeiro"], data_br=data_br, hora=dados["hora"],
                 telefone=dados.get("telefone"),
+                chat_id=detalhes["telegram_chat_id"],
             )
             # Link do Google Agenda: o lembrete passa a ser o alarme do próprio
             # celular do cliente. Devolvido pro front mostrar o botão também.
@@ -749,7 +751,7 @@ def cancelar_agendamento_cliente():
     row = conn.execute(
         r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
                    clientes.nome AS cliente, servicos.nome AS servico,
-                   barbeiros.nome AS barbeiro
+                   barbeiros.nome AS barbeiro, barbeiros.telegram_chat_id
             FROM agendamentos
             JOIN clientes ON agendamentos.cliente_id = clientes.id
             JOIN servicos ON agendamentos.servico_id = servicos.id
@@ -769,6 +771,7 @@ def cancelar_agendamento_cliente():
     notificacoes.avisar_cancelamento(
         cliente=row["cliente"], servico=row["servico"], barbeiro=row["barbeiro"],
         data_br=_data_br(row["data"]), hora=row["hora"],
+        chat_id=row["telegram_chat_id"],
     )
     return jsonify({"mensagem": "Agendamento cancelado com sucesso."})
 
@@ -1268,6 +1271,7 @@ def painel_barbeiros():
             barbeiros.nome,
             barbeiros.ativo,
             barbeiros.comissao_pct,
+            barbeiros.telegram_chat_id,
             COUNT(agendamentos.id) AS agendamentos_futuros,
             (SELECT usuario FROM admin
              WHERE admin.barbeiro_id = barbeiros.id AND admin.papel = 'barbeiro'
@@ -1284,6 +1288,53 @@ def painel_barbeiros():
     ).fetchall()
     conn.close()
     return jsonify([dict(b) for b in barbeiros])
+
+
+@app.route("/api/admin/telegram/conversas", methods=["GET"])
+@token_requerido
+@somente_master
+def listar_conversas_telegram():
+    """
+    Conversas que o bot enxerga, pro master escolher o canal de cada barbeiro
+    sem precisar abrir getUpdates na mão. Só aparece quem já falou com o bot.
+    """
+    if not notificacoes.TELEGRAM_TOKEN:
+        return jsonify({"erro": "Telegram não configurado"}), 503
+    try:
+        return jsonify(notificacoes.listar_conversas())
+    except Exception as erro:
+        logger.warning("Falha ao listar conversas do Telegram: %s", erro)
+        return jsonify({"erro": "Não consegui falar com o Telegram agora."}), 502
+
+
+@app.route("/api/admin/barbeiros/<int:barbeiro_id>/telegram", methods=["PUT"])
+@token_requerido
+@somente_master
+def definir_telegram_barbeiro(barbeiro_id):
+    """
+    Define (ou limpa) o canal do Telegram do barbeiro. Com canal próprio ele
+    recebe só os avisos dos agendamentos dele. Corpo: { chat_id }.
+    """
+    dados = request.get_json(silent=True) or {}
+    chat_id = str(dados.get("chat_id") or "").strip()
+    if chat_id and not re.match(r"^-?\d+$", chat_id):
+        return jsonify({"erro": "chat_id inválido (deve ser um número, ex: -1001234567890)"}), 400
+
+    conn = get_connection()
+    existe = conn.execute("SELECT id, nome FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone()
+    if not existe:
+        conn.close()
+        return jsonify({"erro": "Barbeiro não encontrado"}), 404
+    conn.execute("UPDATE barbeiros SET telegram_chat_id = %s WHERE id = %s",
+                 (chat_id or None, barbeiro_id))
+    conn.commit()
+    conn.close()
+
+    if chat_id:
+        notificacoes.enviar(
+            "✅ <b>Canal configurado</b>\n\nA partir de agora os agendamentos de "
+            "<b>%s</b> chegam aqui." % existe["nome"], chat_id=chat_id)
+    return jsonify({"mensagem": "Canal atualizado.", "chat_id": chat_id or None})
 
 
 @app.route("/api/admin/barbeiros/<int:barbeiro_id>/login", methods=["PUT"])
@@ -2059,7 +2110,7 @@ def _agendamentos_do_dia(data_str):
     """Agendamentos ativos da data, já no formato das mensagens."""
     conn = get_connection()
     linhas = conn.execute(
-        """SELECT agendamentos.hora, clientes.nome AS cliente,
+        """SELECT agendamentos.hora, agendamentos.barbeiro_id, clientes.nome AS cliente,
                   clientes.telefone AS telefone, servicos.nome AS servico,
                   barbeiros.nome AS barbeiro
            FROM agendamentos
@@ -2072,7 +2123,41 @@ def _agendamentos_do_dia(data_str):
     ).fetchall()
     conn.close()
     return [{"hora": l["hora"][:5], "cliente": l["cliente"], "telefone": l["telefone"],
-             "servico": l["servico"], "barbeiro": l["barbeiro"]} for l in linhas]
+             "servico": l["servico"], "barbeiro": l["barbeiro"],
+             "barbeiro_id": l["barbeiro_id"]} for l in linhas]
+
+
+def _canais_dos_barbeiros():
+    """Barbeiros que têm canal próprio no Telegram: [(id, nome, chat_id)]."""
+    conn = get_connection()
+    linhas = conn.execute(
+        """SELECT id, nome, telegram_chat_id FROM barbeiros
+           WHERE ativo = 1 AND telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''
+           ORDER BY id"""
+    ).fetchall()
+    conn.close()
+    return [(l["id"], l["nome"], l["telegram_chat_id"]) for l in linhas]
+
+
+def _distribuir_aviso(agendamentos, montar_texto):
+    """
+    Manda o aviso do dia pra quem interessa:
+    - cada barbeiro COM canal próprio recebe só a agenda dele (sem a montoeira
+      dos outros);
+    - o grupo geral, se existir, continua recebendo a visão completa (é a visão
+      do dono).
+    Devolve quantas mensagens saíram.
+    """
+    enviadas = 0
+    geral = notificacoes.TELEGRAM_CHAT_ID
+    if geral:
+        if notificacoes.enviar(montar_texto(agendamentos), esperar=True, chat_id=geral):
+            enviadas += 1
+    for barbeiro_id, _nome, chat_id in _canais_dos_barbeiros():
+        seus = [a for a in agendamentos if a.get("barbeiro_id") == barbeiro_id]
+        if notificacoes.enviar(montar_texto(seus), esperar=True, chat_id=chat_id):
+            enviadas += 1
+    return enviadas
 
 
 def _enviar_lembretes_de_clientes():
@@ -2185,18 +2270,20 @@ def tarefa_avisos():
 
     if tipo == "resumo":
         data = data_hoje()
-        agendamentos = _agendamentos_do_dia(data.isoformat())
-        texto = notificacoes.texto_resumo_do_dia(_data_br(data.isoformat()), agendamentos)
+        montar = lambda lista: notificacoes.texto_resumo_do_dia(
+            _data_br(data.isoformat()), lista)
     else:
         data = data_hoje() + timedelta(days=1)
-        agendamentos = _agendamentos_do_dia(data.isoformat())
-        texto = notificacoes.texto_lembretes(_data_br(data.isoformat()), agendamentos)
+        montar = lambda lista: notificacoes.texto_lembretes(
+            _data_br(data.isoformat()), lista)
 
-    enviado = notificacoes.enviar(texto, esperar=True)
-    logger.info("Tarefa '%s' para %s: %d agendamento(s), enviado=%s",
-                tipo, data.isoformat(), len(agendamentos), enviado)
+    agendamentos = _agendamentos_do_dia(data.isoformat())
+    mensagens = _distribuir_aviso(agendamentos, montar)
+    logger.info("Tarefa '%s' para %s: %d agendamento(s), %d mensagem(ns) enviada(s)",
+                tipo, data.isoformat(), len(agendamentos), mensagens)
     return jsonify({"tipo": tipo, "data": data.isoformat(),
-                    "agendamentos": len(agendamentos), "enviado": enviado})
+                    "agendamentos": len(agendamentos), "mensagens": mensagens,
+                    "enviado": mensagens > 0})
 
 
 # -------------------------------------------------------

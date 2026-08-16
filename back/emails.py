@@ -32,6 +32,7 @@ import logging
 import os
 import smtplib
 import threading
+import time
 import urllib.request
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -164,6 +165,36 @@ def diagnostico():
     }
 
 
+# Só um alerta a cada 30 min: se 20 emails falharem seguidos, o grupo recebe
+# UM aviso, não vinte.
+INTERVALO_ALERTA_SEGUNDOS = 30 * 60
+_ultimo_alerta = 0.0
+
+
+def _alertar_equipe(destino, erro):
+    """
+    Avisa a equipe no Telegram quando um email falha. Sem isso, o lembrete do
+    cliente pararia em silêncio (chave expirada, cota estourada...) e a
+    barbearia só descobriria pelo cliente reclamando.
+    """
+    global _ultimo_alerta
+    agora = time.time()
+    if agora - _ultimo_alerta < INTERVALO_ALERTA_SEGUNDOS:
+        return
+    _ultimo_alerta = agora
+    try:
+        import notificacoes
+        notificacoes.enviar(
+            "⚠️ <b>Falha ao enviar e-mail</b>\n\n"
+            "Não consegui mandar o e-mail para <code>%s</code>.\n\n"
+            "<b>Motivo:</b> %s\n\n"
+            "Os lembretes automáticos podem estar parados — vale conferir a "
+            "configuração de e-mail." % (destino, _descrever_erro(erro)[:300])
+        )
+    except Exception:
+        pass                                               # alerta nunca quebra nada
+
+
 def enviar(destino, assunto, corpo_html, corpo_texto, esperar=False):
     """
     Manda um email. Por padrão não bloqueia a requisição.
@@ -177,6 +208,7 @@ def enviar(destino, assunto, corpo_html, corpo_texto, esperar=False):
             _enviar_agora(destino, assunto, corpo_html, corpo_texto)
         except Exception as erro:                          # nunca propaga
             logger.warning("Falha ao enviar email para %s: %s", destino, erro)
+            _alertar_equipe(destino, erro)
 
     if esperar:
         tarefa()

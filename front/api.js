@@ -177,6 +177,19 @@ const API = (() => {
         });
       },
 
+      /** GET /api/admin/telegram/conversas → conversas que o bot enxerga (master) */
+      listarConversasTelegram() {
+        return requestAuth("/api/admin/telegram/conversas");
+      },
+
+      /** PUT /api/admin/barbeiros/:id/telegram → define o canal do barbeiro */
+      definirTelegramBarbeiro(barbeiroId, chatId) {
+        return requestAuth(`/api/admin/barbeiros/${barbeiroId}/telegram`, {
+          method: "PUT",
+          body: JSON.stringify({ chat_id: chatId })
+        });
+      },
+
       /** GET /api/admin/produtos → catálogo de adicionais (nome + preço) */
       listarProdutos() {
         return requestAuth("/api/admin/produtos");
