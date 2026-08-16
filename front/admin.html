@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="style.css?v=7" />
   <link rel="stylesheet" href="admin.css?v=36" />
   <link rel="icon" type="image/png" href="img/favicon.PNG">
+
+  <!-- App instalável (PWA): ícone na tela do celular e abertura em tela cheia -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0a0c11" />
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="JP Barbearia" />
 </head>
 <body>
 
@@ -63,5 +71,14 @@
 
   <script src="api.js?v=23"></script>
   <script src="admin.js?v=34"></script>
+
+  <!-- Registra o service worker (habilita instalar como app e uso offline) -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => { /* sem app offline, segue normal */ });
+      });
+    }
+  </script>
 </body>
 </html>

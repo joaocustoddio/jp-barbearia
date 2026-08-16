@@ -11,6 +11,7 @@ Mudanças em relação à versão anterior:
 
 import os
 import re
+import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -30,6 +31,7 @@ from horarios import (
     Janela, hhmm_para_min, gerar_slots, cabe_no_expediente,
     primeiro_conflito, filtrar_por_antecedencia, mensagem_de_conflito,
 )
+import notificacoes
 
 # Carrega as variáveis do arquivo .env
 # Se não existir o .env, usa os valores padrão definidos abaixo
@@ -486,8 +488,17 @@ def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao):
     return janelas, dia_bloqueado
 
 
+def _data_br(data_iso):
+    """'2026-08-25' -> '25/08/2026' (pras mensagens)."""
+    try:
+        ano, mes, dia = data_iso.split("-")
+        return "%s/%s/%s" % (dia, mes, ano)
+    except (ValueError, AttributeError):
+        return data_iso
+
+
 def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False,
-                                permitir_conflito=False):
+                                permitir_conflito=False, avisar_equipe=False):
     """
     Valida e insere um novo agendamento. Compartilhado entre duas rotas:
     - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
@@ -597,6 +608,24 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     )
     agendamento_id = cursor.fetchone()["id"]
     conn.commit()
+
+    # Avisa a equipe no Telegram (só quando o CLIENTE marca pelo site — quando é
+    # o próprio barbeiro anotando no caderninho não faz sentido avisar).
+    if avisar_equipe and notificacoes.configurado():
+        nomes = conn.execute(
+            """SELECT servicos.nome AS servico, barbeiros.nome AS barbeiro
+               FROM servicos, barbeiros WHERE servicos.id = %s AND barbeiros.id = %s""",
+            (int(dados["servico_id"]), int(barbeiro_id))
+        ).fetchone()
+        if nomes:
+            notificacoes.avisar_novo_agendamento(
+                cliente=dados["nome_cliente"].strip(),
+                servico=nomes["servico"],
+                barbeiro=nomes["barbeiro"],
+                data_br=_data_br(dados["data"]),
+                hora=dados["hora"],
+                telefone=dados.get("telefone"),
+            )
     conn.close()
 
     return {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id}, 201
@@ -609,7 +638,7 @@ def criar_agendamento():
     if not dados:
         return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
     corpo, status = _processar_novo_agendamento(
-        dados, exigir_antecedencia=True, exigir_telefone=True
+        dados, exigir_antecedencia=True, exigir_telefone=True, avisar_equipe=True
     )
     return jsonify(corpo), status
 
@@ -657,8 +686,13 @@ def cancelar_agendamento_cliente():
     tel_num = re.sub(r"\D", "", telefone)
     conn = get_connection()
     row = conn.execute(
-        r"""SELECT agendamentos.id FROM agendamentos
+        r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
+                   clientes.nome AS cliente, servicos.nome AS servico,
+                   barbeiros.nome AS barbeiro
+            FROM agendamentos
             JOIN clientes ON agendamentos.cliente_id = clientes.id
+            JOIN servicos ON agendamentos.servico_id = servicos.id
+            JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
             WHERE agendamentos.id = %s
               AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
               AND agendamentos.status != 'cancelado'""",
@@ -670,6 +704,11 @@ def cancelar_agendamento_cliente():
     conn.execute("UPDATE agendamentos SET status = 'cancelado' WHERE id = %s", (agendamento_id,))
     conn.commit()
     conn.close()
+
+    notificacoes.avisar_cancelamento(
+        cliente=row["cliente"], servico=row["servico"], barbeiro=row["barbeiro"],
+        data_br=_data_br(row["data"]), hora=row["hora"],
+    )
     return jsonify({"mensagem": "Agendamento cancelado com sucesso."})
 
 
@@ -1933,6 +1972,74 @@ def contagem_dia():
         "barbeiros": barbeiros,
         "totais": totais
     })
+
+
+# -------------------------------------------------------
+# TAREFAS AGENDADAS (chamadas por um agendador externo)
+# O Render free hiberna, então quem "acorda" o serviço no horário é uma chamada
+# de fora (GitHub Actions, cron-job.org...). Protegido por token secreto.
+# -------------------------------------------------------
+TAREFAS_TOKEN = os.getenv("TAREFAS_TOKEN", "").strip()
+
+
+def _token_de_tarefa_confere():
+    if not TAREFAS_TOKEN:
+        return False
+    enviado = (request.headers.get("X-Tarefa-Token")
+               or request.args.get("token") or "")
+    return hmac.compare_digest(enviado, TAREFAS_TOKEN)
+
+
+def _agendamentos_do_dia(data_str):
+    """Agendamentos ativos da data, já no formato das mensagens."""
+    conn = get_connection()
+    linhas = conn.execute(
+        """SELECT agendamentos.hora, clientes.nome AS cliente,
+                  clientes.telefone AS telefone, servicos.nome AS servico,
+                  barbeiros.nome AS barbeiro
+           FROM agendamentos
+           JOIN clientes  ON agendamentos.cliente_id  = clientes.id
+           JOIN servicos  ON agendamentos.servico_id  = servicos.id
+           JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
+           WHERE agendamentos.data = %s AND agendamentos.status != 'cancelado'
+           ORDER BY agendamentos.hora""",
+        (data_str,)
+    ).fetchall()
+    conn.close()
+    return [{"hora": l["hora"][:5], "cliente": l["cliente"], "telefone": l["telefone"],
+             "servico": l["servico"], "barbeiro": l["barbeiro"]} for l in linhas]
+
+
+@app.route("/api/tarefas/avisos", methods=["POST"])
+@limiter.limit("20 per hour")
+def tarefa_avisos():
+    """
+    Manda no Telegram da equipe:
+    - ?tipo=lembretes (padrão): agenda de AMANHÃ com um link de WhatsApp pronto
+      por cliente — o barbeiro só toca e envia.
+    - ?tipo=resumo: agenda de HOJE, pra abrir o dia sabendo o movimento.
+    Autenticação: header X-Tarefa-Token (ou ?token=) igual a TAREFAS_TOKEN.
+    """
+    if not _token_de_tarefa_confere():
+        return jsonify({"erro": "Não autorizado"}), 401
+    if not notificacoes.configurado():
+        return jsonify({"erro": "Telegram não configurado"}), 503
+
+    tipo = (request.args.get("tipo") or "lembretes").lower()
+    if tipo == "resumo":
+        data = data_hoje()
+        agendamentos = _agendamentos_do_dia(data.isoformat())
+        texto = notificacoes.texto_resumo_do_dia(_data_br(data.isoformat()), agendamentos)
+    else:
+        data = data_hoje() + timedelta(days=1)
+        agendamentos = _agendamentos_do_dia(data.isoformat())
+        texto = notificacoes.texto_lembretes(_data_br(data.isoformat()), agendamentos)
+
+    enviado = notificacoes.enviar(texto, esperar=True)
+    logger.info("Tarefa '%s' para %s: %d agendamento(s), enviado=%s",
+                tipo, data.isoformat(), len(agendamentos), enviado)
+    return jsonify({"tipo": tipo, "data": data.isoformat(),
+                    "agendamentos": len(agendamentos), "enviado": enviado})
 
 
 # -------------------------------------------------------

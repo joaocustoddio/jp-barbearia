@@ -1,0 +1,50 @@
+name: Avisos da barbearia
+
+# O Render (plano free) hiberna quando ninguém usa, então não dá pra ele mesmo
+# rodar tarefa agendada. Este workflow é o "despertador": chama a API nos
+# horários certos e ela manda os avisos no Telegram da equipe.
+#
+# Antes de funcionar, cadastre em Settings > Secrets and variables > Actions:
+#   API_URL       -> https://jp-barbearia-r9lq.onrender.com
+#   TAREFAS_TOKEN -> o mesmo valor configurado no Render
+
+on:
+  schedule:
+    # Atenção: GitHub usa UTC. Brasília é UTC-3.
+    - cron: "0 11 * * *"   # 08:00 de Brasília — resumo do dia
+    - cron: "0 21 * * *"   # 18:00 de Brasília — lembretes de amanhã
+  workflow_dispatch:        # permite disparar na mão pra testar
+    inputs:
+      tipo:
+        description: "Qual aviso enviar"
+        type: choice
+        options: [lembretes, resumo]
+        default: lembretes
+
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Definir o tipo do aviso
+        id: definir
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 11 * * *" ]; then
+            TIPO=resumo
+          elif [ -n "${{ inputs.tipo }}" ]; then
+            TIPO="${{ inputs.tipo }}"
+          else
+            TIPO=lembretes
+          fi
+          echo "tipo=$TIPO" >> "$GITHUB_OUTPUT"
+          echo "Enviando aviso do tipo: $TIPO"
+
+      - name: Acordar o servidor
+        # Primeira chamada pode demorar (~50s) porque o serviço estava dormindo.
+        run: curl -sS -m 120 --retry 3 --retry-delay 15 --retry-all-errors "${{ secrets.API_URL }}/" || true
+
+      - name: Enviar o aviso
+        run: |
+          curl -sS -f -m 120 --retry 3 --retry-delay 15 --retry-all-errors \
+            -X POST \
+            -H "X-Tarefa-Token: ${{ secrets.TAREFAS_TOKEN }}" \
+            "${{ secrets.API_URL }}/api/tarefas/avisos?tipo=${{ steps.definir.outputs.tipo }}"
