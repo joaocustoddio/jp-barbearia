@@ -14,8 +14,10 @@ on:
     - cron: "0 11 * * *"    # 08:00 de Brasília — resumo do dia (Telegram)
     - cron: "0 21 * * *"    # 18:00 de Brasília — agenda de amanhã (Telegram)
     # Lembrete do cliente por email, ~1h antes do horário dele. Roda de meia em
-    # meia hora durante o expediente (11h-23h UTC = 08h-20h de Brasília).
-    - cron: "*/30 11-23 * * *"
+    # meia hora das 07h às 20h de Brasília (10h-23h UTC).
+    # Começa às 07h de propósito: o primeiro horário da barbearia é 08:00 (sábado),
+    # então quem marca cedo também recebe o lembrete com ~1h de folga.
+    - cron: "*/30 10-23 * * *"
   workflow_dispatch:        # permite disparar na mão pra testar
     inputs:
       tipo:
@@ -47,7 +49,7 @@ jobs:
           case "${{ github.event.schedule }}" in
             "0 11 * * *")       TIPO=resumo ;;     # 08:00 BRT
             "0 21 * * *")       TIPO=lembretes ;;  # 18:00 BRT
-            "*/30 11-23 * * *") TIPO=proximos ;;   # de 30 em 30 min
+            "*/30 10-23 * * *") TIPO=proximos ;;   # de 30 em 30 min
             *)                  TIPO="${{ inputs.tipo }}" ;;
           esac
           [ -n "$TIPO" ] || TIPO=lembretes
