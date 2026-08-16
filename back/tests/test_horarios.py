@@ -165,6 +165,72 @@ def test_cabe_no_expediente():
     assert cabe_no_expediente(1160, 40, "09:00", "20:00") is True   # 19:20+40 = 20:00
 
 
+# ------------------------------------------- tolerância de fechamento (última entrada)
+
+ALMOCO = [Janela(750, 810, "almoco")]      # 12:30–13:30, usado nos cenários abaixo
+
+def test_tolerancia_salva_o_ultimo_corte_do_dia():
+    # Degradê 40min, dia com almoço: sem tolerância o último começa 18:50.
+    sem = gerar_slots("09:00", "20:00", ALMOCO, 40)
+    assert sem[-1] == "18:50"              # 18:50+40 = 19:30, e sobra 19:30–20:00
+    # Com 10min de tolerância entra mais um: 19:30 (termina 20:10).
+    com = gerar_slots("09:00", "20:00", ALMOCO, 40, 10)
+    assert com[-1] == "19:30"
+    assert len(com) == len(sem) + 1
+
+def test_tolerancia_nao_invade_o_almoco():
+    # A brecha da manhã termina no almoço, NÃO no fechamento: nada de tolerância.
+    # 11:40+40 = 12:20 (cabe); o próximo (12:20) terminaria 13:00, dentro do almoço.
+    for tolerancia in (0, 10, 30, 120):
+        slots = gerar_slots("09:00", "20:00", ALMOCO, 40, tolerancia)
+        assert "12:20" not in slots
+        assert "11:40" in slots
+
+def test_tolerancia_nao_invade_o_proximo_cliente():
+    # Brecha livre até 16:00 porque tem cliente 16:00–16:40; tolerância não vale ali.
+    ocupadas = [Janela(960, 1000, "agendamento")]
+    slots = gerar_slots("15:00", "20:00", ocupadas, 40, 30)
+    assert "15:40" not in slots            # 15:40+40 = 16:20 pegaria o cliente
+    assert "15:00" in slots
+
+def test_tolerancia_curta_deixa_servico_longo_de_fora():
+    # Químico de 60min não entra com só 10min de tolerância (terminaria 20:30).
+    curto = gerar_slots("09:00", "20:00", ALMOCO, 60, 10)
+    assert curto[-1] == "18:30"            # igual a sem tolerância
+    # Com 30min ele entraria — é a regra escalando com a duração do serviço.
+    longo = gerar_slots("09:00", "20:00", ALMOCO, 60, 30)
+    assert longo[-1] == "19:30"
+
+def test_tolerancia_zero_e_o_comportamento_antigo():
+    assert gerar_slots("09:00", "20:00", ALMOCO, 40, 0) == gerar_slots("09:00", "20:00", ALMOCO, 40)
+
+def test_cabe_no_expediente_com_tolerancia():
+    assert cabe_no_expediente(1170, 40, "09:00", "20:00", 10) is True    # 19:30 -> 20:10
+    assert cabe_no_expediente(1170, 60, "09:00", "20:00", 10) is False   # 19:30 -> 20:30
+
+def test_lista_e_validacao_nunca_divergem():
+    """
+    Blindagem contra o bug clássico "vejo o horário mas não consigo marcar":
+    TODO horário oferecido tem que passar na validação de agendamento, em
+    vários cenários e durações.
+    """
+    cenarios = [
+        ("09:00", "20:00", []),
+        ("09:00", "20:00", ALMOCO),
+        ("08:20", "20:00", ALMOCO + [Janela(540, 580, "agendamento")]),
+        ("08:00", "19:00", [Janela(600, 660, "agendamento"), Janela(900, 930, "bloqueio")]),
+    ]
+    for (abertura, fechamento, ocupadas) in cenarios:
+        for duracao in (10, 20, 30, 40, 45, 50, 60):
+            for tolerancia in (0, 10, 30):
+                for horario in gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia):
+                    inicio = hhmm_para_min(horario)
+                    assert cabe_no_expediente(inicio, duracao, abertura, fechamento, tolerancia), \
+                        f"{horario} ({duracao}min, tol {tolerancia}) foi oferecido mas não cabe no expediente"
+                    assert primeiro_conflito(inicio, duracao, ocupadas) is None, \
+                        f"{horario} ({duracao}min, tol {tolerancia}) foi oferecido mas conflita"
+
+
 # ---------------------------------------------------------- antecedência
 
 def test_filtra_por_antecedencia():

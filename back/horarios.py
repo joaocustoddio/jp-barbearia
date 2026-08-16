@@ -118,7 +118,7 @@ def intervalos_livres(abertura, fechamento, ocupadas):
     return [(a, b) for (a, b) in livres if b > a]
 
 
-def gerar_slots(abertura, fechamento, ocupadas, duracao):
+def gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia_fim=0):
     """
     Os horários oferecidos ao cliente, de forma DINÂMICA: em cada brecha livre
     começa no início da brecha (logo após o corte anterior, o almoço ou a
@@ -128,6 +128,11 @@ def gerar_slots(abertura, fechamento, ocupadas, duracao):
     próximo às 18:10 — e não às 18:40, como faria uma grade fixa ancorada na
     abertura.
 
+    `tolerancia_fim` é a "última entrada": quantos minutos o serviço pode passar
+    do fechamento. Vale SÓ na brecha que encosta no horário de fechar — nunca
+    invade o almoço nem o próximo cliente. Serve pra não perder o último corte
+    do dia por causa de 10 minutinhos.
+
     abertura/fechamento: 'HH:MM'. ocupadas: lista de Janela. duracao: minutos.
     """
     inicio_dia = hhmm_para_min(abertura)
@@ -136,18 +141,25 @@ def gerar_slots(abertura, fechamento, ocupadas, duracao):
 
     slots = []
     for (livre_inicio, livre_fim) in intervalos_livres(inicio_dia, fim_dia, ocupadas):
+        # Só a última brecha do dia (a que termina na hora de fechar) ganha a
+        # tolerância. As outras terminam onde começa o próximo compromisso.
+        limite = (livre_fim + tolerancia_fim) if livre_fim == fim_dia else livre_fim
         momento = livre_inicio
-        while momento + passo <= livre_fim:
+        while momento + passo <= limite:
             slots.append(min_para_hhmm(momento))
             momento += passo
     return slots
 
 
-def cabe_no_expediente(inicio, duracao, abertura, fechamento):
-    """True se o serviço começa E termina dentro do expediente do barbeiro."""
+def cabe_no_expediente(inicio, duracao, abertura, fechamento, tolerancia_fim=0):
+    """
+    True se o serviço começa E termina dentro do expediente do barbeiro,
+    aceitando passar até `tolerancia_fim` minutos do fechamento (mesma regra
+    usada pra gerar os horários — as duas contas precisam bater).
+    """
     passo = _duracao_segura(duracao)
     return (inicio >= hhmm_para_min(abertura)
-            and inicio + passo <= hhmm_para_min(fechamento))
+            and inicio + passo <= hhmm_para_min(fechamento) + tolerancia_fim)
 
 
 def primeiro_conflito(inicio, duracao, ocupadas):
