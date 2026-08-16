@@ -306,6 +306,14 @@ const API = (() => {
       },
 
       /** PUT /api/admin/expediente → define jornada { barbeiro_id, data, inicio, fim } */
+      /** PUT /api/admin/expediente { folga:true } → marca o dia como folga */
+      marcarFolga(barbeiro_id, data) {
+        return requestAuth("/api/admin/expediente", {
+          method: "PUT",
+          body: JSON.stringify({ barbeiro_id, data, folga: true })
+        });
+      },
+
       definirExpediente(barbeiro_id, data, inicio, fim) {
         return requestAuth("/api/admin/expediente", {
           method: "PUT",

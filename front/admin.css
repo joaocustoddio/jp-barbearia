@@ -1235,3 +1235,26 @@ table.tabela .btn-mini {
   margin: 14px 0 0;
 }
 .contagem-caixa strong { color: #60a5fa; }
+
+/* Folga na aba Expediente (visual funcional — ajustar depois) */
+.tag-folga {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--erro);
+  background: var(--erro-fundo);
+  border: 1px solid rgba(239, 83, 80, 0.45);
+  border-radius: 4px;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
+
+.exp-item.folga {
+  border-color: rgba(239, 83, 80, 0.35);
+  opacity: 0.75;
+}
+
+.exp-item.folga .exp-horas {
+  opacity: 0.45;
+}

@@ -101,6 +101,21 @@ DURACAO_ALMOCO_MIN    = int(os.getenv("DURACAO_ALMOCO_MINUTOS", "60"))
 # Endereço da barbearia — aparece no email e no evento do calendário do cliente.
 ENDERECO_BARBEARIA    = os.getenv("ENDERECO_BARBEARIA", "").strip()
 
+# Como uma FOLGA fica gravada na tabela de expedientes: início igual ao fim,
+# ou seja, jornada de duração zero — nenhum horário é gerado.
+HORA_FOLGA            = "00:00"
+
+
+def expediente_e_folga(inicio, fim):
+    """
+    True se este expediente representa folga. Aceita também o formato antigo
+    (00:00–00:01), usado antes de existir o botão de folga.
+    """
+    try:
+        return hhmm_para_min(fim) - hhmm_para_min(inicio) <= 1
+    except (ValueError, TypeError):
+        return False
+
 # "Última entrada": quantos minutos o serviço pode passar do fechamento, pra não
 # perder o último corte do dia por 10 minutinhos. Ex: 10 = um Degradê (40min)
 # pode começar 19:30 e terminar 20:10. Vale só no fim do dia — nunca invade o
@@ -1746,12 +1761,16 @@ def listar_expedientes():
     lista = []
     for b in barbeiros:
         ov = por_barb.get(b["id"])
+        folga = ov is not None and expediente_e_folga(ov[0], ov[1])
         lista.append({
             "barbeiro_id": b["id"],
             "barbeiro_nome": b["nome"],
-            "inicio": ov[0] if ov else padrao_ini,
-            "fim": ov[1] if ov else padrao_fim,
+            # Numa folga devolvemos o horário padrão nos campos, pra o painel já
+            # abrir com valores usáveis se o master quiser desfazer.
+            "inicio": padrao_ini if folga else (ov[0] if ov else padrao_ini),
+            "fim": padrao_fim if folga else (ov[1] if ov else padrao_fim),
             "personalizado": ov is not None,
+            "folga": folga,
         })
     return jsonify({
         "data": data,
@@ -1772,17 +1791,27 @@ def definir_expediente():
     data = dados.get("data")
     inicio = dados.get("inicio")
     fim = dados.get("fim")
-    if not (barbeiro_id and data and inicio and fim):
-        return jsonify({"erro": "barbeiro_id, data, início e fim são obrigatórios"}), 400
+    folga = bool(dados.get("folga"))
+
+    if folga:
+        # Folga = expediente vazio. Fica gravado assim em vez de um horário
+        # esquisito de 1 minuto, e o painel mostra "FOLGA" pra quem olhar.
+        inicio = fim = HORA_FOLGA
+    else:
+        if not (barbeiro_id and data and inicio and fim):
+            return jsonify({"erro": "barbeiro_id, data, início e fim são obrigatórios"}), 400
+        for h in (inicio, fim):
+            ok, e = validar_hora(h)
+            if not ok:
+                return jsonify({"erro": e}), 400
+        if hhmm_para_min(inicio) >= hhmm_para_min(fim):
+            return jsonify({"erro": "A hora de início tem que ser antes do fim"}), 400
+
+    if not (barbeiro_id and data):
+        return jsonify({"erro": "barbeiro_id e data são obrigatórios"}), 400
     valido, erro = validar_data(data)
     if not valido:
         return jsonify({"erro": erro}), 400
-    for h in (inicio, fim):
-        ok, e = validar_hora(h)
-        if not ok:
-            return jsonify({"erro": e}), 400
-    if hhmm_para_min(inicio) >= hhmm_para_min(fim):
-        return jsonify({"erro": "A hora de início tem que ser antes do fim"}), 400
     conn = get_connection()
     if not conn.execute("SELECT id FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone():
         conn.close()
@@ -1796,6 +1825,8 @@ def definir_expediente():
     )
     conn.commit()
     conn.close()
+    if folga:
+        return jsonify({"mensagem": "Folga marcada — o dia fica sem horários.", "folga": True})
     return jsonify({"mensagem": f"Expediente definido ({inicio}–{fim})."})
 
 

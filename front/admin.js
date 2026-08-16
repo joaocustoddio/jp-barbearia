@@ -1328,10 +1328,12 @@ async function carregarExpedientes(data) {
       <p class="secao-subtitulo" style="margin:0 0 14px;">Horário padrão do dia: <strong>${r.padrao.inicio}–${r.padrao.fim}</strong></p>
       <div class="exp-lista">
         ${r.barbeiros.map((b) => `
-          <div class="exp-item" data-barb="${b.barbeiro_id}">
+          <div class="exp-item${b.folga ? " folga" : ""}" data-barb="${b.barbeiro_id}">
             <div class="exp-nome">
               ${escapeHTML(b.barbeiro_nome)}
-              ${b.personalizado ? '<span class="tag-encaixe">ajustado</span>' : ''}
+              ${b.folga
+                ? '<span class="tag-folga">FOLGA</span>'
+                : (b.personalizado ? '<span class="tag-encaixe">ajustado</span>' : '')}
             </div>
             <div class="exp-horas">
               <input type="time" class="campo-input exp-ini" value="${b.inicio}" />
@@ -1340,6 +1342,7 @@ async function carregarExpedientes(data) {
             </div>
             <div class="exp-acoes">
               <button class="btn-mini exp-salvar">Salvar</button>
+              <button class="btn-mini exp-folga"${b.folga ? " hidden" : ""}>Folga</button>
               <button class="btn-mini exp-normal"${b.personalizado ? "" : " hidden"}>Normal</button>
             </div>
             <p class="login-erro exp-erro" style="margin:6px 0 0;"></p>
@@ -1355,6 +1358,13 @@ async function carregarExpedientes(data) {
         const fim = item.querySelector(".exp-fim").value;
         if (!ini || !fim) { erroEl.textContent = "Preencha início e fim."; return; }
         try { await API.admin.definirExpediente(barb, data, ini, fim); carregarExpedientes(data); }
+        catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
+      });
+      item.querySelector(".exp-folga").addEventListener("click", async () => {
+        erroEl.textContent = "";
+        const nome = item.querySelector(".exp-nome").textContent.trim();
+        if (!confirm(`Marcar folga de ${nome} em ${formatarDataBR(data)}? O dia fica sem horários.`)) return;
+        try { await API.admin.marcarFolga(barb, data); carregarExpedientes(data); }
         catch (e) { const m = tratarErro(e); if (m !== null) erroEl.textContent = m; }
       });
       item.querySelector(".exp-normal").addEventListener("click", async () => {

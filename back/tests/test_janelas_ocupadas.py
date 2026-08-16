@@ -108,3 +108,26 @@ def test_tudo_junto_no_mesmo_dia():
     )
     assert dia_bloqueado is False
     assert sorted(j.motivo for j in ocupadas) == ["agendamento", "almoco", "bloqueio"]
+
+
+# ------------------------------------------------- folga (aba Expediente)
+
+def test_reconhece_folga_no_formato_novo_e_no_antigo():
+    """
+    Folga nova grava 00:00–00:00. O formato antigo (00:00–00:01, feito na mão
+    antes de existir o botão) precisa continuar sendo lido como folga.
+    """
+    assert app.expediente_e_folga("00:00", "00:00") is True    # formato novo
+    assert app.expediente_e_folga("00:00", "00:01") is True    # legado
+    assert app.expediente_e_folga("09:00", "20:00") is False   # dia normal
+    assert app.expediente_e_folga("09:00", "09:30") is False   # jornada curta não é folga
+
+
+def test_folga_nao_gera_nenhum_horario():
+    from horarios import gerar_slots
+    assert gerar_slots(app.HORA_FOLGA, app.HORA_FOLGA, [], 30, 10, 10) == []
+
+
+def test_folga_tambem_barra_o_agendamento():
+    from horarios import cabe_no_expediente
+    assert cabe_no_expediente(540, 30, app.HORA_FOLGA, app.HORA_FOLGA, 10, 10) is False
