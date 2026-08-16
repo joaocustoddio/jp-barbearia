@@ -27,10 +27,12 @@ Dica de entrega: use um domínio próprio com SPF/DKIM configurados no provedor.
 Enviando de um endereço genérico, boa parte dos emails cai em spam.
 """
 
+import json
 import logging
 import os
 import smtplib
 import threading
+import urllib.request
 from email.message import EmailMessage
 from email.utils import formataddr
 
@@ -40,21 +42,57 @@ load_dotenv()
 
 logger = logging.getLogger("jpbarbearia.emails")
 
+# Caminho preferido: API HTTP (porta 443). Hospedagens como o Render BLOQUEIAM
+# as portas de SMTP (25/465/587) pra evitar spam saindo da plataforma, então
+# SMTP simplesmente dá timeout lá. A API resolve isso e ainda é mais rápida.
+API_KEY = os.getenv("EMAIL_API_KEY", "").strip()
+API_URL = os.getenv("EMAIL_API_URL", "https://api.brevo.com/v3/smtp/email").strip()
+
+# Caminho alternativo: SMTP (útil em hospedagem que não bloqueia a porta).
 SMTP_HOST = os.getenv("EMAIL_SMTP_HOST", "").strip()
 SMTP_PORTA = int(os.getenv("EMAIL_SMTP_PORTA", "587"))
 SMTP_USUARIO = os.getenv("EMAIL_SMTP_USUARIO", "").strip()
 SMTP_SENHA = os.getenv("EMAIL_SMTP_SENHA", "").strip()
+
 REMETENTE = os.getenv("EMAIL_REMETENTE", "").strip()
 REMETENTE_NOME = os.getenv("EMAIL_REMETENTE_NOME", "JP Barbearia").strip()
 TIMEOUT_SEGUNDOS = 15
 
 
+def metodo():
+    """Como os emails serão enviados: 'api', 'smtp' ou None (desligado)."""
+    if not REMETENTE:
+        return None
+    if API_KEY:
+        return "api"
+    if SMTP_HOST:
+        return "smtp"
+    return None
+
+
 def configurado():
-    """True se dá pra enviar email (SMTP preenchido no .env)."""
-    return bool(SMTP_HOST and REMETENTE)
+    """True se dá pra enviar email."""
+    return metodo() is not None
 
 
-def _enviar_agora(destino, assunto, corpo_html, corpo_texto):
+def _enviar_por_api(destino, assunto, corpo_html, corpo_texto):
+    corpo = json.dumps({
+        "sender": {"name": REMETENTE_NOME, "email": REMETENTE},
+        "to": [{"email": destino}],
+        "subject": assunto,
+        "htmlContent": corpo_html,
+        "textContent": corpo_texto,
+    }).encode("utf-8")
+    requisicao = urllib.request.Request(API_URL, data=corpo, headers={
+        "api-key": API_KEY,
+        "Content-Type": "application/json",
+        "accept": "application/json",
+    })
+    with urllib.request.urlopen(requisicao, timeout=TIMEOUT_SEGUNDOS) as resposta:
+        return resposta.status
+
+
+def _enviar_por_smtp(destino, assunto, corpo_html, corpo_texto):
     mensagem = EmailMessage()
     mensagem["From"] = formataddr((REMETENTE_NOME, REMETENTE))
     mensagem["To"] = destino
@@ -67,6 +105,12 @@ def _enviar_agora(destino, assunto, corpo_html, corpo_texto):
         if SMTP_USUARIO:
             servidor.login(SMTP_USUARIO, SMTP_SENHA)
         servidor.send_message(mensagem)
+
+
+def _enviar_agora(destino, assunto, corpo_html, corpo_texto):
+    if metodo() == "api":
+        return _enviar_por_api(destino, assunto, corpo_html, corpo_texto)
+    return _enviar_por_smtp(destino, assunto, corpo_html, corpo_texto)
 
 
 def testar(destino):
@@ -85,13 +129,32 @@ def testar(destino):
         )
         return True, None
     except Exception as erro:
-        return False, "%s: %s" % (type(erro).__name__, erro)
+        return False, _descrever_erro(erro)
+
+
+def _descrever_erro(erro):
+    """
+    Mensagem de erro útil. Em falha da API o motivo real vem no CORPO da
+    resposta (ex: remetente não verificado) — sem isso ficaria só
+    'HTTP Error 400: Bad Request', que não ajuda ninguém.
+    """
+    detalhe = ""
+    corpo = getattr(erro, "read", None)
+    if callable(corpo):
+        try:
+            detalhe = " | resposta: %s" % corpo().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+    return "%s: %s%s" % (type(erro).__name__, erro, detalhe)
 
 
 def diagnostico():
-    """Como o servidor está configurado (sem expor a senha)."""
+    """Como o servidor está configurado (sem expor chave nem senha)."""
     return {
         "configurado": configurado(),
+        "metodo": metodo(),
+        "api_key_definida": bool(API_KEY),
+        "api_url": API_URL if API_KEY else None,
         "host": SMTP_HOST or None,
         "porta": SMTP_PORTA,
         "usuario": SMTP_USUARIO or None,
