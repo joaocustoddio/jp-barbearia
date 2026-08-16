@@ -1,65 +1,211 @@
 """
-Testes do motor de horários (geração dinâmica de slots).
+Testes do motor de horários (horarios.py).
 
-Cobrem a lógica pura de `_intervalos_livres` e `_slots_dinamicos` — o núcleo que
-decide quais horários o cliente vê. Usam data futura ("2099-01-01") pra não cair
-no filtro de antecedência (que só age quando a data é hoje).
+Como o módulo é puro (sem Flask e sem banco), estes testes rodam em
+milissegundos e cobrem a regra de negócio de ponta a ponta.
 
-Minutos: 09:00 = 540, 12:30 = 750, etc.
+Referência rápida de minutos: 08:00=480, 09:00=540, 12:00=720, 18:00=1080.
 """
-import app
+import pytest
+
+from horarios import (
+    Janela, hhmm_para_min, min_para_hhmm, normalizar_janelas, sobrepoe,
+    intervalos_livres, gerar_slots, cabe_no_expediente, primeiro_conflito,
+    filtrar_por_antecedencia, mensagem_de_conflito, MIN_DURACAO_MIN,
+)
 
 
-# ---------- _intervalos_livres ----------
+# ---------------------------------------------------------------- conversões
 
-def test_dia_todo_livre():
-    assert app._intervalos_livres(540, 600, []) == [(540, 600)]
+def test_hhmm_para_min_basico():
+    assert hhmm_para_min("00:00") == 0
+    assert hhmm_para_min("09:00") == 540
+    assert hhmm_para_min("23:59") == 1439
+
+def test_hhmm_para_min_tolera_formatos_do_banco():
+    assert hhmm_para_min("9:00") == 540         # sem zero à esquerda
+    assert hhmm_para_min("09:00:00") == 540     # com segundos
+    assert hhmm_para_min(" 09:30 ") == 570      # com espaços
+
+def test_hhmm_para_min_rejeita_lixo():
+    for ruim in (None, "", "banana", "0900"):
+        with pytest.raises(ValueError):
+            hhmm_para_min(ruim)
+
+def test_min_para_hhmm_ida_e_volta():
+    for texto in ("00:00", "08:20", "12:45", "19:30", "23:59"):
+        assert min_para_hhmm(hhmm_para_min(texto)) == texto
+
+
+# ------------------------------------------------------------------ janelas
+
+def test_normalizar_ordena_e_descarta_vazias():
+    janelas = [Janela(600, 640), Janela(540, 580), Janela(700, 700), Janela(800, 790)]
+    assert [(j.inicio, j.fim) for j in normalizar_janelas(janelas)] == [(540, 580), (600, 640)]
+
+def test_sobrepoe_encostar_nao_e_sobrepor():
+    assert sobrepoe(540, 580, 560, 600) is True     # cruza
+    assert sobrepoe(540, 580, 580, 620) is False    # encosta no fim
+    assert sobrepoe(580, 620, 540, 580) is False    # encosta no início
+
+def test_janela_guarda_motivo():
+    assert Janela(540, 600, "almoco").motivo == "almoco"
+    assert Janela(540, 600).motivo == "ocupado"     # padrão
+
+
+# ------------------------------------------------------- intervalos_livres
+
+def test_dia_inteiro_livre():
+    assert intervalos_livres(540, 1200, []) == [(540, 1200)]
 
 def test_buraco_no_meio():
-    # ocupa 09:20–09:40 → livre antes e depois
-    assert app._intervalos_livres(540, 700, [(560, 580)]) == [(540, 560), (580, 700)]
+    assert intervalos_livres(540, 700, [Janela(560, 580)]) == [(540, 560), (580, 700)]
 
-def test_ocupados_sobrepostos_sao_mesclados():
-    assert app._intervalos_livres(540, 600, [(540, 570), (560, 590)]) == [(590, 600)]
+def test_janelas_sobrepostas_sao_mescladas():
+    assert intervalos_livres(540, 600, [Janela(540, 570), Janela(560, 590)]) == [(590, 600)]
 
-def test_ocupado_fora_da_janela_e_ignorado():
-    # bloqueio antes da abertura não corta nada
-    assert app._intervalos_livres(540, 600, [(500, 520)]) == [(540, 600)]
+def test_janelas_fora_de_ordem():
+    ocupadas = [Janela(600, 620), Janela(550, 560)]
+    assert intervalos_livres(540, 700, ocupadas) == [(540, 550), (560, 600), (620, 700)]
+
+def test_janela_fora_do_expediente_e_ignorada():
+    assert intervalos_livres(540, 600, [Janela(400, 420)]) == [(540, 600)]
+
+def test_ocupacao_cobrindo_o_dia_todo():
+    assert intervalos_livres(540, 600, [Janela(500, 700)]) == []
+
+def test_ocupacao_ultrapassa_o_fechamento():
+    assert intervalos_livres(540, 600, [Janela(580, 900)]) == [(540, 580)]
+
+def test_expediente_invertido_ou_vazio():
+    assert intervalos_livres(600, 600, []) == []    # folga (abertura == fechamento)
+    assert intervalos_livres(700, 600, []) == []    # invertido não quebra
 
 
-# ---------- _slots_dinamicos ----------
+# ------------------------------------------------------------- gerar_slots
 
-def slots(ab, fe, ocup, dur):
-    return app._slots_dinamicos(ab, fe, ocup, dur, "2099-01-01")
+def test_dia_vazio_usa_a_duracao_como_passo():
+    slots = gerar_slots("09:00", "20:00", [], 40)   # Degradê 40min
+    assert slots[0] == "09:00"
+    assert slots[1] == "09:40"
+    # grid de 40min desde 09:00: o último que cabe antes das 20:00 é 19:00
+    # (19:00+40=19:40; o próximo, 19:40, estouraria).
+    assert slots[-1] == "19:00"
 
-def test_dia_vazio_passo_da_duracao():
-    s = slots("09:00", "20:00", [], 40)  # Degradê 40min
-    assert s[0] == "09:00"
-    assert s[1] == "09:40"
-    # grid de 40min a partir das 09:00: ...18:20, 19:00 (19:00+40=19:40 cabe;
-    # o próximo, 19:40, passaria das 20:00). Então o último é 19:00.
-    assert s[-1] == "19:00"
+def test_encaixa_logo_apos_o_corte_anterior():
+    # Social 30min ocupa 09:00–09:30 → Degradê 40min começa 09:30, não 09:40
+    ocupadas = [Janela(540, 570, "agendamento")]
+    assert gerar_slots("09:00", "20:00", ocupadas, 40)[0] == "09:30"
 
-def test_encaixa_logo_apos_corte_anterior():
-    # Social 30 ocupa 09:00–09:30; cliente Degradê 40 → 1º slot é 09:30, não 09:40
-    assert slots("09:00", "20:00", [(540, 570)], 40)[0] == "09:30"
+def test_nao_desperdica_brecha_em_hora_quebrada():
+    # corte termina 18:10 (1090) → próximo slot é exatamente 18:10
+    ocupadas = [Janela(1050, 1090, "agendamento")]
+    slots = gerar_slots("09:00", "20:00", ocupadas, 40)
+    assert "18:10" in slots
 
-def test_packing_com_duracao_diferente():
-    # Degradê 40 ocupa 09:00–09:40; cliente Social 30 → 1º slot 09:40
-    assert slots("09:00", "20:00", [(540, 580)], 30)[0] == "09:40"
+def test_almoco_bloqueia_a_janela_inteira():
+    ocupadas = [Janela(750, 810, "almoco")]         # 12:30–13:30
+    slots = gerar_slots("09:00", "20:00", ocupadas, 40)
+    assert "11:40" in slots      # último que cabe antes (11:40–12:20)
+    assert "13:30" in slots      # primeiro depois do almoço
+    assert "12:20" not in slots  # 12:20–13:00 invadiria o almoço
+    assert "13:00" not in slots
 
-def test_almoco_bloqueia_a_janela():
-    # almoço 12:30–13:30; Degradê 40
-    s = slots("09:00", "20:00", [(750, 810)], 40)
-    assert "11:40" in s                  # último antes do almoço (11:40–12:20)
-    assert "13:30" in s                  # primeiro depois do almoço
-    assert "12:20" not in s              # 12:20–13:00 encostaria no almoço
-    assert "13:00" not in s
+def test_folga_nao_gera_slot():
+    assert gerar_slots("09:00", "09:00", [], 40) == []
 
-def test_folga_sem_slots():
-    # abertura == fechamento (folga do dono) → nenhum horário
-    assert slots("09:00", "09:00", [], 40) == []
+def test_servico_que_nao_cabe_ate_o_fechamento():
+    assert gerar_slots("19:30", "20:00", [], 40) == []   # só 30min de janela
 
-def test_servico_nao_cabe_ate_o_fechamento():
-    # janela 19:30–20:00 (30min) e serviço de 40min → não cabe
-    assert slots("19:30", "20:00", [], 40) == []
+def test_servico_cabendo_exatamente_ate_o_fechamento():
+    assert gerar_slots("19:20", "20:00", [], 40) == ["19:20"]
+
+def test_duracao_invalida_nao_trava():
+    # duração 0/None/negativa cai no mínimo seguro, sem loop infinito
+    for ruim in (0, None, -30):
+        slots = gerar_slots("09:00", "09:30", [], ruim)
+        assert slots and slots[0] == "09:00"
+        assert len(slots) == 30 // MIN_DURACAO_MIN
+
+def test_slots_saem_em_ordem_crescente():
+    ocupadas = [Janela(600, 660, "agendamento"), Janela(750, 810, "almoco")]
+    slots = gerar_slots("08:00", "20:00", ocupadas, 30)
+    assert slots == sorted(slots)
+
+
+# ------------------------------------------------------ conflito/expediente
+
+def test_sem_conflito_quando_apenas_encosta():
+    ocupadas = [Janela(540, 580, "agendamento")]    # 09:00–09:40
+    assert primeiro_conflito(580, 30, ocupadas) is None      # começa 09:40
+    assert primeiro_conflito(510, 30, ocupadas) is None      # termina 09:00
+
+def test_conflito_em_todas_as_formas_de_sobreposicao():
+    ocupadas = [Janela(540, 580, "agendamento")]
+    assert primeiro_conflito(550, 10, ocupadas) is not None   # contido
+    assert primeiro_conflito(530, 20, ocupadas) is not None   # invade o início
+    assert primeiro_conflito(570, 30, ocupadas) is not None   # invade o fim
+    assert primeiro_conflito(500, 120, ocupadas) is not None  # engloba
+
+def test_conflito_devolve_a_janela_com_o_motivo():
+    ocupadas = [Janela(750, 810, "almoco"), Janela(540, 580, "agendamento")]
+    assert primeiro_conflito(760, 30, ocupadas).motivo == "almoco"
+    assert primeiro_conflito(545, 30, ocupadas).motivo == "agendamento"
+
+def test_mensagem_por_motivo():
+    assert "almoço" in mensagem_de_conflito(Janela(0, 60, "almoco")).lower()
+    assert "reservado" in mensagem_de_conflito(Janela(0, 60, "agendamento")).lower()
+    assert "bloqueado" in mensagem_de_conflito(Janela(0, 60, "bloqueio")).lower()
+    assert mensagem_de_conflito(None)            # sem conflito ainda dá mensagem
+
+def test_cabe_no_expediente():
+    assert cabe_no_expediente(540, 40, "09:00", "20:00") is True
+    assert cabe_no_expediente(530, 40, "09:00", "20:00") is False   # antes de abrir
+    assert cabe_no_expediente(1170, 40, "09:00", "20:00") is False  # 19:30+40 > 20:00
+    assert cabe_no_expediente(1160, 40, "09:00", "20:00") is True   # 19:20+40 = 20:00
+
+
+# ---------------------------------------------------------- antecedência
+
+def test_filtra_por_antecedencia():
+    slots = ["09:00", "09:30", "10:00", "10:30"]
+    # agora 09:00 (540) + 15min → só depois de 09:15
+    assert filtrar_por_antecedencia(slots, 540, 15) == ["09:30", "10:00", "10:30"]
+
+def test_antecedencia_exclui_o_limite_exato():
+    # 09:30 não vale quando o limite é exatamente 09:30 (precisa ser MAIOR)
+    assert filtrar_por_antecedencia(["09:30", "09:31"], 540, 30) == ["09:31"]
+
+def test_antecedencia_zero_mantem_futuro():
+    assert filtrar_por_antecedencia(["09:00", "09:30"], 540, 0) == ["09:30"]
+
+
+# ------------------------------------------------- cenário real de ponta a ponta
+
+def test_dia_realista_do_jp():
+    """
+    Sexta do JP: expediente 08:20–20:00, almoço fixo 12:30–13:30,
+    já tem um Degradê 09:00–09:40 e um Corte+Barba 14:00–14:50.
+    Cliente quer um Corte Social (30min).
+    """
+    ocupadas = [
+        Janela(540, 580, "agendamento"),   # 09:00–09:40
+        Janela(750, 810, "almoco"),        # 12:30–13:30
+        Janela(840, 890, "agendamento"),   # 14:00–14:50
+    ]
+    slots = gerar_slots("08:20", "20:00", ocupadas, 30)
+
+    assert slots[0] == "08:20"        # abre cedo (só o dono)
+    assert "09:40" in slots           # encaixa logo após o Degradê
+    assert "12:30" not in slots       # almoço
+    assert "14:00" not in slots       # ocupado
+    assert "14:50" in slots           # logo após o Corte+Barba
+    # Depois das 14:50 a grade fica ancorada NELE (14:50, 15:20, 15:50...), então
+    # o último de 30min é 19:20 — 19:50 sobraria só 10min e não caberia.
+    assert slots[-1] == "19:20"
+
+    # E a validação de agendamento concorda com a lista em todos os pontos:
+    for horario in slots:
+        inicio = hhmm_para_min(horario)
+        assert primeiro_conflito(inicio, 30, ocupadas) is None
+        assert cabe_no_expediente(inicio, 30, "08:20", "20:00")
