@@ -101,6 +101,11 @@ DURACAO_ALMOCO_MIN    = int(os.getenv("DURACAO_ALMOCO_MINUTOS", "60"))
 # almoço nem o próximo cliente. Coloque 0 pra ninguém passar do horário.
 TOLERANCIA_FECHAMENTO_MIN = int(os.getenv("TOLERANCIA_FECHAMENTO_MINUTOS", "10"))
 
+# Última entrada do dia = fechamento menos esta margem. Impede alguém de entrar
+# em cima da hora de fechar. Ex: 10 → fecha 20:00, última entrada 19:50
+# (no sábado, que fecha 19:00, vira 18:50).
+MARGEM_ULTIMA_ENTRADA_MIN = int(os.getenv("MARGEM_ULTIMA_ENTRADA_MINUTOS", "10"))
+
 # Janela máxima de agendamento pelo site (em dias). O cliente só pode marcar
 # de hoje até hoje + esse limite. Padrão 7 (1 semana). Vale só pro fluxo público;
 # o barbeiro pelo painel (walk-in / repetir) não fica preso a esse limite.
@@ -404,7 +409,7 @@ def horarios_disponiveis():
     # Horários gerados de forma DINÂMICA: encaixam nas brechas livres começando
     # onde o corte anterior terminou (packing), sem desperdiçar espaço.
     disponiveis = gerar_slots(abertura, fechamento, ocupadas, dur_serv,
-                              TOLERANCIA_FECHAMENTO_MIN)
+                              TOLERANCIA_FECHAMENTO_MIN, MARGEM_ULTIMA_ENTRADA_MIN)
 
     # Se for hoje, tira o que já passou ou está dentro da antecedência mínima.
     if data_str == data_hoje().isoformat():
@@ -547,7 +552,8 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
 
         # Precisa caber no expediente do barbeiro nesse dia (horário do dia + ajuste).
         ab, fe = horario_efetivo(dados["data"], barbeiro_id, conn)
-        if not cabe_no_expediente(inicio_novo, dur_novo, ab, fe, TOLERANCIA_FECHAMENTO_MIN):
+        if not cabe_no_expediente(inicio_novo, dur_novo, ab, fe,
+                                  TOLERANCIA_FECHAMENTO_MIN, MARGEM_ULTIMA_ENTRADA_MIN):
             conn.close()
             return {"erro": "Horário fora do expediente do barbeiro nesse dia."}, 400
 

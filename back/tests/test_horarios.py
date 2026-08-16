@@ -208,11 +208,40 @@ def test_cabe_no_expediente_com_tolerancia():
     assert cabe_no_expediente(1170, 40, "09:00", "20:00", 10) is True    # 19:30 -> 20:10
     assert cabe_no_expediente(1170, 60, "09:00", "20:00", 10) is False   # 19:30 -> 20:30
 
+# --------------------------------------------------- última entrada (margem)
+
+def test_ninguem_entra_depois_da_ultima_entrada():
+    # Fecha 20:00, margem 10 → última entrada 19:50. Serviço de 10min:
+    # sem margem entraria às 20:00 (em cima da hora de fechar).
+    sem = gerar_slots("09:00", "20:00", ALMOCO, 10, 10)
+    assert sem[-1] == "20:00"
+    com = gerar_slots("09:00", "20:00", ALMOCO, 10, 10, 10)
+    assert com[-1] == "19:50"              # última entrada respeitada
+
+def test_ultima_entrada_acompanha_o_fechamento_do_dia():
+    # Sábado fecha 19:00 → última entrada 18:50 (mesma margem de 10min).
+    slots = gerar_slots("08:00", "19:00", ALMOCO, 10, 10, 10)
+    assert slots[-1] == "18:50"
+
+def test_margem_nao_atrapalha_os_cortes_principais():
+    # Degradê e Corte+Barba continuam ganhando o horário extra do fim do dia.
+    assert gerar_slots("09:00", "20:00", ALMOCO, 40, 10, 10)[-1] == "19:30"   # termina 20:10
+    assert gerar_slots("09:00", "20:00", ALMOCO, 50, 10, 10)[-1] == "19:20"   # termina 20:10
+
+def test_cabe_no_expediente_respeita_a_ultima_entrada():
+    assert cabe_no_expediente(1190, 10, "09:00", "20:00", 10, 10) is True    # 19:50 ok
+    assert cabe_no_expediente(1200, 10, "09:00", "20:00", 10, 10) is False   # 20:00 barrado
+
+def test_margem_zero_e_o_comportamento_anterior():
+    assert (gerar_slots("09:00", "20:00", ALMOCO, 10, 10, 0)
+            == gerar_slots("09:00", "20:00", ALMOCO, 10, 10))
+
+
 def test_lista_e_validacao_nunca_divergem():
     """
     Blindagem contra o bug clássico "vejo o horário mas não consigo marcar":
     TODO horário oferecido tem que passar na validação de agendamento, em
-    vários cenários e durações.
+    vários cenários, durações e combinações de regra de fim de dia.
     """
     cenarios = [
         ("09:00", "20:00", []),
@@ -223,12 +252,17 @@ def test_lista_e_validacao_nunca_divergem():
     for (abertura, fechamento, ocupadas) in cenarios:
         for duracao in (10, 20, 30, 40, 45, 50, 60):
             for tolerancia in (0, 10, 30):
-                for horario in gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia):
-                    inicio = hhmm_para_min(horario)
-                    assert cabe_no_expediente(inicio, duracao, abertura, fechamento, tolerancia), \
-                        f"{horario} ({duracao}min, tol {tolerancia}) foi oferecido mas não cabe no expediente"
-                    assert primeiro_conflito(inicio, duracao, ocupadas) is None, \
-                        f"{horario} ({duracao}min, tol {tolerancia}) foi oferecido mas conflita"
+                for margem in (0, 10, 30):
+                    oferecidos = gerar_slots(abertura, fechamento, ocupadas,
+                                             duracao, tolerancia, margem)
+                    for horario in oferecidos:
+                        inicio = hhmm_para_min(horario)
+                        contexto = f"{horario} ({duracao}min, tol {tolerancia}, margem {margem})"
+                        assert cabe_no_expediente(inicio, duracao, abertura, fechamento,
+                                                  tolerancia, margem), \
+                            f"{contexto} foi oferecido mas não cabe no expediente"
+                        assert primeiro_conflito(inicio, duracao, ocupadas) is None, \
+                            f"{contexto} foi oferecido mas conflita com algo ocupado"
 
 
 # ---------------------------------------------------------- antecedência

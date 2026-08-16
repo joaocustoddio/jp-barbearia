@@ -118,7 +118,8 @@ def intervalos_livres(abertura, fechamento, ocupadas):
     return [(a, b) for (a, b) in livres if b > a]
 
 
-def gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia_fim=0):
+def gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia_fim=0,
+                margem_ultima_entrada=0):
     """
     Os horários oferecidos ao cliente, de forma DINÂMICA: em cada brecha livre
     começa no início da brecha (logo após o corte anterior, o almoço ou a
@@ -128,16 +129,21 @@ def gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia_fim=0):
     próximo às 18:10 — e não às 18:40, como faria uma grade fixa ancorada na
     abertura.
 
-    `tolerancia_fim` é a "última entrada": quantos minutos o serviço pode passar
-    do fechamento. Vale SÓ na brecha que encosta no horário de fechar — nunca
-    invade o almoço nem o próximo cliente. Serve pra não perder o último corte
-    do dia por causa de 10 minutinhos.
+    Duas regras cuidam do fim do dia:
+
+    - `tolerancia_fim`: quantos minutos o serviço pode passar do fechamento, pra
+      não perder o último corte por 10 minutinhos. Vale SÓ na brecha que encosta
+      no horário de fechar — nunca invade o almoço nem o próximo cliente.
+    - `margem_ultima_entrada`: a última entrada é `fechamento - margem`. Impede
+      alguém de entrar em cima da hora de fechar (ex: margem 10 e fechamento
+      20:00 → ninguém começa depois das 19:50).
 
     abertura/fechamento: 'HH:MM'. ocupadas: lista de Janela. duracao: minutos.
     """
     inicio_dia = hhmm_para_min(abertura)
     fim_dia = hhmm_para_min(fechamento)
     passo = _duracao_segura(duracao)
+    ultima_entrada = fim_dia - margem_ultima_entrada
 
     slots = []
     for (livre_inicio, livre_fim) in intervalos_livres(inicio_dia, fim_dia, ocupadas):
@@ -145,21 +151,24 @@ def gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia_fim=0):
         # tolerância. As outras terminam onde começa o próximo compromisso.
         limite = (livre_fim + tolerancia_fim) if livre_fim == fim_dia else livre_fim
         momento = livre_inicio
-        while momento + passo <= limite:
+        while momento + passo <= limite and momento <= ultima_entrada:
             slots.append(min_para_hhmm(momento))
             momento += passo
     return slots
 
 
-def cabe_no_expediente(inicio, duracao, abertura, fechamento, tolerancia_fim=0):
+def cabe_no_expediente(inicio, duracao, abertura, fechamento, tolerancia_fim=0,
+                       margem_ultima_entrada=0):
     """
-    True se o serviço começa E termina dentro do expediente do barbeiro,
-    aceitando passar até `tolerancia_fim` minutos do fechamento (mesma regra
-    usada pra gerar os horários — as duas contas precisam bater).
+    True se o serviço cabe no expediente do barbeiro. Aplica as MESMAS regras de
+    fim de dia usadas pra gerar os horários (tolerância e última entrada) — as
+    duas contas precisam bater, senão volta o "vejo o horário mas não marco".
     """
     passo = _duracao_segura(duracao)
+    fim_dia = hhmm_para_min(fechamento)
     return (inicio >= hhmm_para_min(abertura)
-            and inicio + passo <= hhmm_para_min(fechamento) + tolerancia_fim)
+            and inicio <= fim_dia - margem_ultima_entrada
+            and inicio + passo <= fim_dia + tolerancia_fim)
 
 
 def primeiro_conflito(inicio, duracao, ocupadas):
