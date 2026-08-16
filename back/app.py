@@ -106,6 +106,16 @@ TOLERANCIA_FECHAMENTO_MIN = int(os.getenv("TOLERANCIA_FECHAMENTO_MINUTOS", "10")
 # (no sábado, que fecha 19:00, vira 18:50).
 MARGEM_ULTIMA_ENTRADA_MIN = int(os.getenv("MARGEM_ULTIMA_ENTRADA_MINUTOS", "10"))
 
+# A tolerância acima só vale pra serviços a partir desta duração. Faz sentido
+# esticar o fim do dia por um Degradê (senão o horário se perde inteiro), mas
+# não por uma Barba de 20min — essa termina até a hora de fechar.
+TOLERANCIA_DURACAO_MINIMA_MIN = int(os.getenv("TOLERANCIA_DURACAO_MINIMA_MINUTOS", "30"))
+
+
+def tolerancia_para(duracao):
+    """Quantos minutos ESTE serviço pode passar do fechamento (0 pros curtos)."""
+    return TOLERANCIA_FECHAMENTO_MIN if (duracao or 0) >= TOLERANCIA_DURACAO_MINIMA_MIN else 0
+
 # Janela máxima de agendamento pelo site (em dias). O cliente só pode marcar
 # de hoje até hoje + esse limite. Padrão 7 (1 semana). Vale só pro fluxo público;
 # o barbeiro pelo painel (walk-in / repetir) não fica preso a esse limite.
@@ -409,7 +419,7 @@ def horarios_disponiveis():
     # Horários gerados de forma DINÂMICA: encaixam nas brechas livres começando
     # onde o corte anterior terminou (packing), sem desperdiçar espaço.
     disponiveis = gerar_slots(abertura, fechamento, ocupadas, dur_serv,
-                              TOLERANCIA_FECHAMENTO_MIN, MARGEM_ULTIMA_ENTRADA_MIN)
+                              tolerancia_para(dur_serv), MARGEM_ULTIMA_ENTRADA_MIN)
 
     # Se for hoje, tira o que já passou ou está dentro da antecedência mínima.
     if data_str == data_hoje().isoformat():
@@ -553,7 +563,7 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
         # Precisa caber no expediente do barbeiro nesse dia (horário do dia + ajuste).
         ab, fe = horario_efetivo(dados["data"], barbeiro_id, conn)
         if not cabe_no_expediente(inicio_novo, dur_novo, ab, fe,
-                                  TOLERANCIA_FECHAMENTO_MIN, MARGEM_ULTIMA_ENTRADA_MIN):
+                                  tolerancia_para(dur_novo), MARGEM_ULTIMA_ENTRADA_MIN):
             conn.close()
             return {"erro": "Horário fora do expediente do barbeiro nesse dia."}, 400
 

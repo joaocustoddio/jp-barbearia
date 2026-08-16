@@ -88,9 +88,9 @@ def test_dia_vazio_usa_a_duracao_como_passo():
     slots = gerar_slots("09:00", "20:00", [], 40)   # Degradê 40min
     assert slots[0] == "09:00"
     assert slots[1] == "09:40"
-    # grid de 40min desde 09:00: o último que cabe antes das 20:00 é 19:00
-    # (19:00+40=19:40; o próximo, 19:40, estouraria).
-    assert slots[-1] == "19:00"
+    assert "19:00" in slots                         # último da grade (termina 19:40)
+    # ...mas ainda é oferecido o encaixe que fecha exato às 20:00.
+    assert slots[-1] == "19:20"
 
 def test_encaixa_logo_apos_o_corte_anterior():
     # Social 30min ocupa 09:00–09:30 → Degradê 40min começa 09:30, não 09:40
@@ -170,9 +170,10 @@ def test_cabe_no_expediente():
 ALMOCO = [Janela(750, 810, "almoco")]      # 12:30–13:30, usado nos cenários abaixo
 
 def test_tolerancia_salva_o_ultimo_corte_do_dia():
-    # Degradê 40min, dia com almoço: sem tolerância o último começa 18:50.
+    # Degradê 40min, dia com almoço: sem tolerância o último é o encaixe que
+    # fecha exato às 20:00 (19:20).
     sem = gerar_slots("09:00", "20:00", ALMOCO, 40)
-    assert sem[-1] == "18:50"              # 18:50+40 = 19:30, e sobra 19:30–20:00
+    assert sem[-1] == "19:20"
     # Com 10min de tolerância entra mais um: 19:30 (termina 20:10).
     com = gerar_slots("09:00", "20:00", ALMOCO, 40, 10)
     assert com[-1] == "19:30"
@@ -194,12 +195,13 @@ def test_tolerancia_nao_invade_o_proximo_cliente():
     assert "15:00" in slots
 
 def test_tolerancia_curta_deixa_servico_longo_de_fora():
-    # Químico de 60min não entra com só 10min de tolerância (terminaria 20:30).
+    # Químico de 60min NÃO passa do fechamento com só 10min de tolerância: o
+    # último é o encaixe que termina exato às 20:00 (19:00), não 19:30 (20:30).
     curto = gerar_slots("09:00", "20:00", ALMOCO, 60, 10)
-    assert curto[-1] == "18:30"            # igual a sem tolerância
-    # Com 30min ele entraria — é a regra escalando com a duração do serviço.
+    assert curto[-1] == "19:00"
+    # Com 30min de tolerância aí sim ele pode passar — a regra escala com a duração.
     longo = gerar_slots("09:00", "20:00", ALMOCO, 60, 30)
-    assert longo[-1] == "19:30"
+    assert longo[-1] == "19:30"            # termina 20:30
 
 def test_tolerancia_zero_e_o_comportamento_antigo():
     assert gerar_slots("09:00", "20:00", ALMOCO, 40, 0) == gerar_slots("09:00", "20:00", ALMOCO, 40)
@@ -235,6 +237,35 @@ def test_cabe_no_expediente_respeita_a_ultima_entrada():
 def test_margem_zero_e_o_comportamento_anterior():
     assert (gerar_slots("09:00", "20:00", ALMOCO, 10, 10, 0)
             == gerar_slots("09:00", "20:00", ALMOCO, 10, 10))
+
+
+# ------------------------------------------- encaixe que fecha exato no fim
+
+def test_barba_ganha_o_horario_que_fecha_exato():
+    # A grade da Barba (20min) ancorada no fim do almoço cai em 19:30 e 19:50,
+    # pulando o 19:40 — que é justamente o que encerra certinho às 20:00.
+    # Serviço curto não usa tolerância (o app passa 0), então 19:40 é o último.
+    slots = gerar_slots("09:00", "20:00", ALMOCO, 20, 0, 10)
+    assert "19:40" in slots
+    assert slots[-1] == "19:40"
+
+def test_encaixe_final_nao_passa_da_ultima_entrada():
+    # Serviço de 5min: fecharia exato às 19:55, mas a última entrada é 19:50.
+    slots = gerar_slots("09:00", "20:00", [], 5, 10, 10)
+    assert "19:55" not in slots
+    assert slots[-1] == "19:50"
+
+def test_encaixe_final_nao_aparece_se_nao_couber_na_brecha():
+    # Brecha de 15min no fim do dia e serviço de 40min: nada é oferecido.
+    ocupadas = [Janela(540, 1185, "agendamento")]     # ocupa até 19:45
+    assert gerar_slots("09:00", "20:00", ocupadas, 40, 10, 10) == []
+
+def test_encaixe_final_so_vale_no_fim_do_dia():
+    # A brecha da manhã termina no almoço: não ganha encaixe que "fecha exato"
+    # nele (12:30 - 40min = 11:50 não é oferecido; a grade para em 11:40).
+    slots = gerar_slots("09:00", "20:00", ALMOCO, 40, 10, 10)
+    assert "11:50" not in slots
+    assert "11:40" in slots
 
 
 def test_lista_e_validacao_nunca_divergem():
@@ -300,9 +331,10 @@ def test_dia_realista_do_jp():
     assert "12:30" not in slots       # almoço
     assert "14:00" not in slots       # ocupado
     assert "14:50" in slots           # logo após o Corte+Barba
-    # Depois das 14:50 a grade fica ancorada NELE (14:50, 15:20, 15:50...), então
-    # o último de 30min é 19:20 — 19:50 sobraria só 10min e não caberia.
-    assert slots[-1] == "19:20"
+    # Depois das 14:50 a grade fica ancorada NELE (14:50, 15:20, 15:50...), o que
+    # levaria a 19:20; mas o encaixe final garante o 19:30, que fecha exato 20:00.
+    assert "19:20" in slots
+    assert slots[-1] == "19:30"
 
     # E a validação de agendamento concorda com a lista em todos os pontos:
     for horario in slots:

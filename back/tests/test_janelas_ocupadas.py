@@ -88,6 +88,18 @@ def test_bloqueio_de_dia_inteiro_derruba_a_agenda():
     assert ocupadas == []
 
 
+def test_so_servico_longo_pode_passar_do_fechamento():
+    """
+    A tolerância de fim de dia existe pra não perder um corte inteiro por 10min.
+    Serviço curto (Barba, Acabamento) termina até a hora de fechar.
+    """
+    assert app.tolerancia_para(10) == 0                            # Acabamento
+    assert app.tolerancia_para(20) == 0                            # Barba
+    assert app.tolerancia_para(30) == app.TOLERANCIA_FECHAMENTO_MIN  # Corte Social
+    assert app.tolerancia_para(40) == app.TOLERANCIA_FECHAMENTO_MIN  # Degradê
+    assert app.tolerancia_para(None) == 0                          # sem duração, sem folga
+
+
 def test_tudo_junto_no_mesmo_dia():
     ocupadas, dia_bloqueado = janelas(
         agendamentos=[{"hora": "09:00", "duracao_min": 40}],

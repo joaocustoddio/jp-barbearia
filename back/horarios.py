@@ -152,9 +152,19 @@ def gerar_slots(abertura, fechamento, ocupadas, duracao, tolerancia_fim=0,
         limite = (livre_fim + tolerancia_fim) if livre_fim == fim_dia else livre_fim
         momento = livre_inicio
         while momento + passo <= limite and momento <= ultima_entrada:
-            slots.append(min_para_hhmm(momento))
+            slots.append(momento)
             momento += passo
-    return slots
+
+        # Fecha o dia sem sobra: a grade nem sempre passa pelo horário que
+        # termina EXATO na hora de fechar (ex: Barba de 20min cairia em 19:30 e
+        # 19:50, pulando o 19:40 que encerra certinho às 20:00). Como esse
+        # encaixe está dentro da brecha livre, ele nunca conflita com nada.
+        if livre_fim == fim_dia:
+            encaixe_final = fim_dia - passo
+            if livre_inicio <= encaixe_final <= ultima_entrada:
+                slots.append(encaixe_final)
+
+    return [min_para_hhmm(momento) for momento in sorted(set(slots))]
 
 
 def cabe_no_expediente(inicio, duracao, abertura, fechamento, tolerancia_fim=0,
