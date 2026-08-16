@@ -2134,6 +2134,32 @@ def _enviar_lembretes_de_clientes():
     return {"tipo": "proximos", "data": hoje, "enviados": enviados}
 
 
+@app.route("/api/tarefas/testar-email", methods=["POST"])
+@limiter.limit("10 per hour")
+def tarefa_testar_email():
+    """
+    Diagnóstico de e-mail: tenta enviar UM email de teste e devolve o erro real
+    do servidor SMTP, em vez de deixá-lo escondido no log.
+    Uso: POST /api/tarefas/testar-email?para=alguem@email.com  (com o token)
+    """
+    if not _token_de_tarefa_confere():
+        return jsonify({"erro": "Não autorizado"}), 401
+
+    resultado = emails.diagnostico()
+    destino = (request.args.get("para") or "").strip()
+    if not resultado["configurado"]:
+        resultado["dica"] = "Faltam variáveis SMTP no servidor (EMAIL_SMTP_HOST / EMAIL_REMETENTE)."
+        return jsonify(resultado), 200
+    if not destino:
+        resultado["dica"] = "Informe ?para=seu@email.com pra fazer o teste de envio."
+        return jsonify(resultado), 200
+
+    enviado, erro = emails.testar(destino)
+    resultado.update({"destino": destino, "enviado": enviado, "erro_smtp": erro})
+    logger.info("Teste de email para %s: enviado=%s erro=%s", destino, enviado, erro)
+    return jsonify(resultado), 200
+
+
 @app.route("/api/tarefas/avisos", methods=["POST"])
 @limiter.limit("20 per hour")
 def tarefa_avisos():

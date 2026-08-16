@@ -69,6 +69,38 @@ def _enviar_agora(destino, assunto, corpo_html, corpo_texto):
         servidor.send_message(mensagem)
 
 
+def testar(destino):
+    """
+    Tenta enviar um email de teste AGORA (sem thread) e devolve
+    (sucesso, mensagem_de_erro). Serve pra diagnosticar configuração: em vez de
+    o erro sumir num log, ele volta na resposta.
+    """
+    try:
+        _enviar_agora(
+            destino,
+            "Teste de configuração — JP Barbearia",
+            "<p style='font-family:Arial'>Deu certo! 👊<br>"
+            "Se você recebeu isso, o envio de e-mails está funcionando.</p>",
+            "Deu certo! Se você recebeu isso, o envio de e-mails está funcionando.",
+        )
+        return True, None
+    except Exception as erro:
+        return False, "%s: %s" % (type(erro).__name__, erro)
+
+
+def diagnostico():
+    """Como o servidor está configurado (sem expor a senha)."""
+    return {
+        "configurado": configurado(),
+        "host": SMTP_HOST or None,
+        "porta": SMTP_PORTA,
+        "usuario": SMTP_USUARIO or None,
+        "remetente": REMETENTE or None,
+        "remetente_nome": REMETENTE_NOME or None,
+        "senha_definida": bool(SMTP_SENHA),
+    }
+
+
 def enviar(destino, assunto, corpo_html, corpo_texto, esperar=False):
     """
     Manda um email. Por padrão não bloqueia a requisição.
