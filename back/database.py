@@ -127,6 +127,8 @@ def init_db():
             criado_em TIMESTAMPTZ DEFAULT now()
         )
     """)
+    # email: opcional, usado pra mandar a confirmação e o lembrete automático.
+    cur.execute("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS email TEXT")
 
     # ---------------------------------------------------------
     # SERVICOS
@@ -183,6 +185,8 @@ def init_db():
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS encaixe BOOLEAN NOT NULL DEFAULT false")
     # forma_pagamento: 'cartao' | 'pix' | 'dinheiro' | NULL (ainda não registrado).
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT")
+    # Quando o lembrete automático (1h antes) foi enviado — evita mandar duas vezes.
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lembrete_enviado_em TIMESTAMPTZ")
 
     # ---------------------------------------------------------
     # ADMIN (usuários do painel — senha em hash bcrypt)

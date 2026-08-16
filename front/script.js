@@ -58,7 +58,9 @@ const state = {
   data: null,
   hora: null,
   nome: "",
-  telefone: ""
+  telefone: "",
+  email: "",
+  linkAgenda: ""     // link do Google Agenda, devolvido pelo back na confirmação
 };
 
 let passoAtual = 0;
@@ -578,6 +580,12 @@ function renderPassoDados() {
       <label class="campo-label" for="input-telefone">Whatsapp <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 018.413 3.488 11.82 11.82 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.489-.919zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"></path></svg></label>
       <input type="tel" id="input-telefone" inputmode="numeric" placeholder="11999998888" value="${state.telefone || ""}" />
     </div>
+    <div class="campo-grupo">
+      <label class="campo-label" for="input-email">E-mail</label>
+      <input type="email" id="input-email" inputmode="email" autocomplete="email"
+             placeholder="voce@email.com" value="${state.email || ""}" />
+      <span class="campo-ajuda">Enviamos a confirmação e um lembrete antes do seu horário.</span>
+    </div>
   `;
   elConteudo.appendChild(form);
 
@@ -603,18 +611,25 @@ function renderPassoDados() {
 
   const inputNome = form.querySelector("#input-nome");
   const inputTelefone = form.querySelector("#input-telefone");
+  const inputEmail = form.querySelector("#input-email");
 
   // Telefone válido = 10 ou 11 dígitos (DDD + número), ignorando o que não for número.
   function telefoneValido(v) {
     return /^\d{10,11}$/.test(v.replace(/\D/g, ""));
   }
-  // Só libera o botão quando nome (trim) e telefone estão preenchidos corretamente.
+  function emailValido(v) {
+    return /^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test((v || "").trim());
+  }
+  // Só libera o botão com nome, telefone e e-mail preenchidos corretamente.
   function atualizarBotao() {
-    btnConfirmar.disabled = !(inputNome.value.trim() && telefoneValido(inputTelefone.value));
+    btnConfirmar.disabled = !(inputNome.value.trim()
+      && telefoneValido(inputTelefone.value)
+      && emailValido(inputEmail.value));
   }
 
   inputNome.addEventListener("input", () => { state.nome = inputNome.value; atualizarBotao(); });
   inputTelefone.addEventListener("input", () => { state.telefone = inputTelefone.value; atualizarBotao(); });
+  inputEmail.addEventListener("input", () => { state.email = inputEmail.value; atualizarBotao(); });
 
   btnConfirmar.addEventListener("click", finalizarAgendamento);
   atualizarBotao(); // caso a pessoa tenha voltado pro passo com os campos já preenchidos
@@ -630,14 +645,19 @@ async function finalizarAgendamento() {
   if (btnVoltar) btnVoltar.style.display = "none";
 
   try {
-    await API.criarAgendamento({
+    const criado = await API.criarAgendamento({
       nome_cliente: state.nome.trim(),
       telefone: state.telefone.trim(),
+      email: (state.email || "").trim(),
       servico_id: state.servico.id,
       barbeiro_id: state.barbeiro.id,
       data: state.data,
       hora: state.hora
     });
+
+    // O back devolve o link do Google Agenda — o lembrete vira o alarme do
+    // próprio celular do cliente.
+    state.linkAgenda = (criado && criado.link_agenda) || "";
 
     concluido = true;
     renderStepper();
@@ -665,12 +685,21 @@ async function finalizarAgendamento() {
 const DURACAO_TELA_SUCESSO_SEGUNDOS = 15;
 
 function renderSucesso() {
+  // Botão de calendário: o cliente toca e o horário entra na agenda do celular
+  // dele — o alarme passa a ser do próprio aparelho, que ele sempre vê.
+  const botaoAgenda = state.linkAgenda
+    ? `<a class="btn btn-agenda" id="btn-agenda" href="${state.linkAgenda}" target="_blank" rel="noopener">
+         ${ICONES.calendario} Adicionar à minha agenda
+       </a>`
+    : "";
+
   elConteudo.innerHTML = `
     <div class="tela-sucesso">
       <div class="icone-sucesso">${ICONES.check}</div>
       <h2>Agendamento confirmado!</h2>
       <p>Prontinho, ${state.nome}! Seu horário de <strong>${state.servico.nome}</strong> com <strong>${state.barbeiro.nome}</strong>
       no dia ${formatarDataBR(state.data)} às ${state.hora} está garantido. Te esperamos!</p>
+      ${botaoAgenda}
       <div class="barra-progresso-container">
         <div class="barra-progresso-preenchimento" id="barra-progresso-sucesso"></div>
       </div>
@@ -685,9 +714,19 @@ function renderSucesso() {
 
   // A barra CSS já roda sozinha (ver .barra-progresso-preenchimento no style.css);
   // só precisamos saber quando ela termina de encher, pra reiniciar a tela.
-  barra.style.animationDuration = `${DURACAO_TELA_SUCESSO_SEGUNDOS}s`;
+  // Com o botão de agenda na tela, dá mais tempo pra pessoa tocar nele.
+  const segundos = state.linkAgenda
+    ? DURACAO_TELA_SUCESSO_SEGUNDOS * 2
+    : DURACAO_TELA_SUCESSO_SEGUNDOS;
+  barra.style.animationDuration = `${segundos}s`;
   barra.addEventListener("animationend", reiniciar);
   btnOk.addEventListener("click", reiniciar); // deixa pular a espera
+
+  // Se a pessoa foi adicionar na agenda, não reinicia a tela por baixo dela.
+  const linkAgenda = document.getElementById("btn-agenda");
+  if (linkAgenda) {
+    linkAgenda.addEventListener("click", () => barra.removeEventListener("animationend", reiniciar));
+  }
 }
 
 

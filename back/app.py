@@ -32,6 +32,7 @@ from horarios import (
     primeiro_conflito, filtrar_por_antecedencia, mensagem_de_conflito,
 )
 import notificacoes
+import emails
 
 # Carrega as variáveis do arquivo .env
 # Se não existir o .env, usa os valores padrão definidos abaixo
@@ -96,6 +97,9 @@ ANTECEDENCIA_MINIMA   = int(os.getenv("ANTECEDENCIA_MINIMA_MINUTOS", "15"))
 
 # Duração do almoço (fixo ou manual), em minutos.
 DURACAO_ALMOCO_MIN    = int(os.getenv("DURACAO_ALMOCO_MINUTOS", "60"))
+
+# Endereço da barbearia — aparece no email e no evento do calendário do cliente.
+ENDERECO_BARBEARIA    = os.getenv("ENDERECO_BARBEARIA", "").strip()
 
 # "Última entrada": quantos minutos o serviço pode passar do fechamento, pra não
 # perder o último corte do dia por 10 minutinhos. Ex: 10 = um Degradê (40min)
@@ -247,6 +251,18 @@ def validar_telefone(telefone):
     telefone = re.sub(r"\D", "", telefone)  # remove tudo que não é número
     if len(telefone) < 10 or len(telefone) > 11:
         return False, "Telefone inválido (use DDD + número)"
+    return True, None
+
+def validar_email(email):
+    # Email é opcional aqui — só valida o FORMATO quando vier preenchido.
+    # A obrigatoriedade (site do cliente sim, caderninho não) fica na rota.
+    if not email:
+        return True, None
+    email = email.strip()
+    if len(email) > 120:
+        return False, "E-mail muito longo"
+    if not re.match(r"^[^@\s]+@[^@\s.]+\.[^@\s]+$", email):
+        return False, "E-mail inválido"
     return True, None
 
 def validar_data(data_str):
@@ -497,8 +513,29 @@ def _data_br(data_iso):
         return data_iso
 
 
+def _link_agenda(servico, barbeiro, data_iso, hora, duracao_min):
+    """
+    Link 'Adicionar à minha agenda' (Google Agenda). O Google espera os horários
+    em UTC, então convertemos do fuso de Brasília.
+    """
+    try:
+        inicio_local = datetime.strptime("%s %s" % (data_iso, hora[:5]), "%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return ""
+    inicio_local = inicio_local.replace(tzinfo=FUSO_BR)
+    fim_local = inicio_local + timedelta(minutes=int(duracao_min or INTERVALO_MINUTOS))
+    return emails.link_google_agenda(
+        titulo="%s — JP Barbearia" % servico,
+        inicio_utc=inicio_local.astimezone(timezone.utc),
+        fim_utc=fim_local.astimezone(timezone.utc),
+        detalhes="Profissional: %s" % barbeiro,
+        local=ENDERECO_BARBEARIA,
+    )
+
+
 def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False,
-                                permitir_conflito=False, avisar_equipe=False):
+                                permitir_conflito=False, avisar_equipe=False,
+                                exigir_email=False):
     """
     Valida e insere um novo agendamento. Compartilhado entre duas rotas:
     - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
@@ -526,10 +563,15 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
         conn.close()
         return {"erro": "Barbeiro não encontrado"}, 400
 
-    # Telefone obrigatório só no fluxo público (cliente).
+    # Telefone e e-mail são obrigatórios só no fluxo público (cliente pelo site).
+    # No caderninho do barbeiro os dois são opcionais — o cliente está na cadeira,
+    # não faz sentido travar o registro por causa de contato.
     if exigir_telefone and not (dados.get("telefone") or "").strip():
         conn.close()
         return {"erro": "Telefone é obrigatório"}, 400
+    if exigir_email and not (dados.get("email") or "").strip():
+        conn.close()
+        return {"erro": "E-mail é obrigatório (é nele que enviamos a confirmação e o lembrete)"}, 400
 
     # Valida cada campo. A antecedência só é checada quando exigir_antecedencia
     # for True (passando a data pro validar_hora ativa a regra). O validar_telefone
@@ -538,6 +580,7 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     checks = [
         validar_nome(dados.get("nome_cliente")),
         validar_telefone(dados.get("telefone")),
+        validar_email(dados.get("email")),
         validar_data(dados.get("data")),
         validar_hora(dados.get("hora"), data_para_hora),
         validar_servico_id(dados.get("servico_id"), conn),
@@ -596,8 +639,9 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     # Salva cliente + agendamento (RETURNING id — Postgres não tem lastrowid)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO clientes (nome, telefone) VALUES (%s, %s) RETURNING id",
-        (dados["nome_cliente"].strip(), dados.get("telefone") or None)
+        "INSERT INTO clientes (nome, telefone, email) VALUES (%s, %s, %s) RETURNING id",
+        (dados["nome_cliente"].strip(), dados.get("telefone") or None,
+         (dados.get("email") or "").strip() or None)
     )
     cliente_id = cursor.fetchone()["id"]
     cursor.execute(
@@ -609,26 +653,42 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     agendamento_id = cursor.fetchone()["id"]
     conn.commit()
 
-    # Avisa a equipe no Telegram (só quando o CLIENTE marca pelo site — quando é
-    # o próprio barbeiro anotando no caderninho não faz sentido avisar).
-    if avisar_equipe and notificacoes.configurado():
-        nomes = conn.execute(
-            """SELECT servicos.nome AS servico, barbeiros.nome AS barbeiro
+    # Avisa a equipe no Telegram e manda a confirmação pro cliente. Só no fluxo
+    # público — quando é o próprio barbeiro anotando no caderninho não faz sentido.
+    resposta = {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id}
+    if avisar_equipe:
+        detalhes = conn.execute(
+            """SELECT servicos.nome AS servico, servicos.preco, servicos.duracao_min,
+                      barbeiros.nome AS barbeiro
                FROM servicos, barbeiros WHERE servicos.id = %s AND barbeiros.id = %s""",
             (int(dados["servico_id"]), int(barbeiro_id))
         ).fetchone()
-        if nomes:
+        if detalhes:
+            data_br = _data_br(dados["data"])
             notificacoes.avisar_novo_agendamento(
-                cliente=dados["nome_cliente"].strip(),
-                servico=nomes["servico"],
-                barbeiro=nomes["barbeiro"],
-                data_br=_data_br(dados["data"]),
-                hora=dados["hora"],
+                cliente=dados["nome_cliente"].strip(), servico=detalhes["servico"],
+                barbeiro=detalhes["barbeiro"], data_br=data_br, hora=dados["hora"],
                 telefone=dados.get("telefone"),
             )
+            # Link do Google Agenda: o lembrete passa a ser o alarme do próprio
+            # celular do cliente. Devolvido pro front mostrar o botão também.
+            link_agenda = _link_agenda(
+                detalhes["servico"], detalhes["barbeiro"], dados["data"],
+                dados["hora"], detalhes["duracao_min"]
+            )
+            resposta["link_agenda"] = link_agenda
+            email_cliente = (dados.get("email") or "").strip()
+            if email_cliente:
+                assunto, html, texto = emails.email_confirmacao(
+                    cliente=dados["nome_cliente"].strip(), servico=detalhes["servico"],
+                    barbeiro=detalhes["barbeiro"], data_br=data_br, hora=dados["hora"],
+                    preco=detalhes["preco"], link_agenda=link_agenda,
+                    endereco=ENDERECO_BARBEARIA,
+                )
+                emails.enviar(email_cliente, assunto, html, texto)
     conn.close()
 
-    return {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id}, 201
+    return resposta, 201
 
 
 @app.route("/api/agendamentos", methods=["POST"])
@@ -638,7 +698,8 @@ def criar_agendamento():
     if not dados:
         return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
     corpo, status = _processar_novo_agendamento(
-        dados, exigir_antecedencia=True, exigir_telefone=True, avisar_equipe=True
+        dados, exigir_antecedencia=True, exigir_telefone=True, avisar_equipe=True,
+        exigir_email=True
     )
     return jsonify(corpo), status
 
@@ -1981,6 +2042,10 @@ def contagem_dia():
 # -------------------------------------------------------
 TAREFAS_TOKEN = os.getenv("TAREFAS_TOKEN", "").strip()
 
+# Quantos minutos antes do horário o lembrete automático sai (padrão 60 = 1h).
+# A tarefa roda de tempos em tempos e pega quem está entrando nessa janela.
+LEMBRETE_ANTECEDENCIA_MIN = int(os.getenv("LEMBRETE_ANTECEDENCIA_MINUTOS", "60"))
+
 
 def _token_de_tarefa_confere():
     if not TAREFAS_TOKEN:
@@ -2010,6 +2075,65 @@ def _agendamentos_do_dia(data_str):
              "servico": l["servico"], "barbeiro": l["barbeiro"]} for l in linhas]
 
 
+def _enviar_lembretes_de_clientes():
+    """
+    Manda o lembrete por email pra quem tem horário chegando (~1h). Roda de
+    tempos em tempos; cada agendamento é marcado como avisado (lembrete_enviado_em),
+    então ninguém recebe duas vezes mesmo se a tarefa rodar várias vezes.
+
+    Pega quem começa entre AGORA e AGORA + antecedência: se a tarefa atrasar, o
+    cliente ainda recebe (um pouco em cima da hora, melhor que não receber).
+    """
+    if not emails.configurado():
+        return {"tipo": "proximos", "enviados": 0, "erro": "E-mail não configurado"}
+
+    agora = agora_br()
+    hoje = agora.date().isoformat()
+    agora_min = agora.hour * 60 + agora.minute
+    limite_min = agora_min + LEMBRETE_ANTECEDENCIA_MIN
+
+    conn = get_connection()
+    candidatos = conn.execute(
+        """SELECT agendamentos.id, agendamentos.hora, clientes.nome AS cliente,
+                  clientes.email, servicos.nome AS servico, barbeiros.nome AS barbeiro
+           FROM agendamentos
+           JOIN clientes  ON agendamentos.cliente_id  = clientes.id
+           JOIN servicos  ON agendamentos.servico_id  = servicos.id
+           JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
+           WHERE agendamentos.data = %s
+             AND agendamentos.status != 'cancelado'
+             AND agendamentos.lembrete_enviado_em IS NULL
+             AND clientes.email IS NOT NULL AND clientes.email <> ''
+           ORDER BY agendamentos.hora""",
+        (hoje,)
+    ).fetchall()
+
+    enviados = 0
+    for linha in candidatos:
+        try:
+            inicio = hhmm_para_min(linha["hora"])
+        except ValueError:
+            continue
+        if not (agora_min <= inicio <= limite_min):
+            continue                                  # ainda não é a hora (ou já passou)
+        assunto, html, texto = emails.email_lembrete(
+            cliente=linha["cliente"], servico=linha["servico"],
+            barbeiro=linha["barbeiro"], data_br=_data_br(hoje),
+            hora=linha["hora"][:5], endereco=ENDERECO_BARBEARIA,
+        )
+        # esperar=True: só marca como enviado depois de realmente tentar mandar.
+        emails.enviar(linha["email"], assunto, html, texto, esperar=True)
+        conn.execute("UPDATE agendamentos SET lembrete_enviado_em = now() WHERE id = %s",
+                     (linha["id"],))
+        enviados += 1
+
+    conn.commit()
+    conn.close()
+    logger.info("Lembretes de clientes: %d enviado(s) de %d candidato(s).",
+                enviados, len(candidatos))
+    return {"tipo": "proximos", "data": hoje, "enviados": enviados}
+
+
 @app.route("/api/tarefas/avisos", methods=["POST"])
 @limiter.limit("20 per hour")
 def tarefa_avisos():
@@ -2022,10 +2146,17 @@ def tarefa_avisos():
     """
     if not _token_de_tarefa_confere():
         return jsonify({"erro": "Não autorizado"}), 401
+
+    tipo = (request.args.get("tipo") or "lembretes").lower()
+
+    # Lembrete automático pro CLIENTE, ~1h antes do horário dele (por email).
+    # Esta é a única tarefa que não depende do Telegram.
+    if tipo == "proximos":
+        return jsonify(_enviar_lembretes_de_clientes())
+
     if not notificacoes.configurado():
         return jsonify({"erro": "Telegram não configurado"}), 503
 
-    tipo = (request.args.get("tipo") or "lembretes").lower()
     if tipo == "resumo":
         data = data_hoje()
         agendamentos = _agendamentos_do_dia(data.isoformat())
