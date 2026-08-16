@@ -272,6 +272,16 @@ async function renderDashboard() {
         <div class="kpi">
           <p class="kpi-rotulo">Faturamento ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor acento">${formatarMoeda(relatorio.faturamento_total)}</p>
+          ${relatorio.faturamento_produtos
+            ? `<p class="kpi-detalhe">${formatarMoeda(relatorio.faturamento_servicos)} em serviços
+               + ${formatarMoeda(relatorio.faturamento_produtos)} em produtos</p>`
+            : ""}
+        </div>
+        <div class="kpi">
+          <p class="kpi-rotulo">Produtos ${escapeHTML(rotuloPeriodo)}</p>
+          <p class="kpi-valor">${formatarMoeda(relatorio.faturamento_produtos || 0)}</p>
+          ${relatorio.produtos_qtd
+            ? `<p class="kpi-detalhe">${relatorio.produtos_qtd} item(ns) vendido(s)</p>` : ""}
         </div>
         <div class="kpi">
           <p class="kpi-rotulo">Confirmados hoje</p>
@@ -428,7 +438,7 @@ async function renderContagem() {
       <div class="tabela-wrap">
         <table class="tabela">
           <thead>
-            <tr><th>Barbeiro</th><th>Clientes</th><th>Total</th><th>Comissão</th><th>Barbearia</th></tr>
+            <tr><th>Barbeiro</th><th>Clientes</th><th>Serviços</th><th>Produtos</th><th>Total</th><th>Comissão</th><th>Barbearia</th></tr>
           </thead>
           <tbody>
             ${r.barbeiros.map((b) => `
@@ -439,7 +449,9 @@ async function renderContagem() {
                   ${b.produtos ? `<div class="contagem-produtos">Produtos: ${formatarMoeda(b.produtos)}${b.produtos_qtd ? ` (${b.produtos_qtd})` : ""}</div>` : ""}
                 </td>
                 <td data-label="Clientes">${b.clientes}</td>
-                <td data-label="Total">${formatarMoeda(b.total)}</td>
+                <td data-label="Serviços">${formatarMoeda(b.total)}</td>
+                <td data-label="Produtos">${b.produtos ? formatarMoeda(b.produtos) : "—"}</td>
+                <td data-label="Total"><strong>${formatarMoeda(b.total_geral != null ? b.total_geral : b.total)}</strong></td>
                 <td data-label="Comissão (${b.comissao_pct}%)">${formatarMoeda(b.barbeiro_recebe)}</td>
                 <td data-label="Barbearia">${formatarMoeda(b.barbearia_recebe)}</td>
               </tr>
@@ -450,14 +462,19 @@ async function renderContagem() {
             <tr class="linha-totais">
               <td class="totais-titulo"><strong>JP BARBEARIA</strong></td>
               <td data-label="Clientes"><strong>${r.totais.clientes}</strong></td>
-              <td data-label="Total"><strong>${formatarMoeda(r.totais.total)}</strong></td>
+              <td data-label="Serviços"><strong>${formatarMoeda(r.totais.total)}</strong></td>
+              <td data-label="Produtos"><strong>${r.totais.produtos ? formatarMoeda(r.totais.produtos) : "—"}</strong></td>
+              <td data-label="Total"><strong>${formatarMoeda(r.totais.total_geral != null ? r.totais.total_geral : r.totais.total)}</strong></td>
               <td data-label="Comissão"><strong>${formatarMoeda(r.totais.barbeiro_recebe)}</strong></td>
               <td data-label="Barbearia"><strong>${formatarMoeda(r.totais.barbearia_recebe)}</strong></td>
             </tr>
           </tfoot>` : ""}
         </table>
       </div>
-      ${ehMaster && r.totais.produtos ? `<p class="contagem-caixa">Produtos (caixa, fora da comissão): <strong>${formatarMoeda(r.totais.produtos)}</strong></p>` : ""}
+      ${ehMaster && r.totais.produtos
+        ? `<p class="contagem-caixa">A coluna <strong>Total</strong> é o que deve estar no caixa
+           (serviços + produtos). Produtos não entram na comissão do barbeiro.</p>`
+        : ""}
     `;
   } catch (erro) {
     const msg = tratarErro(erro);

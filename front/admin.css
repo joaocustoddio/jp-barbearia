@@ -1258,3 +1258,11 @@ table.tabela .btn-mini {
 .exp-item.folga .exp-horas {
   opacity: 0.45;
 }
+
+/* Detalhe abaixo do número no card do Dashboard */
+.kpi-detalhe {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--texto-suave);
+  line-height: 1.35;
+}

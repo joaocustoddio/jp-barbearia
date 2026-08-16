@@ -1909,6 +1909,19 @@ def relatorio_admin():
         ORDER BY agendamentos.data
     """, per).fetchall()
 
+    # Produtos vendidos no período (adicionais). Entram no faturamento total —
+    # é dinheiro que entrou no caixa — mas ficam também discriminados à parte,
+    # porque não são serviço e não contam pra comissão do barbeiro.
+    produtos = conn.execute(f"""
+        SELECT COALESCE(SUM(consumos.valor_centavos * consumos.quantidade), 0) AS centavos,
+               COALESCE(SUM(consumos.quantidade), 0) AS quantidade
+        FROM agendamentos
+        JOIN consumos ON consumos.agendamento_id = agendamentos.id
+        WHERE agendamentos.status != 'cancelado'
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+    """, per).fetchone()
+    produtos_valor = round(float(produtos["centavos"] or 0) / 100, 2)
+
     # Ranking dos serviços mais realizados no período (pro dashboard)
     servicos_mais_realizados = conn.execute(f"""
         SELECT servicos.nome,
@@ -1929,7 +1942,12 @@ def relatorio_admin():
         "data_inicio": inicio.isoformat(),
         "data_fim": fim.isoformat(),
         "total_agendamentos": total,
-        "faturamento_total": faturamento,
+        # faturamento_total = tudo que entrou (serviços + produtos). Os dois
+        # pedaços vêm separados abaixo pra dar pra ver de onde veio.
+        "faturamento_total": round(float(faturamento or 0) + produtos_valor, 2),
+        "faturamento_servicos": round(float(faturamento or 0), 2),
+        "faturamento_produtos": produtos_valor,
+        "produtos_qtd": int(produtos["quantidade"] or 0),
         "por_dia": [dict(d) for d in por_dia],
         "servicos_mais_realizados": [dict(s) for s in servicos_mais_realizados]
     })
@@ -2039,7 +2057,10 @@ def contagem_dia():
                 "barbeiro_recebe": recebe_barbeiro,
                 "barbearia_recebe": recebe_barbearia,
                 "produtos": prod["valor"],
-                "produtos_qtd": prod["qtd"]
+                "produtos_qtd": prod["qtd"],
+                # O que realmente entrou: serviços + produtos. É este número que
+                # tem que bater com o caixa no fim do dia.
+                "total_geral": round(total + prod["valor"], 2)
             })
         barbeiros.append(item)
 
@@ -2055,7 +2076,8 @@ def contagem_dia():
             "total": round(tot_valor, 2),
             "barbeiro_recebe": round(tot_barbeiro, 2),
             "barbearia_recebe": round(tot_barbearia, 2),
-            "produtos": round(tot_produtos, 2)
+            "produtos": round(tot_produtos, 2),
+            "total_geral": round(tot_valor + tot_produtos, 2)
         })
 
     return jsonify({
