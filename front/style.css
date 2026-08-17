@@ -497,7 +497,8 @@ a { color: inherit; }
 
 input[type="date"],
 input[type="text"],
-input[type="tel"] {
+input[type="tel"],
+input[type="email"] {
   width: 100%;
   background: var(--bg-elevada);
   border: 1px solid var(--borda-forte);
@@ -513,7 +514,8 @@ input[type="tel"] {
 
 input[type="date"]:focus,
 input[type="text"]:focus,
-input[type="tel"]:focus {
+input[type="tel"]:focus,
+input[type="email"]:focus {
   border-color: var(--acento);
 }
 
