@@ -581,10 +581,10 @@ function renderPassoDados() {
       <input type="tel" id="input-telefone" inputmode="numeric" placeholder="11999998888" value="${state.telefone || ""}" />
     </div>
     <div class="campo-grupo">
-      <label class="campo-label" for="input-email">E-mail</label>
+      <label class="campo-label" for="input-email">E-mail <span class="campo-opcional">(opcional)</span></label>
       <input type="email" id="input-email" inputmode="email" autocomplete="email"
              placeholder="voce@email.com" value="${state.email || ""}" />
-      <span class="campo-ajuda">Enviamos a confirmação e um lembrete antes do seu horário.</span>
+      <p class="campo-nota" id="email-nota">Sem e-mail você não recebe a confirmação nem o lembrete do horário.</p>
     </div>
   `;
   elConteudo.appendChild(form);
@@ -617,10 +617,18 @@ function renderPassoDados() {
   function telefoneValido(v) {
     return /^\d{10,11}$/.test(v.replace(/\D/g, ""));
   }
+  // E-mail é OPCIONAL: vazio passa. Só barra se a pessoa digitar algo inválido,
+  // pra não mandar confirmação e lembrete pro vazio.
   function emailValido(v) {
-    return /^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test((v || "").trim());
+    const email = (v || "").trim();
+    return email === "" || /^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email);
   }
-  // Só libera o botão com nome, telefone e e-mail preenchidos corretamente.
+  const notaEmail = form.querySelector("#email-nota");
+  // A nota some quando a pessoa preenche — serve de lembrete, não de cobrança.
+  function atualizarNotaEmail() {
+    notaEmail.hidden = inputEmail.value.trim() !== "";
+  }
+  // Libera o botão com nome e telefone; o e-mail só não pode estar errado.
   function atualizarBotao() {
     btnConfirmar.disabled = !(inputNome.value.trim()
       && telefoneValido(inputTelefone.value)
@@ -629,7 +637,10 @@ function renderPassoDados() {
 
   inputNome.addEventListener("input", () => { state.nome = inputNome.value; atualizarBotao(); });
   inputTelefone.addEventListener("input", () => { state.telefone = inputTelefone.value; atualizarBotao(); });
-  inputEmail.addEventListener("input", () => { state.email = inputEmail.value; atualizarBotao(); });
+  inputEmail.addEventListener("input", () => {
+    state.email = inputEmail.value; atualizarNotaEmail(); atualizarBotao();
+  });
+  atualizarNotaEmail();
 
   btnConfirmar.addEventListener("click", finalizarAgendamento);
   atualizarBotao(); // caso a pessoa tenha voltado pro passo com os campos já preenchidos

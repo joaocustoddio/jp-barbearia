@@ -549,8 +549,7 @@ def _link_agenda(servico, barbeiro, data_iso, hora, duracao_min):
 
 
 def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False,
-                                permitir_conflito=False, avisar_equipe=False,
-                                exigir_email=False):
+                                permitir_conflito=False, avisar_equipe=False):
     """
     Valida e insere um novo agendamento. Compartilhado entre duas rotas:
     - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
@@ -578,15 +577,14 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
         conn.close()
         return {"erro": "Barbeiro não encontrado"}, 400
 
-    # Telefone e e-mail são obrigatórios só no fluxo público (cliente pelo site).
-    # No caderninho do barbeiro os dois são opcionais — o cliente está na cadeira,
-    # não faz sentido travar o registro por causa de contato.
+    # Telefone: obrigatório no site (é como a barbearia fala com o cliente),
+    # opcional no caderninho do barbeiro — ali o cliente já está na cadeira.
+    # E-mail: sempre opcional. Tem cliente que não usa, e travar o agendamento
+    # por causa disso custaria mais do que ganhar. Quem informar recebe a
+    # confirmação e o lembrete; quem não informar, não recebe.
     if exigir_telefone and not (dados.get("telefone") or "").strip():
         conn.close()
         return {"erro": "Telefone é obrigatório"}, 400
-    if exigir_email and not (dados.get("email") or "").strip():
-        conn.close()
-        return {"erro": "E-mail é obrigatório (é nele que enviamos a confirmação e o lembrete)"}, 400
 
     # Valida cada campo. A antecedência só é checada quando exigir_antecedencia
     # for True (passando a data pro validar_hora ativa a regra). O validar_telefone
@@ -713,8 +711,7 @@ def criar_agendamento():
     if not dados:
         return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
     corpo, status = _processar_novo_agendamento(
-        dados, exigir_antecedencia=True, exigir_telefone=True, avisar_equipe=True,
-        exigir_email=True
+        dados, exigir_antecedencia=True, exigir_telefone=True, avisar_equipe=True
     )
     return jsonify(corpo), status
 
