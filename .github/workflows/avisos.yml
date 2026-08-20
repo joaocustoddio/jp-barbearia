@@ -13,11 +13,17 @@ on:
     # Atenção: GitHub usa UTC. Brasília é UTC-3.
     - cron: "0 11 * * *"    # 08:00 de Brasília — resumo do dia (Telegram)
     - cron: "0 21 * * *"    # 18:00 de Brasília — agenda de amanhã (Telegram)
-    # Lembrete do cliente por email, ~1h antes do horário dele. Roda de meia em
-    # meia hora das 07h às 20h de Brasília (10h-23h UTC).
-    # Começa às 07h de propósito: o primeiro horário da barbearia é 08:00 (sábado),
-    # então quem marca cedo também recebe o lembrete com ~1h de folga.
-    - cron: "*/30 10-23 * * *"
+    # Lembrete do cliente por email, ~1h antes do horário dele — e, de quebra,
+    # mantém o servidor acordado durante o expediente.
+    #
+    # A cada 10 MINUTOS de propósito: a hospedagem hiberna o serviço após 15
+    # minutos parado. Com intervalo de 30 min ele dormia entre uma chamada e
+    # outra, e o cliente pegava o site "fora do ar" enquanto o servidor subia.
+    # 10 < 15, então ele fica de pé o expediente inteiro.
+    #
+    # Das 07h às 20h de Brasília (10h-23h UTC). Começa 07h porque o primeiro
+    # horário da barbearia é 08:00 (sábado).
+    - cron: "*/10 10-23 * * *"
   workflow_dispatch:        # permite disparar na mão pra testar
     inputs:
       tipo:
@@ -49,7 +55,7 @@ jobs:
           case "${{ github.event.schedule }}" in
             "0 11 * * *")       TIPO=resumo ;;     # 08:00 BRT
             "0 21 * * *")       TIPO=lembretes ;;  # 18:00 BRT
-            "*/30 10-23 * * *") TIPO=proximos ;;   # de 30 em 30 min
+            "*/10 10-23 * * *") TIPO=proximos ;;   # de 10 em 10 min
             *)                  TIPO="${{ inputs.tipo }}" ;;
           esac
           [ -n "$TIPO" ] || TIPO=lembretes
