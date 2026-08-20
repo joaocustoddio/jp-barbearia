@@ -32,22 +32,58 @@ const API = (() => {
     return t ? { "Authorization": `Bearer ${t}` } : {};
   }
 
+  /* -----------------------------------------------------
+     Reconexão automática
+
+     O servidor fica hospedado num plano que hiberna quando ninguém usa, e
+     também reinicia a cada atualização do sistema. Nessas janelas (de alguns
+     segundos até ~1 minuto) ele responde erro de infraestrutura — e o
+     navegador enxerga isso como "sem conexão".
+
+     Em vez de jogar um erro na cara do cliente, tentamos de novo algumas
+     vezes esperando o servidor subir. Só repetimos LEITURAS (GET): repetir um
+     POST poderia criar o mesmo agendamento duas vezes.
+     ----------------------------------------------------- */
+  const TENTATIVAS = 4;
+  const ESPERAS_MS = [1500, 4000, 9000];        // entre uma tentativa e outra
+  const STATUS_SERVIDOR_SUBINDO = [502, 503, 504];
+
+  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
   /**
    * Função genérica de requisição.
    * Centraliza tratamento de erro para não repetir try/catch
    * em cada função abaixo.
    */
   async function request(path, options = {}) {
+    const metodo = (options.method || "GET").toUpperCase();
+    const podeRepetir = metodo === "GET";
     let resposta;
-    try {
-      resposta = await fetch(`${BASE_URL}${path}`, {
-        ...options,
-        // headers do options são mesclados (não substituem o Content-Type)
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) }
-      });
-    } catch (erroDeRede) {
-      // Acontece quando o backend está offline, ou CORS bloqueado, etc.
-      throw new Error("Não foi possível conectar ao servidor. Verifique se o backend está rodando.");
+
+    for (let tentativa = 0; ; tentativa++) {
+      const ultima = tentativa >= (podeRepetir ? TENTATIVAS - 1 : 0);
+      try {
+        resposta = await fetch(`${BASE_URL}${path}`, {
+          ...options,
+          // headers do options são mesclados (não substituem o Content-Type)
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+        });
+        // Servidor no ar, mas ainda inicializando: vale esperar e tentar de novo.
+        if (STATUS_SERVIDOR_SUBINDO.includes(resposta.status) && !ultima) {
+          await esperar(ESPERAS_MS[tentativa]);
+          continue;
+        }
+        break;
+      } catch (erroDeRede) {
+        // Sem resposta nenhuma: servidor dormindo, reiniciando ou internet caiu.
+        if (ultima) {
+          throw new Error(
+            "Não conseguimos falar com o servidor agora. Ele pode estar iniciando — "
+            + "aguarde alguns segundos e tente novamente."
+          );
+        }
+        await esperar(ESPERAS_MS[tentativa]);
+      }
     }
 
     const dados = await resposta.json().catch(() => null);
