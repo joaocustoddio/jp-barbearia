@@ -491,6 +491,7 @@ async function renderContagem() {
 let dataAgenda = "";          // vazio = hoje
 let statusAgenda = "ativos";  // "ativos" (confirmados) ou "cancelados" — filtro da timeline
 const ALTURA_HORA = 104;      // px por hora na timeline (dá espaço pros textos + marcações de 30min)
+const ALTURA_CARD_COMPACTO = 40;  // card empilhado (sobreposto) — só o essencial, numa linha
 const PG_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão" };
 
 function minutosDe(hhmm) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
@@ -637,7 +638,9 @@ function almocoFixoBarbeiro() {
    usa o próprio; salão escolhe o barbeiro no seletor.
    ===================================================== */
 async function renderCaderninho() {
-  const ehSalao = API.admin.papel() === "salao";
+  // Master e salão anotam pra qualquer barbeiro (o dono cobre a recepção e o
+  // tablet é compartilhado). Barbeiro comum anota só pra si.
+  const escolheBarbeiro = API.admin.papel() === "salao" || API.admin.ehMaster();
   const hoje = hojeISO();
 
   elConteudo.innerHTML = `
@@ -645,7 +648,7 @@ async function renderCaderninho() {
     <p class="secao-subtitulo">Anote rapidinho um corte de encaixe</p>
 
     <div class="bloco">
-      ${ehSalao ? `
+      ${escolheBarbeiro ? `
       <div class="form-grupo" style="margin-bottom:12px;">
         <label class="campo-label" for="cad-barbeiro">Barbeiro</label>
         <select id="cad-barbeiro" class="campo-input"></select>
@@ -676,12 +679,15 @@ async function renderCaderninho() {
     </div>
   `;
 
-  // Salão escolhe o barbeiro; barbeiro/master usa o próprio.
-  if (ehSalao) {
+  // Quem pode escolher, escolhe. O master já vem com ele mesmo pré-selecionado.
+  if (escolheBarbeiro) {
     try {
       const barbs = await API.listarBarbeiros();
       const sel = document.getElementById("cad-barbeiro");
-      sel.innerHTML = barbs.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("");
+      const meuId = API.admin.barbeiroId();
+      sel.innerHTML = barbs.map((b) =>
+        `<option value="${b.id}"${Number(b.id) === Number(meuId) ? " selected" : ""}>${escapeHTML(b.nome)}</option>`
+      ).join("");
       sel.addEventListener("change", () => carregarCaderninhoLista(cadBarbeiroAtual(), hoje));
     } catch (_) { /* segue */ }
   }
@@ -968,20 +974,48 @@ function renderTimeline(container, data, colunas, ags, almocos) {
     });
     let prevBottom = -Infinity;
     const GAP = 6;
-    const cards = empilharCards(lista).map((p) => {
+    // Quem se sobrepõe no tempo forma um GRUPO. O primeiro do grupo fica no
+    // tamanho normal; os de baixo ficam compactos. Sem isso, cada card empurrava
+    // o próximo com a altura cheia e o último acabava desenhado mais de uma hora
+    // longe do horário real.
+    const ordenados = empilharCards(lista);
+    let primeiroDoGrupo = null;
+    let fimDoGrupo = -Infinity;
+    ordenados.forEach((p) => {
+      if (!primeiroDoGrupo || p.s >= fimDoGrupo) {   // não encosta em ninguém: novo grupo
+        primeiroDoGrupo = p;
+        p.grupo = [p];
+        p.compacto = false;
+        fimDoGrupo = p.e;
+      } else {
+        primeiroDoGrupo.grupo.push(p);
+        p.compacto = true;
+        fimDoGrupo = Math.max(fimDoGrupo, p.e);
+      }
+    });
+
+    const cards = ordenados.map((p) => {
       const s = p.s;
       const dur = p.dur;
       let top = (s - Hs * 60) / 60 * ALTURA_HORA;
-      const h = Math.max(dur / 60 * ALTURA_HORA, 50) - 2;
+      // 56 é a altura mínima que comporta as 3 linhas do card (hora, cliente,
+      // serviço) sem cortar. Antes era 50 e o conteúdo ficava 2px espremido.
+      const h = p.compacto ? ALTURA_CARD_COMPACTO
+                           : Math.max(dur / 60 * ALTURA_HORA, 56) - 2;
       if (top < prevBottom + GAP) top = prevBottom + GAP;
       prevBottom = top + h;
       const pos = `top:${top}px;height:${h}px;left:3px;right:3px;`;
+      const classeCompacta = p.compacto ? " compacto" : "";
+      // Selo no primeiro do grupo, avisando que ali tem mais gente no mesmo horário.
+      const seloGrupo = (!p.compacto && p.grupo && p.grupo.length > 1)
+        ? ` <span class="tag-grupo" title="${p.grupo.length} cortes no mesmo horário">${p.grupo.length} juntos</span>`
+        : "";
 
       // Card de ALMOÇO: cor diferente, sem ações. Só pra o barbeiro visualizar.
       if (p.tipo === "almoco") {
         const al = p.al;
         return `
-          <div class="agenda-card agenda-almoco" style="${pos}">
+          <div class="agenda-card agenda-almoco${classeCompacta}" style="${pos}">
             <div class="agenda-card-topo"><span>${escapeHTML(al.hora)}–${minParaHHMM(s + dur)}</span></div>
             <div class="agenda-card-cliente">Almoço</div>
           </div>`;
@@ -1005,12 +1039,12 @@ function renderTimeline(container, data, colunas, ags, almocos) {
       const prodBadge = (verValores && prodCent)
         ? `<span class="prod-badge">+${formatarMoeda(prodCent / 100)}</span>` : "";
       return `
-        <div class="agenda-card${canc ? " cancelado" : ""}" style="${pos}">
+        <div class="agenda-card${canc ? " cancelado" : ""}${classeCompacta}" style="${pos}">
           <div class="agenda-card-topo">
             <span>${escapeHTML(a.hora)}–${minParaHHMM(s + dur)}</span>
             ${acoes}
           </div>
-          <div class="agenda-card-cliente">${escapeHTML(a.cliente_nome)}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</div>
+          <div class="agenda-card-cliente">${escapeHTML(a.cliente_nome)}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}${seloGrupo}</div>
           <div class="agenda-card-servico">${escapeHTML(a.servico_nome)}${valor}${pgBadge}${prodBadge}</div>
         </div>`;
     }).join("");

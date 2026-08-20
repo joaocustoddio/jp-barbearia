@@ -1266,3 +1266,77 @@ table.tabela .btn-mini {
   color: var(--texto-suave);
   line-height: 1.35;
 }
+
+/* =====================================================
+   CARD COMPACTO (cortes sobrepostos no mesmo horário)
+   O primeiro do grupo fica normal; os de baixo viram uma
+   linha só. Assim a pilha não empurra a agenda inteira
+   pra baixo e o horário desenhado fica perto do real.
+   ===================================================== */
+.agenda-card.compacto {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  overflow: hidden;
+}
+
+/* Hora + ações: largura fixa, nunca espremem o nome */
+.agenda-card.compacto .agenda-card-topo {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+/* Nome do cliente ocupa o resto e corta com reticências */
+.agenda-card.compacto .agenda-card-cliente {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+}
+
+/* Serviço só aparece se sobrar espaço (some antes do nome) */
+.agenda-card.compacto .agenda-card-servico {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 10.5px;
+  text-align: right;
+}
+
+/* No compacto, o dinheiro fica pro menu ⋮ — espaço é curto */
+.agenda-card.compacto .agenda-card-valor,
+.agenda-card.compacto .pg-badge,
+.agenda-card.compacto .prod-badge {
+  display: none;
+}
+
+/* Selo "N juntos" no primeiro card do grupo */
+.tag-grupo {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--texto-suave);
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda-forte);
+  border-radius: 4px;
+  padding: 0 4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* ---- Tablet: 3 colunas dividindo a tela, cada uma fica estreita ---- */
+@media (max-width: 900px) {
+  .agenda-card.compacto .agenda-card-servico { display: none; }
+}
+
+/* ---- Celular: coluna única, mas ainda apertada ---- */
+@media (max-width: 640px) {
+  .agenda-card.compacto {
+    gap: 4px;
+    padding: 3px 5px;
+  }
+  .agenda-card.compacto .agenda-card-topo { font-size: 10px; }
+  .agenda-card.compacto .agenda-card-cliente { font-size: 11px; }
+  .tag-grupo { font-size: 8.5px; }
+}
