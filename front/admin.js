@@ -44,12 +44,6 @@ function escapeHTML(txt) {
   return div.innerHTML;
 }
 
-// Primeira letra maiúscula (ex: "confirmado" -> "Confirmado")
-function capitalizar(txt) {
-  if (!txt) return "";
-  return txt.charAt(0).toUpperCase() + txt.slice(1);
-}
-
 function carregando(texto = "Carregando...") {
   return `<div class="estado-vazio">${escapeHTML(texto)}</div>`;
 }

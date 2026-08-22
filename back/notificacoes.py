@@ -44,10 +44,10 @@ def configurado():
     return bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID)
 
 
-def _enviar_agora(mensagem, chat_id=None, botoes=None):
+def _enviar_agora(mensagem, botoes=None):
     url = "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_TOKEN
     dados = {
-        "chat_id": chat_id or TELEGRAM_CHAT_ID,
+        "chat_id": TELEGRAM_CHAT_ID,
         "text": mensagem,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
@@ -65,23 +65,21 @@ def _enviar_agora(mensagem, chat_id=None, botoes=None):
         return resposta.status
 
 
-def enviar(mensagem, esperar=False, chat_id=None, botoes=None):
+def enviar(mensagem, esperar=False, botoes=None):
     """
     Manda um aviso no Telegram. Por padrão não bloqueia a requisição
     (o cliente não fica esperando o Telegram responder).
 
-    chat_id: pra quem enviar. Sem isso (o normal hoje), vai pro grupo da equipe.
-             Fica aqui como costura caso um dia se queira canal por barbeiro.
-    botoes:  lista de (texto, link) que vira botão embaixo da mensagem.
+    botoes: lista de (texto, link) que vira botão embaixo da mensagem.
 
     Devolve False se nem tentou (não configurado / sem destino).
     """
-    if not TELEGRAM_TOKEN or not (chat_id or TELEGRAM_CHAT_ID):
+    if not configurado():
         return False
 
     def tarefa():
         try:
-            _enviar_agora(mensagem, chat_id, botoes)
+            _enviar_agora(mensagem, botoes)
         except Exception as erro:                      # nunca propaga
             logger.warning("Não consegui avisar no Telegram: %s", erro)
 
@@ -181,8 +179,7 @@ def texto_resumo_do_dia(data_br, agendamentos):
     return "\n".join(linhas)
 
 
-def avisar_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=None,
-                            chat_id=None):
+def avisar_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=None):
     """
     'Fulano acabou de agendar...' — disparado quando o cliente marca pelo site.
     Vai com um botão pra chamar o cliente no WhatsApp direto da mensagem.
@@ -195,11 +192,10 @@ def avisar_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=
     botoes = [("💬 Chamar no WhatsApp", link_whatsapp(telefone, mensagem_wpp))]
     return enviar(
         texto_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone),
-        chat_id=chat_id, botoes=botoes,
+        botoes=botoes,
     )
 
 
-def avisar_cancelamento(cliente, servico, barbeiro, data_br, hora, chat_id=None):
+def avisar_cancelamento(cliente, servico, barbeiro, data_br, hora):
     """Cliente cancelou pelo site — o horário voltou a ficar livre."""
-    return enviar(texto_cancelamento(cliente, servico, barbeiro, data_br, hora),
-                  chat_id=chat_id)
+    return enviar(texto_cancelamento(cliente, servico, barbeiro, data_br, hora))

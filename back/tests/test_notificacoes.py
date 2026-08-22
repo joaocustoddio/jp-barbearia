@@ -96,7 +96,7 @@ def tarefa(monkeypatch):
     monkeypatch.setattr(app, "TAREFAS_TOKEN", "segredo-de-teste")
     monkeypatch.setattr(app.notificacoes, "configurado", lambda: True)
     monkeypatch.setattr(app.notificacoes, "enviar",
-                        lambda texto, esperar=False, chat_id=None, botoes=None:
+                        lambda texto, esperar=False, botoes=None:
                         enviados.append(texto) or True)
     monkeypatch.setattr(app, "_agendamentos_do_dia", lambda data: [
         {"hora": "15:00", "cliente": "João Silva", "telefone": "11988887777",
