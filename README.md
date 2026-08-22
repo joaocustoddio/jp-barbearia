@@ -119,7 +119,16 @@ Ninguém precisa "subir" nada manualmente.
 
 ```
 back/          o cérebro (Python)
-  app.py           rotas da API
+  app.py                 ponto de entrada (horários disponíveis + tarefas)
+  config.py              variáveis de ambiente e constantes de negócio
+  extensoes.py           objeto Flask, CORS, rate limit, logs, erros
+  validacoes.py          validação dos campos e horário efetivo do barbeiro
+  auth.py                login do painel, JWT e escopo de cada papel
+  agendamentos.py        núcleo do agendamento (janelas ocupadas, criação)
+  rotas_publicas.py      rotas do site do cliente
+  rotas_admin_agenda.py  painel: agenda, bloqueios, almoço, expediente
+  rotas_admin_gestao.py  painel: barbeiros, produtos, preços, senhas
+  relatorios.py          relatórios e contagem do dia
   horarios.py      toda a matemática da agenda
   database.py      banco de dados e criação das tabelas
   emails.py        e-mails do cliente
