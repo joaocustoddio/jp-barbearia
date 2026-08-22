@@ -171,6 +171,7 @@ const ABAS_POR_PAPEL = {
     { chave: "expediente", rotulo: "Expediente" },
     { chave: "dashboard",  rotulo: "Dashboard" },
     { chave: "barbeiros",  rotulo: "Barbeiros" },
+    { chave: "precos",     rotulo: "Preços" },
     { chave: "horarios",   rotulo: "Horários" }
   ],
   barbeiro: [
@@ -194,6 +195,7 @@ const SECOES = {
   expediente: renderExpediente,
   dashboard:  renderDashboard,
   barbeiros:  renderBarbeiros,
+  precos:     renderPrecos,
   horarios:   renderHorarios
 };
 
@@ -1517,7 +1519,11 @@ async function carregarListaBarbeiros() {
                 <td data-label="Barbeiro"><strong>${escapeHTML(b.nome)}</strong></td>
                 <td data-label="Status"><span class="badge ${b.ativo ? "ativo" : "inativo"}">${b.ativo ? "Ativo" : "Inativo"}</span></td>
                 <td data-label="Login">${b.login_usuario ? escapeHTML(b.login_usuario) : "<span class=\"badge inativo\">sem login</span>"}</td>
-                <td data-label="Comissão">${b.comissao_pct}%</td>
+                <td data-label="Comissão">
+                  <span class="comissao-valor">${b.comissao_pct}%</span>
+                  <button class="btn-mini comissao-editar" data-comissao="${b.id}"
+                          data-pct="${b.comissao_pct}" data-nome="${escapeHTML(b.nome)}">editar</button>
+                </td>
                 <td class="td-acao">
                   <button class="btn-mini" data-login="${b.id}" data-usuario="${escapeHTML(b.login_usuario || "")}">
                     ${b.login_usuario ? "Editar login" : "Criar login"}
@@ -1533,6 +1539,28 @@ async function carregarListaBarbeiros() {
         </table>
       </div>
     `;
+
+    // Comissão editável: antes só mudava no código + deploy.
+    lista.querySelectorAll("[data-comissao]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const atual = btn.dataset.pct;
+        const nome = btn.dataset.nome;
+        const resposta = prompt(
+          `Quanto do valor do corte fica com ${nome}? (0 a 100)
+
+` +
+          `O restante fica com a barbearia. Ex: 60 = barbeiro 60%, barbearia 40%.
+` +
+          `Para o dono, use 0 — o corte dele não vira repasse.`, atual);
+        if (resposta === null) return;
+        const pct = parseInt(resposta.trim(), 10);
+        if (isNaN(pct) || pct < 0 || pct > 100) { alert("Informe um número de 0 a 100."); return; }
+        try {
+          await API.admin.atualizarComissao(btn.dataset.comissao, pct);
+          carregarListaBarbeiros();
+        } catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
+      });
+    });
 
     lista.querySelectorAll("[data-barbeiro]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -1577,6 +1605,129 @@ async function carregarListaBarbeiros() {
     if (msg !== null) lista.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
   }
 }
+
+/* =====================================================
+   SEÇÃO: PREÇOS (só master)
+   Serviços e adicionais editáveis pelo dono — sem depender de
+   programador nem de deploy pra mudar um valor.
+   ===================================================== */
+async function renderPrecos() {
+  elConteudo.innerHTML = `
+    <h2 class="secao-titulo">Preços</h2>
+    <p class="secao-subtitulo">Ajuste os valores do cardápio. Vale na hora, para todos.</p>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Serviços</h3>
+      <div id="precos-servicos">${carregando()}</div>
+    </div>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Adicionais</h3>
+      <p class="secao-subtitulo" style="margin-top:0;">Bebidas e produtos vendidos no balcão.</p>
+      <div id="precos-produtos">${carregando()}</div>
+    </div>
+  `;
+  carregarPrecosServicos();
+  carregarPrecosProdutos();
+}
+
+// Uma linha editável: rótulo + campos + botão salvar, com aviso no próprio item.
+function linhaPreco(id, nome, campos) {
+  return `
+    <div class="preco-item" data-id="${id}">
+      <div class="preco-nome">${escapeHTML(nome)}</div>
+      <div class="preco-campos">${campos}</div>
+      <button class="btn-mini preco-salvar">Salvar</button>
+      <p class="preco-aviso"></p>
+    </div>`;
+}
+
+function avisar(item, texto, erro) {
+  const el = item.querySelector(".preco-aviso");
+  el.textContent = texto;
+  el.classList.toggle("erro", !!erro);
+  if (!erro) setTimeout(() => { el.textContent = ""; }, 2500);
+}
+
+async function carregarPrecosServicos() {
+  const alvo = document.getElementById("precos-servicos");
+  if (!alvo) return;
+  try {
+    _servicosCache = null;                     // preço mudou: refaz o cache
+    const servicos = await API.listarServicos();
+    alvo.innerHTML = servicos
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+      .map((s) => linhaPreco(s.id, s.nome, `
+        <label class="preco-campo">R$
+          <input type="text" inputmode="decimal" class="campo-input preco-valor"
+                 value="${Number(s.preco).toFixed(2).replace(".", ",")}" />
+        </label>
+        <label class="preco-campo">
+          <input type="number" min="5" max="480" step="5" class="campo-input preco-duracao"
+                 value="${s.duracao_min}" /> min
+        </label>`)).join("");
+
+    alvo.querySelectorAll(".preco-item").forEach((item) => {
+      item.querySelector(".preco-salvar").addEventListener("click", async (ev) => {
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        try {
+          await API.admin.atualizarServico(
+            item.dataset.id,
+            item.querySelector(".preco-valor").value.trim(),
+            item.querySelector(".preco-duracao").value
+          );
+          _servicosCache = null;
+          avisar(item, "Salvo!");
+        } catch (e) {
+          const m = tratarErro(e); if (m !== null) avisar(item, m, true);
+        } finally { btn.disabled = false; }
+      });
+    });
+  } catch (erro) {
+    const m = tratarErro(erro);
+    if (m !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(m)}</div>`;
+  }
+}
+
+async function carregarPrecosProdutos() {
+  const alvo = document.getElementById("precos-produtos");
+  if (!alvo) return;
+  try {
+    _produtosCache = null;                     // preço mudou: refaz o cache
+    const produtos = await API.admin.listarProdutos();
+    alvo.innerHTML = produtos.map((p) => linhaPreco(p.id, p.nome, `
+        <label class="preco-campo">
+          <input type="text" class="campo-input preco-produto-nome" value="${escapeHTML(p.nome)}" />
+        </label>
+        <label class="preco-campo">R$
+          <input type="text" inputmode="decimal" class="campo-input preco-valor"
+                 value="${(p.preco_centavos / 100).toFixed(2).replace(".", ",")}" />
+        </label>`)).join("");
+
+    alvo.querySelectorAll(".preco-item").forEach((item) => {
+      item.querySelector(".preco-salvar").addEventListener("click", async (ev) => {
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        try {
+          await API.admin.atualizarProduto(
+            item.dataset.id,
+            item.querySelector(".preco-produto-nome").value.trim(),
+            item.querySelector(".preco-valor").value.trim()
+          );
+          _produtosCache = null;
+          avisar(item, "Salvo!");
+        } catch (e) {
+          const m = tratarErro(e); if (m !== null) avisar(item, m, true);
+        } finally { btn.disabled = false; }
+      });
+    });
+  } catch (erro) {
+    const m = tratarErro(erro);
+    if (m !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(m)}</div>`;
+  }
+}
+
 
 /* =====================================================
    SEÇÃO: HORÁRIOS (bloqueios)

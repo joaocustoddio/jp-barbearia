@@ -213,6 +213,30 @@ const API = (() => {
         });
       },
 
+      /** PUT /api/admin/servicos/:id → edita preço e duração do serviço */
+      atualizarServico(id, preco, duracao_min) {
+        return requestAuth(`/api/admin/servicos/${id}`, {
+          method: "PUT",
+          body: JSON.stringify({ preco, duracao_min })
+        });
+      },
+
+      /** PUT /api/admin/barbeiros/:id/comissao → % que fica com o barbeiro */
+      atualizarComissao(barbeiroId, comissao_pct) {
+        return requestAuth(`/api/admin/barbeiros/${barbeiroId}/comissao`, {
+          method: "PUT",
+          body: JSON.stringify({ comissao_pct })
+        });
+      },
+
+      /** PUT /api/admin/produtos/:id → edita nome e preço do adicional */
+      atualizarProduto(id, nome, preco) {
+        return requestAuth(`/api/admin/produtos/${id}`, {
+          method: "PUT",
+          body: JSON.stringify({ nome, preco })
+        });
+      },
+
       /** GET /api/admin/produtos → catálogo de adicionais (nome + preço) */
       listarProdutos() {
         return requestAuth("/api/admin/produtos");

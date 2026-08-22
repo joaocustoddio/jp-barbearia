@@ -264,6 +264,19 @@ def init_db():
     cur.execute("ALTER TABLE consumos ADD COLUMN IF NOT EXISTS quantidade INTEGER NOT NULL DEFAULT 1")
 
     # ---------------------------------------------------------
+    # PRODUTOS — o catálogo de adicionais vendidos no balcão (bebida, pomada...).
+    # Fica no banco, e não no código, pra o dono poder mudar preço pelo painel.
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS produtos (
+            id SERIAL PRIMARY KEY,
+            nome TEXT NOT NULL,
+            preco_centavos INTEGER NOT NULL DEFAULT 0,
+            ativo SMALLINT NOT NULL DEFAULT 1
+        )
+    """)
+
+    # ---------------------------------------------------------
     # ÍNDICES — aceleram as consultas mais frequentes (agenda do dia, horários
     # disponíveis, contagem). Sem eles o Postgres varre a tabela inteira. Só
     # criação (idempotente): não muda dado nenhum.
@@ -308,6 +321,18 @@ def init_db():
     conn.close()
 
 
+def _e_instalacao_nova(conn, barbeiro_id):
+    """
+    True se este barbeiro ainda está com o nome genérico do seed ("Barbeiro 1").
+    É como sabemos que ninguém configurou nada ainda: só nesse caso os valores
+    do .env são aplicados. Depois disso, quem manda é o banco (e o painel).
+    """
+    linha = conn.execute(
+        "SELECT nome FROM barbeiros WHERE id = %s", (barbeiro_id,)
+    ).fetchone()
+    return bool(linha) and (linha["nome"] or "").startswith("Barbeiro ")
+
+
 def criar_admin_padrao(usuario=None, senha=None):
     """
     Cria/garante o usuário MASTER (o dono) se ainda não existir. Usuário e
@@ -337,20 +362,19 @@ def criar_admin_padrao(usuario=None, senha=None):
             "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
             (usuario,)
         )
-    # Nome + foto do dono (barbeiro 1). Comissão do JP = 0: ele é o DONO, então
-    # o corte dele não vira repasse — o valor inteiro fica com a barbearia.
+    # Dados do dono (barbeiro 1): nome, foto e comissão.
     #
-    # ATENÇÃO: este UPDATE roda em TODO boot (a cada deploy). Então mudar a
-    # comissão direto no banco NÃO adianta: o próximo deploy sobrescreve.
-    # Pra mudar de verdade, altere aqui ou defina BARBEIRO1_COMISSAO no .env
-    # (a variável de ambiente tem prioridade sobre este padrão).
-    nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
-    foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
-    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "0"))
-    conn.execute(
-        "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
-        (nome_jp, foto_jp, comissao_jp)
-    )
+    # Só preenche numa instalação NOVA (quando o nome ainda é o "Barbeiro 1" do
+    # seed). Depois disso o BANCO manda: o que for alterado pelo painel fica.
+    # Antes isso rodava a cada deploy e desfazia mudanças feitas à mão — foi
+    # assim que a comissão do dono "voltou sozinha" uma vez.
+    if _e_instalacao_nova(conn, 1):
+        conn.execute(
+            "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
+            (os.getenv("BARBEIRO1_NOME", "JP"),
+             os.getenv("BARBEIRO1_FOTO", "jp.jpg"),
+             int(os.getenv("BARBEIRO1_COMISSAO", "0")))
+        )
     conn.commit()
     conn.close()
 
@@ -386,13 +410,13 @@ def _sync_login_barbeiro(barbeiro_id, nome, usuario, senha, foto=None):
       ou o master reseta — nunca sobrescrevemos senha aqui.
     """
     conn = get_connection()
-    if nome:
-        conn.execute(
-            "UPDATE barbeiros SET nome = %s WHERE id = %s AND nome IS DISTINCT FROM %s",
-            (nome, barbeiro_id, nome)
-        )
-    if foto:
-        conn.execute("UPDATE barbeiros SET foto = %s WHERE id = %s", (foto, barbeiro_id))
+    # Nome e foto: só na instalação nova (ver _e_instalacao_nova). Depois o
+    # banco é a fonte da verdade e nada aqui sobrescreve o que foi ajustado.
+    if _e_instalacao_nova(conn, barbeiro_id):
+        if nome:
+            conn.execute("UPDATE barbeiros SET nome = %s WHERE id = %s", (nome, barbeiro_id))
+        if foto:
+            conn.execute("UPDATE barbeiros SET foto = %s WHERE id = %s", (foto, barbeiro_id))
     login = conn.execute(
         "SELECT id FROM admin WHERE barbeiro_id = %s AND papel = 'barbeiro'", (barbeiro_id,)
     ).fetchone()
@@ -403,11 +427,8 @@ def _sync_login_barbeiro(barbeiro_id, nome, usuario, senha, foto=None):
             (usuario, senha_hash, barbeiro_id)
         )
         print(f"[seed] Login '{usuario}' criado (barbeiro id={barbeiro_id}). Senha inicial temporária — troque no 1º acesso.")
-    else:
-        conn.execute(
-            "UPDATE admin SET usuario = %s WHERE id = %s AND usuario IS DISTINCT FROM %s",
-            (usuario, login["id"], usuario)
-        )
+    # Se o login já existe, não mexe: o usuário pode ter sido ajustado pelo
+    # painel, e sobrescrever aqui desfaria a mudança no próximo deploy.
     conn.commit()
     conn.close()
 
@@ -436,10 +457,11 @@ def criar_barbeiros_padrao():
 
 def ajustar_servicos():
     """
-    Cardápio oficial de serviços (nome/duração/preço/imagem). Roda no boot e é
-    idempotente. Este código é a fonte da verdade dos serviços — pra mudar preço
-    ou foto, edita aqui e redeploya. Atualiza os existentes (casando pelo nome
-    antigo) e cria os novos que ainda não existem.
+    Garante que o cardápio de serviços EXISTA. Roda no boot e é idempotente.
+
+    Esta lista é só o ponto de partida: cria o que ainda não existe e migra
+    nomes antigos. Serviço que já está no banco não é alterado — preço e
+    duração passaram a ser editáveis no painel, e o banco é a fonte da verdade.
     """
     conn = get_connection()
     # Renomeações + preços dos serviços que vieram do seed antigo (casa pelo nome antigo).
@@ -453,6 +475,10 @@ def ajustar_servicos():
         ("Sobrancelha",   "Sobrancelha",   10, 10.00, None),
     ]
     for antigo, novo, dur, preco, img in renomear:
+        if antigo == novo:
+            continue                      # nada a renomear
+        # Só migra quem ainda está com o nome antigo. Se já foi renomeado, o
+        # preço e a duração atuais são os do banco — não mexemos.
         conn.execute(
             "UPDATE servicos SET nome=%s, duracao_min=%s, preco=%s, imagem=%s WHERE nome=%s",
             (novo, dur, preco, img, antigo)
@@ -470,13 +496,49 @@ def ajustar_servicos():
         ("Corte + Luzes",              60, 95.00, None)
     ]
     for nome, dur, preco, img in extras:
-        if conn.execute("SELECT id FROM servicos WHERE nome=%s", (nome,)).fetchone():
-            conn.execute("UPDATE servicos SET duracao_min=%s, preco=%s WHERE nome=%s", (dur, preco, nome))
-        else:
+        # Serviço que já existe NÃO é tocado: preço e duração são do banco,
+        # editáveis pelo painel. Aqui a lista serve só pra CRIAR o que falta.
+        if not conn.execute("SELECT id FROM servicos WHERE nome=%s", (nome,)).fetchone():
             conn.execute(
                 "INSERT INTO servicos (nome, duracao_min, preco, imagem) VALUES (%s,%s,%s,%s)",
                 (nome, dur, preco, img)
             )
+    conn.commit()
+    conn.close()
+
+
+def criar_produtos_padrao():
+    """
+    Garante que o catálogo de adicionais EXISTA (bebidas, pomadas...).
+
+    Igual aos serviços: só cria o que falta. Preço de produto que já está no
+    banco não é tocado — quem manda nele é o painel.
+    """
+    padrao = [
+        (1, "Salgadinho",        500),
+        (2, "Long neck",         800),
+        (3, "Corona",           1000),
+        (4, "Refrigerante",      600),
+        (5, "Cerveja 269 ml",    400),
+        (6, "Óleo de barba",    2500),
+        (7, "Pomada em pó",     2000),
+        (8, "Pomada modeladora", 2000),
+        (9, "Gel cola",         1500),
+    ]
+    conn = get_connection()
+    cur = conn.cursor()
+    # IDs fixos de propósito: os consumos já lançados apontam pra eles.
+    cur.executemany(
+        "INSERT INTO produtos (id, nome, preco_centavos) VALUES (%s, %s, %s) "
+        "ON CONFLICT (id) DO NOTHING",
+        padrao
+    )
+    # Deixa a sequência do SERIAL à frente dos IDs fixos, senão um produto novo
+    # criado depois tentaria reaproveitar um id já usado.
+    cur.execute(
+        "SELECT setval(pg_get_serial_sequence('produtos', 'id'), "
+        "COALESCE((SELECT MAX(id) FROM produtos), 1))"
+    )
     conn.commit()
     conn.close()
 
@@ -488,4 +550,5 @@ if __name__ == "__main__":
     criar_salao_padrao()
     criar_barbeiros_padrao()
     ajustar_servicos()
+    criar_produtos_padrao()
     print("Banco de dados (Postgres/Supabase) criado/verificado.")

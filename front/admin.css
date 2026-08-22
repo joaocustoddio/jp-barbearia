@@ -1340,3 +1340,78 @@ table.tabela .btn-mini {
   .agenda-card.compacto .agenda-card-cliente { font-size: 11px; }
   .tag-grupo { font-size: 8.5px; }
 }
+
+/* =====================================================
+   ABA PREÇOS — linhas editáveis (serviços e adicionais)
+   ===================================================== */
+.preco-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+}
+
+.preco-nome {
+  flex: 1 1 150px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto);
+}
+
+.preco-campos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preco-campo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--texto-suave);
+}
+
+.preco-campo .campo-input {
+  width: 88px;
+  margin-bottom: 0;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.preco-campo .preco-produto-nome { width: 150px; }
+
+.preco-aviso {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--sucesso);
+  min-height: 0;
+}
+
+.preco-aviso:empty { display: none; }
+.preco-aviso.erro { color: var(--erro); }
+
+.comissao-editar {
+  padding: 2px 8px;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+/* Celular: cada linha vira bloco, campos ocupam a largura */
+@media (max-width: 560px) {
+  .preco-item { gap: 8px; }
+  .preco-nome { flex: 1 1 100%; }
+  .preco-campos { flex: 1 1 100%; }
+  .preco-campo { flex: 1 1 auto; }
+  .preco-campo .campo-input,
+  .preco-campo .preco-produto-nome { width: 100%; flex: 1 1 auto; }
+  .preco-item .preco-salvar { width: 100%; }
+}

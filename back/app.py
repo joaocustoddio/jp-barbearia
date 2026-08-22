@@ -25,7 +25,8 @@ from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 from database import (
     get_connection, init_db, criar_admin_padrao, criar_salao_padrao,
-    criar_barbeiros_padrao, ajustar_servicos, fechar_conexoes_pendentes,
+    criar_barbeiros_padrao, ajustar_servicos, criar_produtos_padrao,
+    fechar_conexoes_pendentes,
 )
 from horarios import (
     Janela, hhmm_para_min, gerar_slots, cabe_no_expediente,
@@ -1164,21 +1165,12 @@ def cancelar_agendamento(agendamento_id):
 # -------------------------------------------------------
 FORMAS_PAGAMENTO = {"cartao", "pix", "dinheiro"}
 
-# Catálogo de adicionais (produtos vendidos no balcão). O barbeiro escolhe a
-# quantidade de cada num atendimento. Preço em centavos. Pra mudar preço/itens,
-# é só editar aqui — cada consumo guarda um snapshot (nome + preço unitário).
-PRODUTOS_ADICIONAIS = [
-    {"id": 1, "nome": "Salgadinho",        "preco_centavos": 500},
-    {"id": 2, "nome": "Long neck",         "preco_centavos": 800},
-    {"id": 3, "nome": "Corona",            "preco_centavos": 1000},
-    {"id": 4, "nome": "Refrigerante",      "preco_centavos": 600},
-    {"id": 5, "nome": "Cerveja 269 ml",    "preco_centavos": 400},
-    {"id": 6, "nome": "Óleo de barba",     "preco_centavos": 2500},
-    {"id": 7, "nome": "Pomada em pó",      "preco_centavos": 2000},
-    {"id": 8, "nome": "Pomada modeladora", "preco_centavos": 2000},
-    {"id": 9, "nome": "Gel cola",          "preco_centavos": 1500},
-]
-PRODUTOS_POR_ID = {p["id"]: p for p in PRODUTOS_ADICIONAIS}
+def _produtos_ativos(conn):
+    """Catálogo de adicionais vindo do banco (o painel é quem edita)."""
+    linhas = conn.execute(
+        "SELECT id, nome, preco_centavos FROM produtos WHERE ativo = 1 ORDER BY nome"
+    ).fetchall()
+    return [dict(l) for l in linhas]
 
 
 def _agendamento_no_escopo(conn, agendamento_id):
@@ -1219,7 +1211,37 @@ def registrar_pagamento(agendamento_id):
 @token_requerido
 def listar_produtos():
     """Catálogo de adicionais (nome + preço) pro barbeiro escolher a quantidade."""
-    return jsonify(PRODUTOS_ADICIONAIS)
+    conn = get_connection()
+    produtos = _produtos_ativos(conn)
+    conn.close()
+    return jsonify(produtos)
+
+
+@app.route("/api/admin/produtos/<int:produto_id>", methods=["PUT"])
+@token_requerido
+@somente_master
+def atualizar_produto(produto_id):
+    """Edita nome e preço de um adicional. Corpo: { nome, preco }."""
+    dados = request.get_json(silent=True) or {}
+    nome = (dados.get("nome") or "").strip()
+    try:
+        centavos = int(round(float(str(dados.get("preco")).replace(",", ".")) * 100))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "Preço precisa ser um número"}), 400
+    if not nome:
+        return jsonify({"erro": "Nome é obrigatório"}), 400
+    if centavos < 0:
+        return jsonify({"erro": "Preço não pode ser negativo"}), 400
+
+    conn = get_connection()
+    if not conn.execute("SELECT id FROM produtos WHERE id = %s", (produto_id,)).fetchone():
+        conn.close()
+        return jsonify({"erro": "Produto não encontrado"}), 404
+    conn.execute("UPDATE produtos SET nome = %s, preco_centavos = %s WHERE id = %s",
+                 (nome[:80], centavos, produto_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Produto atualizado.", "preco_centavos": centavos})
 
 
 @app.route("/api/admin/agendamentos/<int:agendamento_id>/consumos", methods=["GET", "PUT"])
@@ -1237,8 +1259,11 @@ def consumos_agendamento(agendamento_id):
         itens = dados.get("itens") or []
         cur = conn.cursor()
         cur.execute("DELETE FROM consumos WHERE agendamento_id = %s", (agendamento_id,))
+        # Preço vem do banco no momento do lançamento e é gravado no consumo
+        # (snapshot): mudar o preço depois não altera o fechamento já feito.
+        catalogo = {p["id"]: p for p in _produtos_ativos(conn)}
         for it in itens:
-            prod = PRODUTOS_POR_ID.get(it.get("produto_id"))
+            prod = catalogo.get(it.get("produto_id"))
             try:
                 qtd = int(it.get("quantidade") or 0)
             except (ValueError, TypeError):
@@ -1296,6 +1321,63 @@ def painel_barbeiros():
     ).fetchall()
     conn.close()
     return jsonify([dict(b) for b in barbeiros])
+
+
+@app.route("/api/admin/servicos/<int:servico_id>", methods=["PUT"])
+@token_requerido
+@somente_master
+def atualizar_servico(servico_id):
+    """
+    Edita preço e duração de um serviço. É o dono quem manda no cardápio —
+    antes isso exigia mexer no código e fazer deploy.
+    Corpo: { preco, duracao_min }.
+    """
+    dados = request.get_json(silent=True) or {}
+    try:
+        preco = round(float(str(dados.get("preco")).replace(",", ".")), 2)
+        duracao = int(dados.get("duracao_min"))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "Preço e duração precisam ser números"}), 400
+    if preco < 0:
+        return jsonify({"erro": "Preço não pode ser negativo"}), 400
+    if not (5 <= duracao <= 480):
+        return jsonify({"erro": "Duração deve ficar entre 5 e 480 minutos"}), 400
+
+    conn = get_connection()
+    if not conn.execute("SELECT id FROM servicos WHERE id = %s", (servico_id,)).fetchone():
+        conn.close()
+        return jsonify({"erro": "Serviço não encontrado"}), 404
+    conn.execute("UPDATE servicos SET preco = %s, duracao_min = %s WHERE id = %s",
+                 (preco, duracao, servico_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Serviço atualizado.", "preco": preco, "duracao_min": duracao})
+
+
+@app.route("/api/admin/barbeiros/<int:barbeiro_id>/comissao", methods=["PUT"])
+@token_requerido
+@somente_master
+def atualizar_comissao(barbeiro_id):
+    """
+    Define a comissão do barbeiro (% que fica com ELE; o resto é da barbearia).
+    Corpo: { comissao_pct }.
+    """
+    dados = request.get_json(silent=True) or {}
+    try:
+        pct = int(dados.get("comissao_pct"))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "Comissão precisa ser um número"}), 400
+    if not (0 <= pct <= 100):
+        return jsonify({"erro": "Comissão deve ficar entre 0 e 100"}), 400
+
+    conn = get_connection()
+    if not conn.execute("SELECT id FROM barbeiros WHERE id = %s", (barbeiro_id,)).fetchone():
+        conn.close()
+        return jsonify({"erro": "Barbeiro não encontrado"}), 404
+    conn.execute("UPDATE barbeiros SET comissao_pct = %s WHERE id = %s", (pct, barbeiro_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Comissão atualizada.", "comissao_pct": pct})
 
 
 @app.route("/api/admin/barbeiros/<int:barbeiro_id>/login", methods=["PUT"])
@@ -2267,7 +2349,8 @@ if os.getenv("APP_SKIP_BOOT") != "1":
     criar_admin_padrao()      # login master (dono) — do .env
     criar_salao_padrao()      # login do salão (tablet) — do .env
     criar_barbeiros_padrao()  # logins dos barbeiros comuns (2 e 3) — do .env
-    ajustar_servicos()        # cardápio oficial (nome/preço/duração/imagem)
+    ajustar_servicos()        # cria os serviços que faltarem (preço é do banco)
+    criar_produtos_padrao()   # cria os adicionais que faltarem (preço é do banco)
 
 if __name__ == "__main__":
     print(f"[config] Ambiente: {FLASK_ENV}")
