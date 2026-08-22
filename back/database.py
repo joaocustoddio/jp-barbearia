@@ -337,11 +337,16 @@ def criar_admin_padrao(usuario=None, senha=None):
             "UPDATE admin SET papel = 'master', barbeiro_id = COALESCE(barbeiro_id, 1) WHERE usuario = %s",
             (usuario,)
         )
-    # Nome + foto do dono (barbeiro 1). Comissão do JP = 100 (ele é o DONO, então
-    # o valor inteiro fica com ele — barbeiro e barbearia são a mesma pessoa).
+    # Nome + foto do dono (barbeiro 1). Comissão do JP = 0: ele é o DONO, então
+    # o corte dele não vira repasse — o valor inteiro fica com a barbearia.
+    #
+    # ATENÇÃO: este UPDATE roda em TODO boot (a cada deploy). Então mudar a
+    # comissão direto no banco NÃO adianta: o próximo deploy sobrescreve.
+    # Pra mudar de verdade, altere aqui ou defina BARBEIRO1_COMISSAO no .env
+    # (a variável de ambiente tem prioridade sobre este padrão).
     nome_jp = os.getenv("BARBEIRO1_NOME", "JP")
     foto_jp = os.getenv("BARBEIRO1_FOTO", "jp.jpg")
-    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "100"))
+    comissao_jp = int(os.getenv("BARBEIRO1_COMISSAO", "0"))
     conn.execute(
         "UPDATE barbeiros SET nome = %s, foto = %s, comissao_pct = %s WHERE id = 1",
         (nome_jp, foto_jp, comissao_jp)
