@@ -1,0 +1,58 @@
+name: Testes
+
+# Roda a suíte a cada push e em cada pull request. Serve de rede de segurança
+# pro deploy automático: se algo quebrar, aparece aqui antes de você descobrir
+# pelo site fora do ar.
+#
+# Não precisa de banco nem de secrets: o tests/conftest.py seta APP_SKIP_BOOT=1
+# e uma DATABASE_URL falsa, então o app carrega sem conectar em lugar nenhum.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:        # permite disparar na mão
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            back/requirements.txt
+            back/requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r back/requirements.txt -r back/requirements-dev.txt
+
+      - name: Rodar os testes
+        working-directory: back
+        run: pytest -q
+
+      - name: Conferir que as 43 rotas continuam registradas
+        # Trava contra o erro mais fácil de cometer mexendo nos módulos de rota:
+        # apagar ou renomear uma rota sem perceber. Os testes não pegam isso,
+        # porque quase nenhuma rota tem teste próprio (só 2 das 43).
+        working-directory: back
+        env:
+          APP_SKIP_BOOT: "1"
+          DATABASE_URL: postgresql://user:pass@localhost:5432/db
+          SECRET_KEY: chave-de-teste-nao-usada-em-producao-000000
+          FLASK_ENV: development
+        # O Python embutido fica em ASCII de propósito: lido pelo stdin, ele
+        # recusa caractere acentuado sem declaração de encoding.
+        run: |
+          python - <<'PY'
+          import app
+          total = len(list(app.app.url_map.iter_rules()))
+          print("rotas registradas:", total)
+          if total != 43:
+              raise SystemExit(
+                  "esperado 43 rotas, encontrado %d - se a mudanca for "
+                  "proposital, atualize esse numero no workflow." % total
+              )
+          PY
