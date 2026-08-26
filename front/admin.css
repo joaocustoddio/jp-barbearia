@@ -95,12 +95,20 @@
   color: var(--acento);
 }
 
-/* ---------- Abas de navegação ---------- */
+/* ---------- Abas de navegação ----------
+   Agora em duas faixas: a linha do dia a dia e, abaixo, a gaveta "Gerenciar"
+   (recolhida por padrão). Por isso .abas virou coluna e a rolagem horizontal
+   passou pra .abas-linha. */
 .abas {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
   border-bottom: 1px solid var(--borda);
   margin-bottom: 26px;
+}
+
+.abas-linha {
+  display: flex;
+  gap: 6px;
   overflow-x: auto;
 }
 
@@ -1414,4 +1422,106 @@ table.tabela .btn-mini {
   .preco-campo .campo-input,
   .preco-campo .preco-produto-nome { width: 100%; flex: 1 1 auto; }
   .preco-item .preco-salvar { width: 100%; }
+}
+
+/* =====================================================
+   ADIÇÕES — gaveta "Gerenciar" e resumo do dia
+   (bloco separado de propósito: fácil de achar e ajustar.
+    Usa só as variáveis já existentes, nada de cor solta.)
+   ===================================================== */
+
+/* Botão que abre/fecha a gaveta das abas de gestão */
+.aba-gerenciar::after {
+  content: " ▾";
+  font-size: 11px;
+}
+
+.aba-gerenciar.aberta::after {
+  content: " ▴";
+}
+
+/* Gaveta com as abas de gestão (Expediente, Dashboard, Barbeiros, Preços,
+   Horários). Quebra linha em vez de rolar pro lado — no celular todas ficam
+   visíveis de uma vez. */
+.abas-gestao {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 10px;
+}
+
+.abas-gestao .aba {
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.abas-gestao .aba.ativa {
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
+/* Faixa de resumo acima da agenda do dia */
+.resumo-dia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.resumo-item {
+  flex: 1 1 120px;
+  min-width: 0;
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+  padding: 10px 12px;
+}
+
+.resumo-rotulo {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--texto-fraco);
+  margin-bottom: 3px;
+}
+
+.resumo-valor {
+  font-family: var(--fonte-titulo);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--texto);
+  overflow-wrap: anywhere;
+}
+
+/* O "próximo" é o que a pessoa mais procura: ganha destaque e mais espaço. */
+.resumo-proximo {
+  flex: 2 1 180px;
+  border-color: var(--borda-forte);
+}
+
+.resumo-proximo .resumo-valor {
+  color: var(--acento);
+}
+
+/* No celular a barra tem 5 itens (4 do dia + Gerenciar). Sem apertar um pouco
+   o padding e a fonte, ela passa de 375px e volta a esconder aba pro lado. */
+@media (max-width: 480px) {
+  .abas-linha {
+    gap: 1px;
+  }
+
+  .abas-linha .aba {
+    padding: 11px 5px;
+    font-size: 12.5px;
+    letter-spacing: -0.2px;
+  }
+
+  .resumo-valor {
+    font-size: 15px;
+  }
 }

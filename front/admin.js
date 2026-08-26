@@ -156,28 +156,32 @@ btnMinhaSenha.addEventListener("click", async () => {
 // - master: tudo (dono)
 // - barbeiro: só o dele (agenda + seus valores)
 // - salao: tablet compartilhado — agenda de todos + contagem SÓ com quantidade
+// `gestao: true` tira a aba da barra principal e joga pra dentro de "Gerenciar".
+// São as telas que o dono abre de vez em quando (mudar preço, folga, comissão) —
+// não as do dia a dia. Sem isso a barra do master tinha 9 abas e 918px de
+// largura num celular de 375px: 5 delas ficavam fora da tela, invisíveis.
 const ABAS_POR_PAPEL = {
   master: [
-    { chave: "agenda_dia", rotulo: "Agenda do dia" },
+    { chave: "agenda_dia", rotulo: "Agenda" },
     { chave: "caderninho", rotulo: "Caderninho" },
     { chave: "almoco",     rotulo: "Almoço" },
     { chave: "contagem",   rotulo: "Contagem" },
-    { chave: "expediente", rotulo: "Expediente" },
-    { chave: "dashboard",  rotulo: "Dashboard" },
-    { chave: "barbeiros",  rotulo: "Barbeiros" },
-    { chave: "precos",     rotulo: "Preços" },
-    { chave: "horarios",   rotulo: "Horários" }
+    { chave: "expediente", rotulo: "Expediente", gestao: true },
+    { chave: "dashboard",  rotulo: "Dashboard",  gestao: true },
+    { chave: "barbeiros",  rotulo: "Barbeiros",  gestao: true },
+    { chave: "precos",     rotulo: "Preços",     gestao: true },
+    { chave: "horarios",   rotulo: "Horários",   gestao: true }
   ],
   barbeiro: [
-    { chave: "agenda_dia", rotulo: "Agenda do dia" },
+    { chave: "agenda_dia", rotulo: "Agenda" },
     { chave: "caderninho", rotulo: "Caderninho" },
     { chave: "almoco",     rotulo: "Almoço" },
     { chave: "contagem",   rotulo: "Contagem" }
   ],
   salao: [
-    { chave: "agenda_dia", rotulo: "Agenda do dia" },
+    { chave: "agenda_dia", rotulo: "Agenda" },
     { chave: "caderninho", rotulo: "Caderninho" },
-    { chave: "contagem",   rotulo: "Cortes do dia" }
+    { chave: "contagem",   rotulo: "Cortes" }
   ]
 };
 
@@ -194,23 +198,59 @@ const SECOES = {
 };
 
 // Monta os botões das abas conforme o papel; devolve a chave da 1ª aba.
+// As abas de gestão ficam recolhidas atrás do botão "Gerenciar" — quem só quer
+// tocar o dia não esbarra nelas, e quem precisa abre em um toque.
 function montarAbas() {
   const lista = ABAS_POR_PAPEL[API.admin.papel()] || ABAS_POR_PAPEL.barbeiro;
-  abas.innerHTML = lista.map((a, i) =>
+  const doDia = lista.filter((a) => !a.gestao);
+  const gestao = lista.filter((a) => a.gestao);
+
+  const botoes = doDia.map((a, i) =>
     `<button class="aba${i === 0 ? " ativa" : ""}" data-secao="${a.chave}">${escapeHTML(a.rotulo)}</button>`
   ).join("");
-  return lista[0].chave;
+
+  const toggle = gestao.length
+    ? `<button class="aba aba-gerenciar" id="aba-gerenciar" aria-expanded="false">Gerenciar</button>`
+    : "";
+
+  const gaveta = gestao.length
+    ? `<div class="abas-gestao" id="abas-gestao" hidden>
+         ${gestao.map((a) => `<button class="aba" data-secao="${a.chave}">${escapeHTML(a.rotulo)}</button>`).join("")}
+       </div>`
+    : "";
+
+  abas.innerHTML = `<div class="abas-linha">${botoes}${toggle}</div>${gaveta}`;
+  return doDia[0].chave;
+}
+
+function alternarGaveta(mostrar) {
+  const gaveta = document.getElementById("abas-gestao");
+  const botao = document.getElementById("aba-gerenciar");
+  if (!gaveta || !botao) return;
+  const abrir = mostrar === undefined ? gaveta.hidden : mostrar;
+  gaveta.hidden = !abrir;
+  botao.setAttribute("aria-expanded", String(abrir));
+  botao.classList.toggle("aberta", abrir);
 }
 
 function trocarSecao(chave) {
   abas.querySelectorAll(".aba").forEach((a) => {
     a.classList.toggle("ativa", a.dataset.secao === chave);
   });
+  // Escolheu algo de dentro de "Gerenciar": fecha a gaveta e marca o botão,
+  // pra barra não ficar aberta ocupando tela enquanto a pessoa usa a seção.
+  const ehGestao = (ABAS_POR_PAPEL[API.admin.papel()] || [])
+    .some((a) => a.chave === chave && a.gestao);
+  const botao = document.getElementById("aba-gerenciar");
+  if (botao) botao.classList.toggle("ativa", ehGestao);
+  if (ehGestao) alternarGaveta(false);
+
   const render = SECOES[chave];
   if (render) render();
 }
 
 abas.addEventListener("click", (e) => {
+  if (e.target.closest("#aba-gerenciar")) { alternarGaveta(); return; }
   const btn = e.target.closest(".aba");
   if (btn) trocarSecao(btn.dataset.secao);
 });
@@ -912,6 +952,83 @@ function empilharCards(cards) {
   return ordenados;
 }
 
+// Rola até a marca de "agora". Quem rola é a PÁGINA (a timeline não tem
+// rolagem própria — ela cresce de altura). Por isso: só desce, nunca sobe, e
+// deixa a linha a um terço da tela em vez de colada no topo, pra continuar
+// dando pra ver o que acabou de passar.
+function centralizarAgora(container) {
+  const marca = container.querySelector(".agenda-agora");
+  if (!marca) return;   // só existe quando a data é hoje
+  // setTimeout e NÃO requestAnimationFrame: quando a aba está em segundo plano
+  // o navegador não desenha quadros e o rAF simplesmente não dispara — a agenda
+  // abriria no topo. O timeout roda de qualquer jeito.
+  setTimeout(() => {
+    const topo = marca.getBoundingClientRect().top + window.scrollY;
+    const alvo = Math.max(0, topo - window.innerHeight / 3);
+    // Posicionamento DIRETO, sem animação: ao abrir a aba a agenda já tem que
+    // estar no lugar certo. Ver a tela deslizar sozinha atrapalha mais do que
+    // ajuda, e rolagem suave nem sempre é honrada pelo navegador.
+    if (alvo > window.scrollY + 40) window.scrollTo(0, alvo);
+  }, 0);
+}
+
+// Faixa de resumo acima da timeline: responde "como está o meu dia?" sem a
+// pessoa ter que ler a agenda inteira e somar de cabeça.
+// Só aparece na aba de ativos — em "cancelados" não faz sentido somar nada.
+function resumoDoDia(data, ags, verValores) {
+  if (statusAgenda === "cancelados") return "";
+
+  const total = ags.length;
+  const ehHoje = data === hojeISO();
+  const agoraMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+  // Próximo da fila: o primeiro que ainda não começou. Em dias que não são hoje,
+  // o "próximo" é simplesmente o primeiro da agenda.
+  const ordenados = ags.slice().sort((a, b) => minutosDe(a.hora) - minutosDe(b.hora));
+  const proximo = ehHoje
+    ? ordenados.find((a) => minutosDe(a.hora) >= agoraMin)
+    : ordenados[0];
+  const restantes = ehHoje
+    ? ordenados.filter((a) => minutosDe(a.hora) >= agoraMin).length
+    : total;
+
+  const faturamento = verValores
+    ? ags.reduce((s, a) => s + (Number(a.servico_preco) || 0)
+                             + (a.consumos_total_centavos || 0) / 100, 0)
+    : null;
+
+  const itens = [];
+  itens.push(`<div class="resumo-item">
+      <span class="resumo-rotulo">${ehHoje ? "Cortes hoje" : "Cortes no dia"}</span>
+      <strong class="resumo-valor">${total}</strong>
+    </div>`);
+
+  if (ehHoje) {
+    itens.push(`<div class="resumo-item">
+        <span class="resumo-rotulo">Ainda faltam</span>
+        <strong class="resumo-valor">${restantes}</strong>
+      </div>`);
+  }
+
+  itens.push(`<div class="resumo-item resumo-proximo">
+      <span class="resumo-rotulo">${ehHoje ? "Próximo" : "Primeiro"}</span>
+      <strong class="resumo-valor">${
+        proximo
+          ? `${escapeHTML(proximo.hora)} · ${escapeHTML(proximo.cliente_nome)}`
+          : (total ? "acabou por hoje" : "nada marcado")
+      }</strong>
+    </div>`);
+
+  if (faturamento !== null) {
+    itens.push(`<div class="resumo-item">
+        <span class="resumo-rotulo">Total do dia</span>
+        <strong class="resumo-valor">${formatarMoeda(faturamento)}</strong>
+      </div>`);
+  }
+
+  return `<div class="resumo-dia">${itens.join("")}</div>`;
+}
+
 function renderTimeline(container, data, colunas, ags, almocos) {
   almocos = almocos || [];
   // Janela do dia (horas): a partir dos agendamentos + almoços, com margem 8h–20h.
@@ -1060,6 +1177,7 @@ function renderTimeline(container, data, colunas, ags, almocos) {
     </div>` : "";
 
   container.innerHTML = `
+    ${resumoDoDia(data, ags, verValores)}
     ${seletor}
     <div class="agenda">
       <div class="agenda-heads"><div class="agenda-head-spacer"></div>${heads}</div>
@@ -1069,6 +1187,11 @@ function renderTimeline(container, data, colunas, ags, almocos) {
       </div>
     </div>
   `;
+
+  // Abre a agenda já no horário de agora. Antes ela abria sempre às 08:00 e o
+  // barbeiro tinha que rolar até achar onde o dia está. Só vale pra hoje —
+  // em outro dia não existe "agora" pra centralizar.
+  centralizarAgora(container);
 
   // Seletor (celular): troca a coluna visível
   container.querySelectorAll("[data-selcol]").forEach((btn) => {
