@@ -495,6 +495,13 @@ a { color: inherit; }
 }
 .dia-pill:disabled .dia-pill-topo { color: var(--texto-fraco); }
 
+/* Dia em que a barbearia abre mas ESTE barbeiro não tem vaga (folga, lotado).
+   O risco cortado separa do domingo, que é a loja fechada pra todo mundo. */
+.dia-pill.sem-vaga .dia-pill-num {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
 input[type="date"],
 input[type="text"],
 input[type="tel"],

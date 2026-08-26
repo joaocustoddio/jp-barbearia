@@ -344,9 +344,12 @@ function renderPassoData() {
     btnContinuar.disabled = false;
 
     if (!horarios || horarios.length === 0) {
-      btnContinuar.className = "btn btn-secundario";
-      btnContinuar.textContent = "Sem horários nesse dia";
-      avisoChecagem.textContent = "Ao continuar, mostramos a próxima data com vaga.";
+      // O botão diz o que ELE faz, não o que falta. "Sem horários nesse dia"
+      // parece um fim de linha; na verdade o passo seguinte busca a próxima
+      // data com vaga sozinho.
+      btnContinuar.className = "btn btn-primario";
+      btnContinuar.textContent = "Ver próxima data com vaga";
+      avisoChecagem.textContent = `${state.barbeiro.nome} não tem horário em ${formatarDataBR(state.data)}.`;
     } else {
       botaoParaEstadoPadrao();
     }
@@ -392,6 +395,36 @@ function renderPassoData() {
     if (!fechado) pill.addEventListener("click", () => selecionarData(iso));
     faixa.appendChild(pill);
   }
+
+  // Apaga da faixa os dias em que ESTE barbeiro não atende (folga semanal,
+  // agenda lotada, dia já vencido). Domingo já vem desabilitado antes, porque
+  // é regra fixa; folga de barbeiro só o servidor sabe.
+  //
+  // Roda em segundo plano: a faixa aparece na hora e os dias vão sendo
+  // marcados conforme as respostas chegam — ninguém fica esperando.
+  //
+  // Só marca quando a resposta CHEGA e vem vazia. Se a chamada falhar, deixa o
+  // dia como está: marcar um dia bom como indisponível impediria de agendar,
+  // que é pior do que o incômodo de descobrir clicando.
+  async function marcarDiasSemVaga() {
+    const servicoId = state.servico ? state.servico.id : null;
+    const pills = Array.from(faixa.querySelectorAll(".dia-pill:not([disabled])"));
+    await Promise.all(pills.map(async (pill) => {
+      try {
+        const r = await API.listarHorariosDisponiveis(pill.dataset.data, state.barbeiro.id, servicoId);
+        const vagas = r && r.horarios_disponiveis;
+        if (Array.isArray(vagas) && vagas.length === 0) {
+          pill.classList.add("sem-vaga");
+          pill.title = `${state.barbeiro.nome} não tem horário nesse dia`;
+          // O dia escolhido continua clicável: desabilitar embaixo do dedo da
+          // pessoa, depois que ela já selecionou, seria pior.
+          if (!pill.classList.contains("selecionado")) pill.disabled = true;
+        }
+      } catch (_) { /* não deu pra saber: deixa o dia como está */ }
+    }));
+  }
+
+  marcarDiasSemVaga();
 
   // Atalhos rápidos (Hoje / Amanhã), desabilitados se caírem em dia fechado.
   [["Hoje", 0], ["Amanhã", 1]].forEach(([rotulo, offset]) => {
