@@ -39,8 +39,6 @@ def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao):
     Retorna (lista de Janela, dia_bloqueado) — dia_bloqueado quando existe um
     bloqueio de dia inteiro (hora NULL), que derruba a agenda toda.
     """
-    janelas = []
-
     agendados = conn.execute(
         """SELECT agendamentos.hora, servicos.duracao_min
            FROM agendamentos
@@ -49,16 +47,34 @@ def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao):
              AND agendamentos.status != 'cancelado'""",
         (data_str, barbeiro_id)
     ).fetchall()
-    for linha in agendados:
-        inicio = hhmm_para_min(linha["hora"])
-        janelas.append(Janela(inicio, inicio + (linha["duracao_min"] or duracao_padrao), "agendamento"))
 
-    dia_bloqueado = False
     bloqueios = conn.execute(
         """SELECT hora, duracao_min, motivo FROM bloqueios
            WHERE data = %s AND (barbeiro_id IS NULL OR barbeiro_id = %s)""",
         (data_str, barbeiro_id)
     ).fetchall()
+
+    linha_barbeiro = conn.execute(
+        "SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)
+    ).fetchone()
+    almoco_fixo = linha_barbeiro["almoco_fixo"] if linha_barbeiro else None
+
+    return montar_janelas(agendados, bloqueios, almoco_fixo, duracao_padrao)
+
+
+def montar_janelas(agendados, bloqueios, almoco_fixo, duracao_padrao):
+    """
+    Transforma as linhas já lidas do banco em janelas ocupadas. SEM tocar no
+    banco: existe pra quem buscou vários dias de uma vez montar as janelas com
+    exatamente esta regra, em vez de reescrever e arriscar divergir.
+    """
+    janelas = []
+
+    for linha in agendados:
+        inicio = hhmm_para_min(linha["hora"])
+        janelas.append(Janela(inicio, inicio + (linha["duracao_min"] or duracao_padrao), "agendamento"))
+
+    dia_bloqueado = False
     for linha in bloqueios:
         if linha["hora"] is None:            # bloqueio de dia inteiro (feriado/folga)
             dia_bloqueado = True
@@ -69,10 +85,6 @@ def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao):
         motivo = "almoco" if (linha["motivo"] or "").strip().lower().startswith("almo") else "bloqueio"
         janelas.append(Janela(inicio, inicio + (linha["duracao_min"] or INTERVALO_MINUTOS), motivo))
 
-    linha_barbeiro = conn.execute(
-        "SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)
-    ).fetchone()
-    almoco_fixo = linha_barbeiro["almoco_fixo"] if linha_barbeiro else None
     if almoco_fixo:
         inicio = hhmm_para_min(almoco_fixo)
         janelas.append(Janela(inicio, inicio + DURACAO_ALMOCO_MIN, "almoco"))

@@ -21,7 +21,7 @@ trechos que os testes exercitam injetando dependências no módulo `app`
 
 import os
 import hmac
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from flask import request, jsonify
 
@@ -41,8 +41,8 @@ from database import (
 )
 from extensoes import app, limiter, logger
 from horarios import hhmm_para_min, gerar_slots, filtrar_por_antecedencia
-from validacoes import dia_fechado, horario_efetivo, validar_data
-from agendamentos import janelas_ocupadas, _data_br, _link_agenda
+from validacoes import dia_fechado, horario_efetivo, horario_efetivo_de, validar_data
+from agendamentos import janelas_ocupadas, montar_janelas, _data_br, _link_agenda
 import notificacoes
 import emails
 
@@ -118,6 +118,125 @@ def horarios_disponiveis():
         )
 
     return jsonify({"data": data_str, "barbeiro_id": barbeiro_id, "horarios_disponiveis": disponiveis})
+
+
+# Teto de dias por chamada. 14 cobre a janela de agendamento do site com folga;
+# o limite existe pra ninguém pedir um ano de uma vez.
+MAX_DIAS_PERIODO = 14
+
+
+@app.route("/api/horarios-disponiveis-periodo", methods=["GET"])
+def horarios_disponiveis_periodo():
+    """
+    A MESMA disponibilidade do /api/horarios-disponiveis, só que de vários dias
+    numa requisição só.
+
+    Motivo de existir: a tela de escolher data precisa saber de 8 dias. Uma
+    chamada por dia custava ~1s cada na hospedagem gratuita (0,1 de CPU), o que
+    dava ~8s de espera. Aqui as consultas são feitas EM LOTE — 5 no total,
+    independente do número de dias.
+
+    O cálculo é o mesmo: usa `montar_janelas` e `horario_efetivo_de`, as mesmas
+    funções que o endpoint de um dia usa. Não existe regra duplicada aqui.
+
+    Parâmetros: ?inicio=YYYY-MM-DD&dias=8&barbeiro_id=1&servico_id=2
+    Resposta:   {"barbeiro_id": 1, "dias": {"2026-08-27": {...}, ...}}
+    """
+    inicio_str  = request.args.get("inicio")
+    barbeiro_id = request.args.get("barbeiro_id")
+    servico_id  = request.args.get("servico_id")
+
+    valido, erro = validar_data(inicio_str)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    if not barbeiro_id:
+        return jsonify({"erro": "barbeiro_id é obrigatório"}), 400
+
+    try:
+        qtd_dias = int(request.args.get("dias", 8))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "dias inválido"}), 400
+    if qtd_dias < 1 or qtd_dias > MAX_DIAS_PERIODO:
+        return jsonify({"erro": f"dias deve ser entre 1 e {MAX_DIAS_PERIODO}"}), 400
+
+    primeiro = datetime.strptime(inicio_str, "%Y-%m-%d").date()
+    datas = [(primeiro + timedelta(days=i)).isoformat() for i in range(qtd_dias)]
+    ultimo = datas[-1]
+
+    conn = get_connection()
+
+    dur_serv = INTERVALO_MINUTOS
+    if servico_id:
+        srow = conn.execute("SELECT duracao_min FROM servicos WHERE id = %s", (servico_id,)).fetchone()
+        if srow:
+            dur_serv = srow["duracao_min"]
+
+    # --- as 4 consultas em lote (uma por assunto, cobrindo o período inteiro) ---
+    agendados_por_dia = {}
+    for linha in conn.execute(
+        """SELECT agendamentos.data, agendamentos.hora, servicos.duracao_min
+           FROM agendamentos
+           JOIN servicos ON agendamentos.servico_id = servicos.id
+           WHERE agendamentos.data BETWEEN %s AND %s
+             AND agendamentos.barbeiro_id = %s
+             AND agendamentos.status != 'cancelado'""",
+        (datas[0], ultimo, barbeiro_id)
+    ).fetchall():
+        agendados_por_dia.setdefault(linha["data"], []).append(linha)
+
+    bloqueios_por_dia = {}
+    for linha in conn.execute(
+        """SELECT data, hora, duracao_min, motivo FROM bloqueios
+           WHERE data BETWEEN %s AND %s AND (barbeiro_id IS NULL OR barbeiro_id = %s)""",
+        (datas[0], ultimo, barbeiro_id)
+    ).fetchall():
+        bloqueios_por_dia.setdefault(linha["data"], []).append(linha)
+
+    expediente_por_dia = {
+        linha["data"]: linha
+        for linha in conn.execute(
+            "SELECT data, inicio, fim FROM expedientes WHERE barbeiro_id = %s AND data BETWEEN %s AND %s",
+            (barbeiro_id, datas[0], ultimo)
+        ).fetchall()
+    }
+
+    linha_barbeiro = conn.execute(
+        "SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)
+    ).fetchone()
+    almoco_fixo = linha_barbeiro["almoco_fixo"] if linha_barbeiro else None
+    conn.close()
+
+    hoje = data_hoje().isoformat()
+    agora = agora_br()
+    agora_min = agora.hour * 60 + agora.minute
+
+    resposta = {}
+    for data_str in datas:
+        fechado, _ = dia_fechado(data_str)
+        if fechado:
+            resposta[data_str] = {"horarios_disponiveis": [], "fechado": True}
+            continue
+
+        ocupadas, dia_bloqueado = montar_janelas(
+            agendados_por_dia.get(data_str, []),
+            bloqueios_por_dia.get(data_str, []),
+            almoco_fixo, dur_serv
+        )
+        if dia_bloqueado:
+            resposta[data_str] = {"horarios_disponiveis": [], "bloqueio_dia": True}
+            continue
+
+        abertura, fechamento = horario_efetivo_de(
+            data_str, barbeiro_id, expediente_por_dia.get(data_str)
+        )
+        disponiveis = gerar_slots(abertura, fechamento, ocupadas, dur_serv,
+                                  tolerancia_para(dur_serv), MARGEM_ULTIMA_ENTRADA_MIN)
+        if data_str == hoje:
+            disponiveis = filtrar_por_antecedencia(disponiveis, agora_min, ANTECEDENCIA_MINIMA)
+
+        resposta[data_str] = {"horarios_disponiveis": disponiveis}
+
+    return jsonify({"barbeiro_id": barbeiro_id, "dias": resposta})
 
 
 # -------------------------------------------------------

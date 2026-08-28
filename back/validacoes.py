@@ -91,18 +91,29 @@ def horario_do_dia(data_str):
 def horario_efetivo(data_str, barbeiro_id, conn):
     """(abertura, fechamento) que valem pra ESTE barbeiro nesta data.
 
+    Busca o expediente no banco e delega o resto pra horario_efetivo_de().
+    """
+    row = conn.execute(
+        "SELECT inicio, fim FROM expedientes WHERE barbeiro_id = %s AND data = %s",
+        (barbeiro_id, data_str)
+    ).fetchone()
+    return horario_efetivo_de(data_str, barbeiro_id, row)
+
+
+def horario_efetivo_de(data_str, barbeiro_id, expediente):
+    """
+    Mesma regra do horario_efetivo, mas SEM tocar no banco: recebe pronta a linha
+    de expediente (ou None). Existe pra quem já buscou os expedientes de vários
+    dias de uma vez usar exatamente esta lógica, em vez de reescrever.
+
     Ordem de prioridade:
     1. Expediente manual do master pro dia (sobrepõe tudo);
     2. Folga semanal do dono → devolve abertura==fechamento (nenhum horário);
     3. Piso de abertura dos demais barbeiros (só o dono entra antes das 9h);
     4. Horário padrão do dia.
     """
-    row = conn.execute(
-        "SELECT inicio, fim FROM expedientes WHERE barbeiro_id = %s AND data = %s",
-        (barbeiro_id, data_str)
-    ).fetchone()
-    if row:
-        return row["inicio"], row["fim"]
+    if expediente:
+        return expediente["inicio"], expediente["fim"]
 
     abertura, fechamento = horario_do_dia(data_str)
     try:

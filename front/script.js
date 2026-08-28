@@ -407,18 +407,17 @@ function renderPassoData() {
     faixa.appendChild(pill);
   }
 
-  // Confere TODOS os dias visíveis de uma vez e usa o resultado pra duas coisas:
-  // marcar os dias sem vaga e já escolher a primeira data com horário.
+  // Confere a disponibilidade da faixa inteira e usa o resultado pra duas
+  // coisas: marcar os dias sem vaga e escolher a primeira data com horário.
   //
-  // Antes eram duas varreduras: uma sequencial, que perguntava um dia, esperava,
-  // perguntava o próximo (é o "foi limpando quinta, sexta, sábado..."), e outra
-  // em paralelo só pra marcar. Cada consulta custa ~1s, então procurar de quinta
-  // até terça levava ~8 segundos com os dias acinzentando um a um.
-  // Agora é uma rodada só, em paralelo.
+  // UMA requisição só, pro período todo. Antes era uma por dia — primeiro em
+  // sequência (o "foi limpando quinta, sexta, sábado..."), depois em paralelo.
+  // Como a hospedagem gratuita tem 0,1 de CPU, mesmo em paralelo as 8 chamadas
+  // somavam ~6,5s. Agora o servidor faz as consultas em lote e responde tudo de
+  // uma vez.
   //
-  // Dia só é marcado como sem vaga quando a resposta CHEGA e vem vazia. Se a
-  // consulta falhar, o dia fica como está: bloquear um dia bom por causa de rede
-  // ruim impediria de agendar, que é pior que o incômodo original.
+  // Se a chamada falhar, NENHUM dia é marcado: bloquear um dia bom por causa de
+  // rede ruim impediria de agendar, que é pior do que não marcar nada.
   async function prepararDias(manterData) {
     const meuToken = ++tokenChecagem;
     btnContinuar.disabled = true;
@@ -429,52 +428,37 @@ function renderPassoData() {
     const pills = Array.from(faixa.querySelectorAll(".dia-pill:not([disabled])"));
     if (!pills.length) { botaoParaEstadoPadrao(); btnContinuar.disabled = false; return; }
 
-    // Dispara TODAS as consultas de uma vez (não uma esperando a outra).
-    const consultas = pills.map((pill) => {
-      const data = pill.dataset.data;
-      return API.listarHorariosDisponiveis(data, state.barbeiro.id, servicoId)
-        .then((r) => {
-          const vagas = r && r.horarios_disponiveis;
-          return { pill, data, vagas: Array.isArray(vagas) ? vagas.length : null };
-        })
-        .catch(() => ({ pill, data, vagas: null }));   // não deu pra saber
+    let porDia = null;
+    try {
+      const r = await API.listarHorariosPeriodo(
+        pills[0].dataset.data, DIAS_A_MOSTRAR, state.barbeiro.id, servicoId);
+      porDia = r && r.dias;
+    } catch (_) { /* não deu pra saber: segue sem marcar nada */ }
+
+    if (meuToken !== tokenChecagem) return;   // a pessoa já escolheu na mão
+
+    const dias = pills.map((pill) => {
+      const info = porDia && porDia[pill.dataset.data];
+      const vagas = info && info.horarios_disponiveis;
+      return { pill, data: pill.dataset.data, vagas: Array.isArray(vagas) ? vagas.length : null };
     });
 
-    // Marca cada dia assim que a resposta DELE chega, sem esperar as outras.
-    let escolhido = false;
-    const marcar = (d) => {
-      if (meuToken !== tokenChecagem) return;
-      if (d.vagas === 0 && !d.pill.classList.contains("selecionado")) {
+    const escolhida = (manterData && dias.find((d) => d.data === manterData))
+                   || dias.find((d) => d.vagas > 0)
+                   || dias[0];
+
+    dias.forEach((d) => {
+      // O dia que fica selecionado nunca é desabilitado — travar o que está
+      // embaixo do dedo da pessoa seria pior do que deixar clicável.
+      if (d.vagas === 0 && d !== escolhida) {
         d.pill.classList.add("sem-vaga");
         d.pill.title = `${state.barbeiro.nome} não tem horário nesse dia`;
         d.pill.disabled = true;
       }
-    };
+    });
 
-    // A tela libera no PRIMEIRO dia com vaga, em ordem — não espera as 8
-    // respostas. Numa hospedagem lenta isso é a diferença entre ~1s e ~7s de
-    // "Verificando disponibilidade...".
-    (async () => {
-      for (const consulta of consultas) {
-        const d = await consulta;
-        if (meuToken !== tokenChecagem) return;
-        marcar(d);
-        if (escolhido) continue;
-        const serve = manterData ? d.data === manterData : d.vagas > 0;
-        if (serve) {
-          escolhido = true;
-          selecionarData(d.data, d.vagas === null ? undefined : d.vagas);
-          rolarFaixaPara(d.data);
-        }
-      }
-      // Nenhum dia com vaga na janela: fica no primeiro aberto mesmo assim
-      // (o passo do horário ainda procura adiante).
-      if (!escolhido && meuToken === tokenChecagem) {
-        const primeiro = await consultas[0];
-        selecionarData(primeiro.data, primeiro.vagas === null ? undefined : primeiro.vagas);
-        rolarFaixaPara(primeiro.data);
-      }
-    })();
+    selecionarData(escolhida.data, escolhida.vagas === null ? undefined : escolhida.vagas);
+    rolarFaixaPara(escolhida.data);
   }
 
   // Atalhos rápidos (Hoje / Amanhã), desabilitados se caírem em dia fechado.

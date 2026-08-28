@@ -129,6 +129,18 @@ const API = (() => {
     },
 
     /**
+     * GET /api/horarios-disponiveis-periodo — vários dias numa requisição só.
+     * Devolve { barbeiro_id, dias: { "YYYY-MM-DD": { horarios_disponiveis: [...] } } }.
+     * Mesmo cálculo do endpoint de um dia; existe pra tela de datas não precisar
+     * de uma chamada por dia (a hospedagem gratuita cobra caro por requisição).
+     */
+    listarHorariosPeriodo(inicio, dias, barbeiroId, servicoId) {
+      const s = servicoId != null ? `&servico_id=${encodeURIComponent(servicoId)}` : "";
+      return request(`/api/horarios-disponiveis-periodo?inicio=${encodeURIComponent(inicio)}`
+                     + `&dias=${dias}&barbeiro_id=${barbeiroId}${s}`);
+    },
+
+    /**
      * POST /api/agendamentos
      * dadosAgendamento = { nome_cliente, telefone, servico_id, data, hora }
      */
