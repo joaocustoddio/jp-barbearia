@@ -27,7 +27,15 @@ on:
     # Começa 06h pra o servidor já estar quente antes do primeiro corte (08:00
     # no sábado) e vai até meia-noite, que é quando as pessoas marcam de casa.
     # Consumo: ~558h/mês das 750h gratuitas — sobra margem pra deploys e picos.
-    - cron: "*/10 0-2,9-23 * * *"
+    # Minutos QUEBRADOS de propósito (3, 13, 23...) em vez de */10. O GitHub
+    # atrasa e às vezes DESCARTA execuções agendadas quando está sob carga, e o
+    # pico é sempre no topo da hora — a própria documentação deles manda fugir
+    # do :00. Medido em 28/08: com */10 o intervalo real ficou em 63min de
+    # média (deveria ser 10), com buracos de até 406min em pleno expediente.
+    # Isto ajuda, mas NÃO resolve: pra manter o servidor acordado de verdade o
+    # certo é um pingador externo (cron-job.org/UptimeRobot), que é feito pra
+    # isso. Ver o README.
+    - cron: "3,13,23,33,43,53 0-2,9-23 * * *"
   workflow_dispatch:        # permite disparar na mão pra testar
     inputs:
       tipo:
@@ -59,7 +67,7 @@ jobs:
           case "${{ github.event.schedule }}" in
             "0 11 * * *")       TIPO=resumo ;;     # 08:00 BRT
             "0 21 * * *")       TIPO=lembretes ;;  # 18:00 BRT
-            "*/10 0-2,9-23 * * *") TIPO=proximos ;;   # de 10 em 10 min
+            "3,13,23,33,43,53 0-2,9-23 * * *") TIPO=proximos ;;   # de 10 em 10 min
             *)                  TIPO="${{ inputs.tipo }}" ;;
           esac
           [ -n "$TIPO" ] || TIPO=lembretes
