@@ -427,37 +427,54 @@ function renderPassoData() {
 
     const servicoId = state.servico ? state.servico.id : null;
     const pills = Array.from(faixa.querySelectorAll(".dia-pill:not([disabled])"));
+    if (!pills.length) { botaoParaEstadoPadrao(); btnContinuar.disabled = false; return; }
 
-    const dias = await Promise.all(pills.map(async (pill) => {
-      try {
-        const r = await API.listarHorariosDisponiveis(pill.dataset.data, state.barbeiro.id, servicoId);
-        const vagas = r && r.horarios_disponiveis;
-        return { pill, data: pill.dataset.data, vagas: Array.isArray(vagas) ? vagas.length : null };
-      } catch (_) {
-        return { pill, data: pill.dataset.data, vagas: null };   // não deu pra saber
-      }
-    }));
+    // Dispara TODAS as consultas de uma vez (não uma esperando a outra).
+    const consultas = pills.map((pill) => {
+      const data = pill.dataset.data;
+      return API.listarHorariosDisponiveis(data, state.barbeiro.id, servicoId)
+        .then((r) => {
+          const vagas = r && r.horarios_disponiveis;
+          return { pill, data, vagas: Array.isArray(vagas) ? vagas.length : null };
+        })
+        .catch(() => ({ pill, data, vagas: null }));   // não deu pra saber
+    });
 
-    if (meuToken !== tokenChecagem) return;   // a pessoa já escolheu um dia na mão
-
-    // Respeita a data que a pessoa já tinha escolhido; só decide sozinho quando
-    // ela ainda não escolheu nada.
-    const jaEscolhida = manterData ? dias.find((d) => d.data === manterData) : null;
-    const escolhida = jaEscolhida || dias.find((d) => d.vagas > 0) || dias[0];
-
-    dias.forEach((d) => {
-      // O dia que vai ficar selecionado nunca é desabilitado — travar o que está
-      // embaixo do dedo da pessoa seria pior do que deixar clicável.
-      if (d.vagas === 0 && d !== escolhida) {
+    // Marca cada dia assim que a resposta DELE chega, sem esperar as outras.
+    let escolhido = false;
+    const marcar = (d) => {
+      if (meuToken !== tokenChecagem) return;
+      if (d.vagas === 0 && !d.pill.classList.contains("selecionado")) {
         d.pill.classList.add("sem-vaga");
         d.pill.title = `${state.barbeiro.nome} não tem horário nesse dia`;
         d.pill.disabled = true;
       }
-    });
+    };
 
-    if (!escolhida) { botaoParaEstadoPadrao(); btnContinuar.disabled = false; return; }
-    selecionarData(escolhida.data, escolhida.vagas === null ? undefined : escolhida.vagas);
-    rolarFaixaPara(escolhida.data);
+    // A tela libera no PRIMEIRO dia com vaga, em ordem — não espera as 8
+    // respostas. Numa hospedagem lenta isso é a diferença entre ~1s e ~7s de
+    // "Verificando disponibilidade...".
+    (async () => {
+      for (const consulta of consultas) {
+        const d = await consulta;
+        if (meuToken !== tokenChecagem) return;
+        marcar(d);
+        if (escolhido) continue;
+        const serve = manterData ? d.data === manterData : d.vagas > 0;
+        if (serve) {
+          escolhido = true;
+          selecionarData(d.data, d.vagas === null ? undefined : d.vagas);
+          rolarFaixaPara(d.data);
+        }
+      }
+      // Nenhum dia com vaga na janela: fica no primeiro aberto mesmo assim
+      // (o passo do horário ainda procura adiante).
+      if (!escolhido && meuToken === tokenChecagem) {
+        const primeiro = await consultas[0];
+        selecionarData(primeiro.data, primeiro.vagas === null ? undefined : primeiro.vagas);
+        rolarFaixaPara(primeiro.data);
+      }
+    })();
   }
 
   // Atalhos rápidos (Hoje / Amanhã), desabilitados se caírem em dia fechado.
