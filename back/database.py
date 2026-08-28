@@ -16,12 +16,37 @@ import os
 import threading
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 import bcrypt
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# POOL DE CONEXÕES — o motivo de existir:
+# abrir conexão nova com o Supabase custava ~1 SEGUNDO por requisição (handshake
+# TLS + autenticação, com o banco em outra região). Medido em produção: um
+# endpoint de UMA query levava 1,2s contra 0,2s de um que não toca no banco.
+# Reaproveitando a conexão, esse segundo some de toda requisição do sistema.
+#
+# Tamanho: precisa ser >= ao número de threads do gunicorn (ver Procfile), senão
+# uma thread fica esperando conexão livre. Ajustável por DB_POOL_MAX.
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "6"))
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _obter_pool():
+    """Cria o pool na primeira necessidade (não no import, pra não travar o boot)."""
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:   # confere de novo já com o lock
+                _pool = psycopg2.pool.ThreadedConnectionPool(
+                    1, _POOL_MAX, DATABASE_URL, connect_timeout=15
+                )
+    return _pool
 
 # Rede de segurança contra vazamento de conexão: cada conexão aberta numa
 # requisição fica registrada nesta thread. Se um endpoint estourar exceção antes
@@ -62,8 +87,10 @@ class _Conexao:
     As linhas voltam como dicionário (RealDictRow), então row["nome"] e
     dict(row) funcionam igual ao sqlite3.Row.
     """
-    def __init__(self, pgconn):
+    def __init__(self, pgconn, pool=None):
         self._conn = pgconn
+        self._pool = pool
+        self._devolvida = False
 
     def execute(self, sql, params=None):
         cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -87,12 +114,37 @@ class _Conexao:
 
     @property
     def fechada(self):
-        return self._conn.closed != 0
+        # Já devolvida ao pool conta como fechada: a rede de segurança do
+        # teardown não pode mexer numa conexão que outra thread já pegou.
+        return self._devolvida or self._conn.closed != 0
 
     def close(self):
         # Idempotente: fechar duas vezes (endpoint + rede de segurança) não quebra.
-        if not self._conn.closed:
-            self._conn.close()
+        if self._devolvida:
+            return
+        self._devolvida = True
+
+        if self._pool is None:            # sem pool: comportamento antigo
+            if not self._conn.closed:
+                self._conn.close()
+            return
+
+        try:
+            if self._conn.closed:
+                self._pool.putconn(self._conn, close=True)
+                return
+            # ROLLBACK antes de devolver: as leituras deixam uma transação
+            # aberta, e devolver assim faria a próxima requisição herdar um
+            # snapshot velho (e prenderia a conexão como "idle in transaction").
+            self._conn.rollback()
+            self._pool.putconn(self._conn)
+        except Exception:
+            # Conexão quebrada (banco reiniciou, rede caiu): descarta em vez de
+            # devolver defeituosa pro pool.
+            try:
+                self._pool.putconn(self._conn, close=True)
+            except Exception:
+                pass
 
 
 def get_connection():
@@ -102,8 +154,14 @@ def get_connection():
             "DATABASE_URL não definida. Configure a connection string do "
             "Supabase no arquivo .env (veja o .env.example)."
         )
-    pgconn = psycopg2.connect(DATABASE_URL, connect_timeout=15)
-    conexao = _Conexao(pgconn)
+    pool = _obter_pool()
+    pgconn = pool.getconn()
+    # Conexão que ficou parada pode ter caído do outro lado (Supabase derruba
+    # ociosas). Se vier morta, troca por uma nova em vez de estourar no endpoint.
+    if pgconn.closed:
+        pool.putconn(pgconn, close=True)
+        pgconn = pool.getconn()
+    conexao = _Conexao(pgconn, pool)
     _registrar_conexao(conexao)
     return conexao
 

@@ -329,21 +329,11 @@ function renderPassoData() {
     avisoChecagem.textContent = "";
   }
 
-  async function checarDisponibilidadeDoDia() {
-    const minhaChecagem = ++tokenChecagem;
-
-    btnContinuar.disabled = true;
-    btnContinuar.className = "btn btn-secundario";
-    btnContinuar.textContent = "Verificando disponibilidade...";
-    avisoChecagem.textContent = "";
-
-    const horarios = await carregarHorarios(state.data, state.barbeiro.id);
-
-    if (minhaChecagem !== tokenChecagem) return; // a pessoa já trocou de data, ignora essa resposta velha
-
+  // Estado do botão pra uma quantidade de vagas já conhecida — evita perguntar
+  // de novo ao servidor um dia que a varredura acabou de conferir.
+  function aplicarEstadoDoBotao(quantidade) {
     btnContinuar.disabled = false;
-
-    if (!horarios || horarios.length === 0) {
+    if (!quantidade) {
       // O botão diz o que ELE faz, não o que falta. "Sem horários nesse dia"
       // parece um fim de linha; na verdade o passo seguinte busca a próxima
       // data com vaga sozinho.
@@ -355,8 +345,24 @@ function renderPassoData() {
     }
   }
 
-  // Marca visualmente o dia/atalho escolhido e dispara a checagem.
-  function selecionarData(dataISO) {
+  // Consulta o servidor pelo dia escolhido na mão (não passou pela varredura).
+  async function checarDisponibilidadeDoDia() {
+    const minhaChecagem = ++tokenChecagem;
+
+    btnContinuar.disabled = true;
+    btnContinuar.className = "btn btn-secundario";
+    btnContinuar.textContent = "Verificando disponibilidade...";
+    avisoChecagem.textContent = "";
+
+    const horarios = await carregarHorarios(state.data, state.barbeiro.id);
+
+    if (minhaChecagem !== tokenChecagem) return; // trocou de data: resposta velha
+    aplicarEstadoDoBotao(horarios ? horarios.length : 0);
+  }
+
+  // Marca visualmente o dia/atalho escolhido. Quando a varredura já sabe quantas
+  // vagas aquele dia tem, passa o número e economiza uma ida ao servidor.
+  function selecionarData(dataISO, vagasConhecidas) {
     state.data = dataISO;
     state.hora = null;
     faixa.querySelectorAll(".dia-pill").forEach((p) => {
@@ -365,7 +371,12 @@ function renderPassoData() {
     chips.querySelectorAll(".chip-rapido").forEach((c) => {
       c.classList.toggle("selecionado", c.dataset.data === dataISO);
     });
-    checarDisponibilidadeDoDia();
+    if (typeof vagasConhecidas === "number") {
+      avisoChecagem.textContent = "";
+      aplicarEstadoDoBotao(vagasConhecidas);
+    } else {
+      checarDisponibilidadeDoDia();
+    }
   }
 
   // Rola a faixa trazendo o dia informado pro início (usado pelo atalho
@@ -396,35 +407,58 @@ function renderPassoData() {
     faixa.appendChild(pill);
   }
 
-  // Apaga da faixa os dias em que ESTE barbeiro não atende (folga semanal,
-  // agenda lotada, dia já vencido). Domingo já vem desabilitado antes, porque
-  // é regra fixa; folga de barbeiro só o servidor sabe.
+  // Confere TODOS os dias visíveis de uma vez e usa o resultado pra duas coisas:
+  // marcar os dias sem vaga e já escolher a primeira data com horário.
   //
-  // Roda em segundo plano: a faixa aparece na hora e os dias vão sendo
-  // marcados conforme as respostas chegam — ninguém fica esperando.
+  // Antes eram duas varreduras: uma sequencial, que perguntava um dia, esperava,
+  // perguntava o próximo (é o "foi limpando quinta, sexta, sábado..."), e outra
+  // em paralelo só pra marcar. Cada consulta custa ~1s, então procurar de quinta
+  // até terça levava ~8 segundos com os dias acinzentando um a um.
+  // Agora é uma rodada só, em paralelo.
   //
-  // Só marca quando a resposta CHEGA e vem vazia. Se a chamada falhar, deixa o
-  // dia como está: marcar um dia bom como indisponível impediria de agendar,
-  // que é pior do que o incômodo de descobrir clicando.
-  async function marcarDiasSemVaga() {
+  // Dia só é marcado como sem vaga quando a resposta CHEGA e vem vazia. Se a
+  // consulta falhar, o dia fica como está: bloquear um dia bom por causa de rede
+  // ruim impediria de agendar, que é pior que o incômodo original.
+  async function prepararDias(manterData) {
+    const meuToken = ++tokenChecagem;
+    btnContinuar.disabled = true;
+    btnContinuar.className = "btn btn-secundario";
+    btnContinuar.textContent = "Verificando disponibilidade...";
+
     const servicoId = state.servico ? state.servico.id : null;
     const pills = Array.from(faixa.querySelectorAll(".dia-pill:not([disabled])"));
-    await Promise.all(pills.map(async (pill) => {
+
+    const dias = await Promise.all(pills.map(async (pill) => {
       try {
         const r = await API.listarHorariosDisponiveis(pill.dataset.data, state.barbeiro.id, servicoId);
         const vagas = r && r.horarios_disponiveis;
-        if (Array.isArray(vagas) && vagas.length === 0) {
-          pill.classList.add("sem-vaga");
-          pill.title = `${state.barbeiro.nome} não tem horário nesse dia`;
-          // O dia escolhido continua clicável: desabilitar embaixo do dedo da
-          // pessoa, depois que ela já selecionou, seria pior.
-          if (!pill.classList.contains("selecionado")) pill.disabled = true;
-        }
-      } catch (_) { /* não deu pra saber: deixa o dia como está */ }
+        return { pill, data: pill.dataset.data, vagas: Array.isArray(vagas) ? vagas.length : null };
+      } catch (_) {
+        return { pill, data: pill.dataset.data, vagas: null };   // não deu pra saber
+      }
     }));
-  }
 
-  marcarDiasSemVaga();
+    if (meuToken !== tokenChecagem) return;   // a pessoa já escolheu um dia na mão
+
+    // Respeita a data que a pessoa já tinha escolhido; só decide sozinho quando
+    // ela ainda não escolheu nada.
+    const jaEscolhida = manterData ? dias.find((d) => d.data === manterData) : null;
+    const escolhida = jaEscolhida || dias.find((d) => d.vagas > 0) || dias[0];
+
+    dias.forEach((d) => {
+      // O dia que vai ficar selecionado nunca é desabilitado — travar o que está
+      // embaixo do dedo da pessoa seria pior do que deixar clicável.
+      if (d.vagas === 0 && d !== escolhida) {
+        d.pill.classList.add("sem-vaga");
+        d.pill.title = `${state.barbeiro.nome} não tem horário nesse dia`;
+        d.pill.disabled = true;
+      }
+    });
+
+    if (!escolhida) { botaoParaEstadoPadrao(); btnContinuar.disabled = false; return; }
+    selecionarData(escolhida.data, escolhida.vagas === null ? undefined : escolhida.vagas);
+    rolarFaixaPara(escolhida.data);
+  }
 
   // Atalhos rápidos (Hoje / Amanhã), desabilitados se caírem em dia fechado.
   [["Hoje", 0], ["Amanhã", 1]].forEach(([rotulo, offset]) => {
@@ -448,47 +482,9 @@ function renderPassoData() {
     avancarPara(3);
   });
 
-  // Escolhe automaticamente o primeiro dia com vaga a partir de hoje, pulando
-  // dias fechados (domingo) e dias sem horário (fim do dia / lotado). Na prática
-  // isso vira "Hoje" por padrão, ou "amanhã"/próximo dia útil quando hoje não dá.
-  async function preSelecionarMelhorData() {
-    btnContinuar.disabled = true;
-    btnContinuar.className = "btn btn-secundario";
-    btnContinuar.textContent = "Verificando disponibilidade...";
-
-    const meuToken = ++tokenChecagem; // se a pessoa clicar em outro dia, aborta
-    let escolhida = null;
-    const d = new Date(hoje);
-
-    for (let i = 0; i <= LIMITE_DIAS_BUSCA_AUTOMATICA; i++) {
-      if (!diaEstaFechado(d)) {
-        const iso = dataLocalISO(d);
-        const horarios = await carregarHorarios(iso, state.barbeiro.id);
-        if (meuToken !== tokenChecagem) return; // a pessoa já escolheu manualmente
-        if (horarios && horarios.length > 0) { escolhida = iso; break; }
-      }
-      d.setDate(d.getDate() + 1);
-    }
-
-    // Nenhum dia com vaga no período: cai no primeiro dia aberto mesmo assim
-    // (o passo de horário ainda tenta achar vaga adiante).
-    if (!escolhida) {
-      const f = new Date(hoje);
-      while (diaEstaFechado(f)) f.setDate(f.getDate() + 1);
-      escolhida = dataLocalISO(f);
-    }
-
-    selecionarData(escolhida);
-    rolarFaixaPara(escolhida);
-  }
-
-  // Se já tinha uma data escolhida antes (ex: voltou pra esse passo), mantém e
-  // só reconfere. Senão, pré-seleciona a melhor data automaticamente.
-  if (state.data) {
-    checarDisponibilidadeDoDia();
-  } else {
-    preSelecionarMelhorData();
-  }
+  // Uma varredura só resolve os dois casos: se a pessoa já tinha data escolhida
+  // (voltou pro passo), mantém a dela; senão, pega a primeira com vaga.
+  prepararDias(state.data);
 }
 
 

@@ -1,1 +1,6 @@
-web: gunicorn app:app --bind 0.0.0.0:$PORT
+# --threads 4: sem isso o gunicorn sobe UM worker sync e atende uma requisicao
+# por vez. Medido em producao: 4 chamadas em paralelo levavam o mesmo tempo que
+# 4 em fila, porque eram fila mesmo. O trabalho aqui e quase todo espera de
+# banco, entao thread resolve e cabe na memoria do plano gratuito.
+# 1 worker + 4 threads (nao 2 workers) pra nao duplicar o pool de conexoes.
+web: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
