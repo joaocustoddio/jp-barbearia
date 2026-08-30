@@ -8,10 +8,75 @@ produtos, preço/duração dos serviços e troca de senhas.
 import bcrypt
 from flask import request, jsonify, g
 
+from agendamentos import so_digitos
 from auth import somente_master, token_requerido
 from config import data_hoje
 from database import get_connection
 from extensoes import app
+
+
+# -------------------------------------------------------
+# CLIENTES BLOQUEADOS — quem não pode marcar sozinho pelo site.
+# Só o master mexe: é decisão de dono, como preço e comissão.
+# -------------------------------------------------------
+
+@app.route("/api/admin/clientes-bloqueados", methods=["GET"])
+@token_requerido
+@somente_master
+def listar_clientes_bloqueados():
+    conn = get_connection()
+    linhas = conn.execute(
+        "SELECT id, telefone, nome, motivo, criado_em FROM clientes_bloqueados "
+        "ORDER BY criado_em DESC"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(l) for l in linhas])
+
+
+@app.route("/api/admin/clientes-bloqueados", methods=["POST"])
+@token_requerido
+@somente_master
+def bloquear_cliente():
+    """Bloqueia um telefone. Corpo: { telefone, nome?, motivo? }."""
+    dados = request.get_json(silent=True) or {}
+    telefone = so_digitos(dados.get("telefone"))
+    if not telefone:
+        return jsonify({"erro": "Telefone é obrigatório"}), 400
+    # Mesma régua do agendamento: DDD + número.
+    if len(telefone) < 10 or len(telefone) > 11:
+        return jsonify({"erro": "Telefone inválido (use DDD + número)"}), 400
+
+    conn = get_connection()
+    # ON CONFLICT: bloquear duas vezes o mesmo número não é erro — atualiza o
+    # motivo e segue. Evita mensagem de falha por algo que a pessoa quis fazer.
+    conn.execute(
+        """INSERT INTO clientes_bloqueados (telefone, nome, motivo)
+           VALUES (%s, %s, %s)
+           ON CONFLICT (telefone) DO UPDATE SET nome = EXCLUDED.nome,
+                                                motivo = EXCLUDED.motivo""",
+        (telefone, (dados.get("nome") or "").strip() or None,
+         (dados.get("motivo") or "").strip() or None)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Cliente bloqueado.", "telefone": telefone}), 201
+
+
+@app.route("/api/admin/clientes-bloqueados/<int:bloqueio_id>", methods=["DELETE"])
+@token_requerido
+@somente_master
+def desbloquear_cliente(bloqueio_id):
+    conn = get_connection()
+    achou = conn.execute(
+        "SELECT id FROM clientes_bloqueados WHERE id = %s", (bloqueio_id,)
+    ).fetchone()
+    if not achou:
+        conn.close()
+        return jsonify({"erro": "Bloqueio não encontrado"}), 404
+    conn.execute("DELETE FROM clientes_bloqueados WHERE id = %s", (bloqueio_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"mensagem": "Cliente desbloqueado."})
 
 
 def _produtos_ativos(conn):

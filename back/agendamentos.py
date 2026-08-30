@@ -6,6 +6,7 @@ O núcleo do agendamento, sem rota nenhuma: o que ocupa a agenda
 público e o painel) e os helpers de formatação/link de calendário.
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from config import (
@@ -92,6 +93,32 @@ def montar_janelas(agendados, bloqueios, almoco_fixo, duracao_padrao):
     return janelas, dia_bloqueado
 
 
+# Mensagem que o cliente bloqueado vê no site. De propósito ela NÃO diz
+# "você foi bloqueado": o objetivo é que a conversa aconteça entre a pessoa e a
+# barbearia, não que o sistema anuncie a decisão e gere discussão no balcão.
+# Também não é mentira — pelo site realmente não dá.
+MENSAGEM_CLIENTE_BLOQUEADO = (
+    "Não foi possível concluir o agendamento pelo site. "
+    "Entre em contato com a barbearia para marcar seu horário."
+)
+
+
+def so_digitos(telefone):
+    """'(11) 98888-7777' -> '11988887777'. Como o telefone é comparado no banco."""
+    return re.sub(r"\D", "", telefone or "")
+
+
+def cliente_esta_bloqueado(conn, telefone):
+    """True se ESTE telefone está na lista de bloqueados."""
+    numero = so_digitos(telefone)
+    if not numero:
+        return False
+    achou = conn.execute(
+        "SELECT 1 FROM clientes_bloqueados WHERE telefone = %s", (numero,)
+    ).fetchone()
+    return achou is not None
+
+
 def _data_br(data_iso):
     """'2026-08-25' -> '25/08/2026' (pras mensagens)."""
     try:
@@ -122,7 +149,8 @@ def _link_agenda(servico, barbeiro, data_iso, hora, duracao_min):
 
 
 def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False,
-                                permitir_conflito=False, avisar_equipe=False):
+                                permitir_conflito=False, avisar_equipe=False,
+                                checar_bloqueio=False):
     """
     Valida e insere um novo agendamento. Compartilhado entre duas rotas:
     - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
@@ -132,7 +160,11 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
 
     permitir_conflito=True libera sobrescrever/encaixar em cima de outro horário
     (o barbeiro pelo painel pode; o cliente pelo site NÃO).
-    dados["encaixe"] marca o agendamento como encaixe (caderninho).
+    dados["encaixe"] marca o agendamento como encaixe (encaixe do caderninho).
+
+    checar_bloqueio=True recusa cliente da lista de bloqueados. Vale SÓ no fluxo
+    público: se o barbeiro está anotando pelo caderninho, é porque decidiu
+    atender — o sistema não manda nele.
 
     Retorna (corpo_json, status_http).
     """
@@ -158,6 +190,13 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     if exigir_telefone and not (dados.get("telefone") or "").strip():
         conn.close()
         return {"erro": "Telefone é obrigatório"}, 400
+
+    # Cliente bloqueado (só no fluxo público). Fica ANTES das outras validações
+    # pra não gastar consulta à toa, e devolve 403 — não é dado inválido, é
+    # permissão negada.
+    if checar_bloqueio and cliente_esta_bloqueado(conn, dados.get("telefone")):
+        conn.close()
+        return {"erro": MENSAGEM_CLIENTE_BLOQUEADO}, 403
 
     # Valida cada campo. A antecedência só é checada quando exigir_antecedencia
     # for True (passando a data pro validar_hora ativa a regra). O validar_telefone

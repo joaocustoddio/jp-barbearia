@@ -50,9 +50,10 @@ class ConexaoCriacao:
 
     def __init__(self, barbeiro_ativo=True, servico_existe=True, duracao=30,
                  agendamentos_do_dia=(), bloqueios=(), almoco_fixo=None,
-                 detalhes=None):
+                 detalhes=None, cliente_bloqueado=False):
         self.barbeiro_ativo = barbeiro_ativo
         self.servico_existe = servico_existe
+        self.cliente_bloqueado = cliente_bloqueado
         self.duracao = duracao
         self.agendamentos_do_dia = agendamentos_do_dia
         self.bloqueios = bloqueios
@@ -84,6 +85,8 @@ class ConexaoCriacao:
             return _Cursor([{"id": 100}])
         if consulta.startswith("insert into agendamentos"):
             return _Cursor([{"id": 555}])
+        if "from clientes_bloqueados" in consulta:
+            return _Cursor([{"?column?": 1}] if self.cliente_bloqueado else [])
         if "for update" in consulta:
             return _Cursor([{"id": 1}])
         if "ativo = 1" in consulta:
@@ -314,6 +317,61 @@ def test_email_mal_formatado_recusado(cliente, monkeypatch, avisos):
     status, resposta, _ = marcar(cliente, monkeypatch, dados={"email": "sem-arroba"})
     assert status == 400
     assert "mail" in resposta["erro"].lower()
+
+
+# --------------------------------------------------------- cliente bloqueado
+
+def test_cliente_bloqueado_nao_marca_pelo_site(cliente, monkeypatch, avisos):
+    status, resposta, conn = marcar(cliente, monkeypatch, cliente_bloqueado=True)
+    assert status == 403
+    assert not conn.inseriu_agendamento()
+    assert conn.commits == 0
+    assert avisos["telegram"] == []      # a equipe não é avisada de algo que não aconteceu
+
+
+def test_mensagem_do_bloqueio_nao_denuncia_o_bloqueio(cliente, monkeypatch, avisos):
+    """
+    De propósito a mensagem não diz "você foi bloqueado": quem conta isso é a
+    barbearia, não o site. Se alguém trocar o texto por algo explícito, que seja
+    uma decisão consciente e não um descuido.
+    """
+    _, resposta, _ = marcar(cliente, monkeypatch, cliente_bloqueado=True)
+    texto = resposta["erro"].lower()
+    assert "entre em contato" in texto
+    for palavra in ("bloquead", "banid", "proibid"):
+        assert palavra not in texto
+
+
+def test_bloqueio_nao_atrapalha_quem_nao_esta_na_lista(cliente, monkeypatch, avisos):
+    status, _, conn = marcar(cliente, monkeypatch, cliente_bloqueado=False)
+    assert status == 201
+    assert conn.inseriu_agendamento()
+
+
+def test_barbeiro_ainda_encaixa_cliente_bloqueado(cliente, monkeypatch, avisos):
+    """
+    Regra combinada: o bloqueio vale só pro site. Se a pessoa está na cadeira e
+    o barbeiro decidiu atender, o caderninho registra — o sistema não manda nele.
+    O caderninho chama a mesma função SEM checar_bloqueio.
+    """
+    conn = ConexaoCriacao(cliente_bloqueado=True)
+    monkeypatch.setattr(agendamentos, "get_connection", lambda: conn)
+    corpo_json, status = agendamentos._processar_novo_agendamento(
+        corpo(), exigir_antecedencia=False, permitir_conflito=True
+    )
+    assert status == 201, corpo_json
+    assert conn.inseriu_agendamento()
+
+
+@pytest.mark.parametrize("telefone", ["11988887777", "(11) 98888-7777", "11 98888 7777"])
+def test_bloqueio_compara_so_os_digitos(cliente, monkeypatch, avisos, telefone):
+    """A pessoa digita com máscara ou sem; a comparação usa só os números."""
+    conn = ConexaoCriacao(cliente_bloqueado=True)
+    monkeypatch.setattr(agendamentos, "get_connection", lambda: conn)
+    resposta = cliente.post("/api/agendamentos", json=corpo(telefone=telefone))
+    assert resposta.status_code == 403
+    consulta = [p for s, p in conn.executados if "clientes_bloqueados" in s]
+    assert consulta and consulta[0] == ("11988887777",)
 
 
 # ------------------------------------------------------------- cancelamento

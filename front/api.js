@@ -254,6 +254,27 @@ const API = (() => {
         return requestAuth("/api/admin/produtos");
       },
 
+      /* --- Clientes bloqueados: quem não pode marcar sozinho pelo site.
+         Não confundir com bloquearHorario/removerBloqueio, que são de AGENDA. --- */
+
+      /** GET /api/admin/clientes-bloqueados */
+      listarClientesBloqueados() {
+        return requestAuth("/api/admin/clientes-bloqueados");
+      },
+
+      /** POST /api/admin/clientes-bloqueados → { telefone, nome?, motivo? } */
+      bloquearCliente(telefone, nome, motivo) {
+        return requestAuth("/api/admin/clientes-bloqueados", {
+          method: "POST",
+          body: JSON.stringify({ telefone, nome, motivo })
+        });
+      },
+
+      /** DELETE /api/admin/clientes-bloqueados/:id */
+      desbloquearCliente(id) {
+        return requestAuth(`/api/admin/clientes-bloqueados/${id}`, { method: "DELETE" });
+      },
+
       /** GET .../:id/consumos → adicionais já lançados no atendimento */
       listarConsumos(id) {
         return requestAuth(`/api/admin/agendamentos/${id}/consumos`);

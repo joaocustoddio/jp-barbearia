@@ -285,6 +285,30 @@ def init_db():
     cur.execute("ALTER TABLE bloqueios ADD COLUMN IF NOT EXISTS duracao_min INTEGER")
 
     # ---------------------------------------------------------
+    # CLIENTES BLOQUEADOS — quem não pode marcar SOZINHO pelo site.
+    #
+    # Não confundir com a tabela `bloqueios` acima, que é de agenda (feriado,
+    # compromisso). Esta é de pessoa.
+    #
+    # A chave é o telefone só com dígitos: não existe cadastro único de cliente
+    # (a tabela `clientes` ganha uma linha nova a cada agendamento), então o
+    # telefone é o que identifica alguém na prática — é assim que as rotas de
+    # consultar e cancelar já acham o agendamento da pessoa.
+    #
+    # O barbeiro CONTINUA podendo encaixar essa pessoa pelo caderninho: o
+    # bloqueio impede o auto-agendamento, não o atendimento.
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clientes_bloqueados (
+            id SERIAL PRIMARY KEY,
+            telefone TEXT NOT NULL UNIQUE,
+            nome TEXT,
+            motivo TEXT,
+            criado_em TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    # ---------------------------------------------------------
     # EXPEDIENTE — jornada de um barbeiro num DIA específico (o master define
     # que o fulano hoje trabalha das 'inicio' às 'fim'). Sobrepõe o horário
     # padrão do dia SÓ pra aquele barbeiro naquela data. Um por barbeiro/dia.

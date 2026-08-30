@@ -33,7 +33,7 @@ jobs:
         working-directory: back
         run: pytest -q
 
-      - name: Conferir que as 44 rotas continuam registradas
+      - name: Conferir que as 47 rotas continuam registradas
         # Trava contra o erro mais fácil de cometer mexendo nos módulos de rota:
         # apagar ou renomear uma rota sem perceber. Os testes não pegam isso,
         # porque quase nenhuma rota tem teste próprio (só 2 das 43).
@@ -50,9 +50,9 @@ jobs:
           import app
           total = len(list(app.app.url_map.iter_rules()))
           print("rotas registradas:", total)
-          if total != 44:
+          if total != 47:
               raise SystemExit(
-                  "esperado 44 rotas, encontrado %d - se a mudanca for "
+                  "esperado 47 rotas, encontrado %d - se a mudanca for "
                   "proposital, atualize esse numero no workflow." % total
               )
           PY

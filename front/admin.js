@@ -169,6 +169,7 @@ const ABAS_POR_PAPEL = {
     { chave: "expediente", rotulo: "Expediente", gestao: true },
     { chave: "dashboard",  rotulo: "Dashboard",  gestao: true },
     { chave: "barbeiros",  rotulo: "Barbeiros",  gestao: true },
+    { chave: "clientes",   rotulo: "Clientes",   gestao: true },
     { chave: "precos",     rotulo: "Preços",     gestao: true },
     { chave: "horarios",   rotulo: "Horários",   gestao: true }
   ],
@@ -193,6 +194,7 @@ const SECOES = {
   expediente: renderExpediente,
   dashboard:  renderDashboard,
   barbeiros:  renderBarbeiros,
+  clientes:   renderClientesBloqueados,
   precos:     renderPrecos,
   horarios:   renderHorarios
 };
@@ -1722,6 +1724,112 @@ async function carregarListaBarbeiros() {
     if (msg !== null) lista.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
   }
 }
+
+/* =====================================================
+   SEÇÃO: CLIENTES BLOQUEADOS (só master)
+
+   Impede a pessoa de marcar SOZINHA pelo site. O barbeiro continua
+   podendo encaixar pelo Caderninho: se o cliente está na cadeira e o
+   barbeiro decidiu atender, o sistema não manda nele.
+   ===================================================== */
+async function renderClientesBloqueados() {
+  elConteudo.innerHTML = `
+    <h2 class="secao-titulo">Clientes bloqueados</h2>
+    <p class="secao-subtitulo">Quem está aqui não consegue marcar sozinho pelo site</p>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Bloquear um cliente</h3>
+      <div class="form-linha" style="align-items:flex-end;">
+        <div class="form-grupo" style="flex:1;min-width:150px;">
+          <label class="campo-label" for="blo-telefone">Telefone</label>
+          <input type="tel" id="blo-telefone" class="campo-input" placeholder="(11) 99999-9999" />
+        </div>
+        <div class="form-grupo" style="flex:1;min-width:130px;">
+          <label class="campo-label" for="blo-nome">Nome (opcional)</label>
+          <input type="text" id="blo-nome" class="campo-input" placeholder="Nome" />
+        </div>
+        <div class="form-grupo" style="flex:1;min-width:150px;">
+          <label class="campo-label" for="blo-motivo">Motivo (opcional)</label>
+          <input type="text" id="blo-motivo" class="campo-input" placeholder="Ex: faltou 3 vezes" />
+        </div>
+        <button class="btn-mini" id="blo-add">Bloquear</button>
+      </div>
+      <p class="login-erro" id="blo-erro" style="margin-top:8px;"></p>
+      <p class="secao-subtitulo" style="margin:8px 0 0;">
+        O bloqueio vale só pro site. Você continua conseguindo anotar o corte
+        dessa pessoa pelo Caderninho.
+      </p>
+    </div>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Bloqueados</h3>
+      <div id="blo-lista">${carregando()}</div>
+    </div>
+  `;
+
+  document.getElementById("blo-add").addEventListener("click", adicionarBloqueioCliente);
+  carregarClientesBloqueados();
+}
+
+async function carregarClientesBloqueados() {
+  const alvo = document.getElementById("blo-lista");
+  if (!alvo) return;
+  try {
+    const lista = await API.admin.listarClientesBloqueados();
+    if (!lista.length) {
+      alvo.innerHTML = vazio("Ninguém bloqueado.");
+      return;
+    }
+    alvo.innerHTML = `
+      <table class="tabela">
+        <thead><tr><th>Telefone</th><th>Nome</th><th>Motivo</th><th></th></tr></thead>
+        <tbody>
+          ${lista.map((c) => `
+            <tr>
+              <td data-rotulo="Telefone">${escapeHTML(c.telefone)}</td>
+              <td data-rotulo="Nome">${escapeHTML(c.nome || "—")}</td>
+              <td data-rotulo="Motivo">${escapeHTML(c.motivo || "—")}</td>
+              <td data-rotulo=""><button class="btn-mini" data-desbloquear="${c.id}">Desbloquear</button></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    `;
+    alvo.querySelectorAll("[data-desbloquear]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Desbloquear? A pessoa volta a marcar pelo site.")) return;
+        try {
+          await API.admin.desbloquearCliente(btn.dataset.desbloquear);
+          carregarClientesBloqueados();
+        } catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
+      });
+    });
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
+}
+
+async function adicionarBloqueioCliente() {
+  const erro = document.getElementById("blo-erro");
+  const telefone = document.getElementById("blo-telefone").value.trim();
+  erro.textContent = "";
+  if (!telefone) { erro.textContent = "Informe o telefone."; return; }
+  try {
+    await API.admin.bloquearCliente(
+      telefone,
+      document.getElementById("blo-nome").value.trim(),
+      document.getElementById("blo-motivo").value.trim()
+    );
+    document.getElementById("blo-telefone").value = "";
+    document.getElementById("blo-nome").value = "";
+    document.getElementById("blo-motivo").value = "";
+    carregarClientesBloqueados();
+  } catch (e) {
+    const m = tratarErro(e);
+    if (m !== null) erro.textContent = m;
+  }
+}
+
 
 /* =====================================================
    SEÇÃO: PREÇOS (só master)
