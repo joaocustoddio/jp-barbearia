@@ -177,7 +177,8 @@ const ABAS_POR_PAPEL = {
     { chave: "agenda_dia", rotulo: "Agenda" },
     { chave: "caderninho", rotulo: "Caderninho" },
     { chave: "almoco",     rotulo: "Almoço" },
-    { chave: "contagem",   rotulo: "Contagem" }
+    { chave: "contagem",   rotulo: "Contagem" },
+    { chave: "horarios",   rotulo: "Ausência" }
   ],
   salao: [
     { chave: "agenda_dia", rotulo: "Agenda" },
@@ -1965,31 +1966,51 @@ async function carregarPrecosProdutos() {
 
 /* =====================================================
    SEÇÃO: HORÁRIOS (bloqueios)
-   Bloquear dia inteiro ou horário específico + remover.
+   "Saio às 14:00, volto às 15:30" — vira UM bloqueio com duração.
+   O barbeiro mexe só na agenda dele; o master pode escolher outro
+   barbeiro ou fechar a barbearia inteira (dia todo).
    ===================================================== */
 async function renderHorarios() {
+  const ehGestor = API.admin.ehMaster();
+
   elConteudo.innerHTML = `
-    <h2 class="secao-titulo">Horários</h2>
-    <p class="secao-subtitulo">Bloqueie um dia inteiro (feriado/folga) ou um horário específico</p>
+    <h2 class="secao-titulo">${ehGestor ? "Horários" : "Ausência"}</h2>
+    <p class="secao-subtitulo">Vai sair no meio do dia? Marque a saída e a volta que a agenda fecha só nesse intervalo</p>
 
     <div class="bloco">
       <h3 class="bloco-titulo">Novo bloqueio</h3>
-      <div class="form-linha">
+      ${ehGestor ? `
+      <div class="form-grupo" style="margin-bottom:12px;">
+        <label class="campo-label" for="bloq-barbeiro">Barbeiro</label>
+        <select id="bloq-barbeiro" class="campo-input">
+          <option value="">Todos (barbearia fechada)</option>
+        </select>
+      </div>` : ""}
+      <div class="form-linha" style="align-items:flex-end;">
         <div class="form-grupo">
-          <label class="campo-label" for="bloq-data">Data</label>
+          <label class="campo-label" for="bloq-data">Dia</label>
           <input type="date" id="bloq-data" class="campo-input" />
         </div>
         <div class="form-grupo">
-          <label class="campo-label" for="bloq-hora">Hora (opcional)</label>
+          <label class="campo-label" for="bloq-hora">Saio às</label>
           <input type="time" id="bloq-hora" class="campo-input" />
         </div>
-        <div class="form-grupo" style="flex:1;min-width:160px;">
+        <div class="form-grupo">
+          <label class="campo-label" for="bloq-volta">Volto às</label>
+          <input type="time" id="bloq-volta" class="campo-input" />
+        </div>
+        <div class="form-grupo" style="flex:1;min-width:150px;">
           <label class="campo-label" for="bloq-motivo">Motivo (opcional)</label>
-          <input type="text" id="bloq-motivo" class="campo-input" placeholder="Feriado, folga..." />
+          <input type="text" id="bloq-motivo" class="campo-input" placeholder="Médico, banco..." />
         </div>
         <button class="btn-mini" id="btn-add-bloqueio">Bloquear</button>
       </div>
-      <p class="secao-subtitulo" style="margin:0;">Deixe a hora em branco para bloquear o dia inteiro.</p>
+      <p class="secao-subtitulo" id="bloq-resumo" style="margin:8px 0 0;"></p>
+      <p class="secao-subtitulo" style="margin:4px 0 0;">
+        ${ehGestor
+          ? "Sem a volta, bloqueia só aquele horário. Sem hora nenhuma, o dia inteiro."
+          : "Sem a volta, bloqueia só aquele horário."}
+      </p>
       <p class="login-erro" id="bloq-erro" style="margin-top:8px;"></p>
     </div>
 
@@ -1997,26 +2018,81 @@ async function renderHorarios() {
   `;
 
   document.getElementById("bloq-data").min = hojeISO();
+  document.getElementById("bloq-data").value = hojeISO();
   document.getElementById("btn-add-bloqueio").addEventListener("click", adicionarBloqueio);
+  // Mostra em texto o que vai acontecer ANTES de clicar — é o que evita o
+  // "achei que era só uma hora" e o bloqueio errado.
+  ["bloq-hora", "bloq-volta"].forEach((id) =>
+    document.getElementById(id).addEventListener("input", previaBloqueio));
+  previaBloqueio();
+
+  if (ehGestor) {
+    try {
+      const barbs = await API.listarBarbeiros();
+      const sel = document.getElementById("bloq-barbeiro");
+      sel.innerHTML += barbs.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("");
+    } catch (_) { /* segue sem seletor: cai no bloqueio geral */ }
+  }
+
   carregarListaBloqueios();
+}
+
+// Frase do tipo "Agenda fechada das 14:00 às 15:30 (1h30)".
+function previaBloqueio() {
+  const hora  = document.getElementById("bloq-hora").value;
+  const volta = document.getElementById("bloq-volta").value;
+  const alvo  = document.getElementById("bloq-resumo");
+  if (!alvo) return;
+
+  if (!hora) {
+    alvo.textContent = "Agenda fechada o dia inteiro.";
+    return;
+  }
+  if (!volta) {
+    alvo.textContent = `Agenda fechada às ${hora}.`;
+    return;
+  }
+  const min = minutosDe(volta) - minutosDe(hora);
+  if (min <= 0) {
+    alvo.textContent = "A volta precisa ser depois da saída.";
+    return;
+  }
+  const h = Math.floor(min / 60), m = min % 60;
+  const duracao = h ? `${h}h${m ? String(m).padStart(2, "0") : ""}` : `${m}min`;
+  alvo.textContent = `Agenda fechada das ${hora} às ${volta} (${duracao}).`;
 }
 
 async function adicionarBloqueio() {
   const data   = document.getElementById("bloq-data").value;
   const hora   = document.getElementById("bloq-hora").value;
+  const volta  = document.getElementById("bloq-volta").value;
   const motivo = document.getElementById("bloq-motivo").value.trim();
+  const selBarbeiro = document.getElementById("bloq-barbeiro");
   const erroEl = document.getElementById("bloq-erro");
   const btn    = document.getElementById("btn-add-bloqueio");
   erroEl.textContent = "";
 
   if (!data) { erroEl.textContent = "Escolha uma data."; return; }
+  if (volta && !hora) { erroEl.textContent = "Preencha a hora de saída."; return; }
+  if (volta && minutosDe(volta) <= minutosDe(hora)) {
+    erroEl.textContent = "A volta precisa ser depois da saída.";
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = "...";
   try {
-    await API.admin.criarBloqueio({ data, hora: hora || null, motivo: motivo || null });
+    await API.admin.criarBloqueio({
+      data,
+      hora: hora || null,
+      volta: volta || null,
+      motivo: motivo || null,
+      barbeiro_id: selBarbeiro && selBarbeiro.value ? Number(selBarbeiro.value) : null
+    });
     document.getElementById("bloq-hora").value = "";
+    document.getElementById("bloq-volta").value = "";
     document.getElementById("bloq-motivo").value = "";
+    previaBloqueio();
     carregarListaBloqueios();
   } catch (erro) {
     const msg = tratarErro(erro);
@@ -2025,6 +2101,14 @@ async function adicionarBloqueio() {
     btn.disabled = false;
     btn.textContent = "Bloquear";
   }
+}
+
+// "14:00 → 15:30" quando tem duração; só a hora quando é um horário solto.
+function faixaBloqueio(b) {
+  if (!b.hora) return "<span class=\"badge cancelado\">Dia inteiro</span>";
+  const hora = escapeHTML(b.hora.slice(0, 5));
+  if (!b.duracao_min) return hora;
+  return `${hora} → ${minParaHHMM(minutosDe(b.hora) + b.duracao_min)}`;
 }
 
 async function carregarListaBloqueios() {
@@ -2039,17 +2123,19 @@ async function carregarListaBloqueios() {
       return;
     }
 
+    const ehGestor = API.admin.ehMaster();
     lista.innerHTML = `
       <div class="tabela-wrap">
         <table class="tabela">
           <thead>
-            <tr><th>Data</th><th>Tipo</th><th>Motivo</th><th></th></tr>
+            <tr><th>Data</th><th>Horário</th>${ehGestor ? "<th>Quem</th>" : ""}<th>Motivo</th><th></th></tr>
           </thead>
           <tbody>
             ${bloqueios.map((b) => `
               <tr>
                 <td data-label="Data">${formatarDataBR(b.data)}</td>
-                <td data-label="Tipo">${b.hora ? escapeHTML(b.hora) : "<span class=\"badge cancelado\">Dia inteiro</span>"}</td>
+                <td data-label="Horário">${faixaBloqueio(b)}</td>
+                ${ehGestor ? `<td data-label="Quem">${escapeHTML(b.barbeiro_nome || "Barbearia toda")}</td>` : ""}
                 <td data-label="Motivo">${escapeHTML(b.motivo || "—")}</td>
                 <td class="td-acao"><button class="btn-mini perigo" data-bloqueio="${b.id}">Remover</button></td>
               </tr>

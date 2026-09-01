@@ -9,7 +9,8 @@ from flask import request, jsonify, g
 
 from agendamentos import _data_br, _processar_novo_agendamento
 from auth import (
-    barbeiro_do_escopo, pode_ver_valores, somente_master, token_requerido,
+    barbeiro_do_escopo, eh_master, pode_ver_valores, somente_master,
+    token_requerido,
 )
 from config import DURACAO_ALMOCO_MIN, HORA_FOLGA, expediente_e_folga
 from database import get_connection
@@ -290,26 +291,46 @@ def consumos_agendamento(agendamento_id):
 
 @app.route("/api/admin/bloqueios", methods=["GET"])
 @token_requerido
-@somente_master
 def listar_bloqueios():
-    """Lista todos os bloqueios cadastrados."""
+    """Bloqueios cadastrados. Barbeiro vê só os dele; master vê todos.
+
+    O almoço fica de fora de propósito: ele é gravado nesta mesma tabela, mas
+    quem manda nele é a aba Almoço — mostrar nos dois lugares dá remoção pela
+    tela errada."""
+    escopo = barbeiro_do_escopo()
+    if escopo is None and not eh_master():
+        return jsonify({"erro": "Acesso restrito ao administrador."}), 403
+
+    consulta = ("SELECT b.*, bb.nome AS barbeiro_nome FROM bloqueios b "
+                "LEFT JOIN barbeiros bb ON b.barbeiro_id = bb.id "
+                "WHERE b.motivo IS DISTINCT FROM 'Almoço'")
+    parametros = []
+    if escopo is not None:
+        consulta += " AND b.barbeiro_id = %s"
+        parametros.append(escopo)
+    consulta += " ORDER BY b.data, b.hora"
+
     conn = get_connection()
-    bloqueios = conn.execute(
-        "SELECT * FROM bloqueios ORDER BY data, hora"
-    ).fetchall()
+    bloqueios = conn.execute(consulta, parametros).fetchall()
     conn.close()
     return jsonify([dict(b) for b in bloqueios])
 
 
 @app.route("/api/admin/bloqueios", methods=["POST"])
 @token_requerido
-@somente_master
 def criar_bloqueio():
     """
-    Cria um bloqueio de dia inteiro ou horário específico.
+    Cria um bloqueio de dia inteiro, de um horário ou de um INTERVALO.
 
-    Dia inteiro:      { "data": "2026-07-10", "motivo": "Feriado" }
-    Horário específico: { "data": "2026-07-10", "hora": "14:00", "motivo": "Compromisso" }
+    Dia inteiro:  { "data": "2026-07-10", "motivo": "Feriado" }
+    Um horário:   { "data": "2026-07-10", "hora": "14:00" }
+    Saída e volta:{ "data": "2026-07-10", "hora": "14:00", "volta": "15:30" }
+
+    O intervalo vira UMA linha com duracao_min (mesmo mecanismo do almoço), não
+    várias linhas de 30 em 30 — remover depois é um clique só.
+
+    Barbeiro comum bloqueia só a própria agenda e precisa informar a hora:
+    fechar o dia inteiro da barbearia é decisão do dono.
     """
     dados = request.get_json(silent=True)
     if not dados or not dados.get("data"):
@@ -319,10 +340,38 @@ def criar_bloqueio():
     if not valido:
         return jsonify({"erro": erro}), 400
 
-    if dados.get("hora"):
-        valido, erro = validar_hora(dados["hora"])
+    hora = dados.get("hora")
+    if hora:
+        valido, erro = validar_hora(hora)
         if not valido:
             return jsonify({"erro": erro}), 400
+
+    # Volta: o painel pergunta "saio às / volto às", que é como a pessoa pensa.
+    # Aqui isso vira duração em minutos. Fica ANTES da checagem de permissão pra
+    # quem preencheu só a volta ouvir "faltou a saída", e não "isso é com o
+    # administrador" — que manda procurar no lugar errado.
+    duracao_min = None
+    volta = dados.get("volta")
+    if volta:
+        if not hora:
+            return jsonify({"erro": "Informe a hora de saída"}), 400
+        valido, erro = validar_hora(volta)
+        if not valido:
+            return jsonify({"erro": erro}), 400
+        duracao_min = hhmm_para_min(volta) - hhmm_para_min(hora)
+        if duracao_min <= 0:
+            return jsonify({"erro": "A volta precisa ser depois da saída"}), 400
+
+    escopo = barbeiro_do_escopo()      # barbeiro → seu id; master/salão → None
+    if escopo is None:
+        if not eh_master():
+            return jsonify({"erro": "Acesso restrito ao administrador."}), 403
+        # Master sem barbeiro escolhido = bloqueio da barbearia inteira.
+        barbeiro_id = dados.get("barbeiro_id") or None
+    else:
+        barbeiro_id = escopo
+        if not hora:
+            return jsonify({"erro": "Informe a hora. Fechar o dia inteiro é com o administrador."}), 403
 
     conn = get_connection()
 
@@ -330,8 +379,9 @@ def criar_bloqueio():
     # 'IS NOT DISTINCT FROM' é a comparação null-safe do Postgres (equivalente
     # ao 'hora IS ?' do SQLite): trata NULL = NULL como verdadeiro.
     existe = conn.execute(
-        "SELECT id FROM bloqueios WHERE data = %s AND hora IS NOT DISTINCT FROM %s",
-        (dados["data"], dados.get("hora"))
+        "SELECT id FROM bloqueios WHERE data = %s AND hora IS NOT DISTINCT FROM %s "
+        "AND barbeiro_id IS NOT DISTINCT FROM %s",
+        (dados["data"], hora, barbeiro_id)
     ).fetchone()
 
     if existe:
@@ -339,21 +389,31 @@ def criar_bloqueio():
         return jsonify({"erro": "Já existe um bloqueio para essa data/hora"}), 409
 
     conn.execute(
-        "INSERT INTO bloqueios (data, hora, motivo) VALUES (%s, %s, %s)",
-        (dados["data"], dados.get("hora"), dados.get("motivo"))
+        "INSERT INTO bloqueios (data, hora, motivo, barbeiro_id, duracao_min) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (dados["data"], hora, dados.get("motivo"), barbeiro_id, duracao_min)
     )
     conn.commit()
     conn.close()
 
-    tipo = "Horário bloqueado" if dados.get("hora") else "Dia bloqueado"
-    return jsonify({"mensagem": f"{tipo} com sucesso!"}), 201
+    if not hora:
+        mensagem = "Dia bloqueado com sucesso!"
+    elif volta:
+        mensagem = f"Agenda bloqueada das {hora} às {volta}."
+    else:
+        mensagem = "Horário bloqueado com sucesso!"
+    return jsonify({"mensagem": mensagem}), 201
 
 
 @app.route("/api/admin/bloqueios/<int:bloqueio_id>", methods=["DELETE"])
 @token_requerido
-@somente_master
 def remover_bloqueio(bloqueio_id):
-    """Remove um bloqueio (desbloqueia o dia ou horário)."""
+    """Remove um bloqueio (desbloqueia o dia ou horário).
+    Barbeiro só desbloqueia o que é dele."""
+    escopo = barbeiro_do_escopo()
+    if escopo is None and not eh_master():
+        return jsonify({"erro": "Acesso restrito ao administrador."}), 403
+
     conn = get_connection()
     existe = conn.execute(
         "SELECT id FROM bloqueios WHERE id = %s", (bloqueio_id,)
@@ -362,6 +422,17 @@ def remover_bloqueio(bloqueio_id):
     if not existe:
         conn.close()
         return jsonify({"erro": "Bloqueio não encontrado"}), 404
+
+    if escopo is not None:
+        # Mesmo 404 de quando não existe: pro barbeiro, bloqueio de outro é
+        # como se não estivesse lá.
+        meu = conn.execute(
+            "SELECT id FROM bloqueios WHERE id = %s AND barbeiro_id = %s",
+            (bloqueio_id, escopo)
+        ).fetchone()
+        if not meu:
+            conn.close()
+            return jsonify({"erro": "Bloqueio não encontrado"}), 404
 
     conn.execute("DELETE FROM bloqueios WHERE id = %s", (bloqueio_id,))
     conn.commit()
