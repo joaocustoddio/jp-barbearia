@@ -120,7 +120,16 @@ def texto_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=N
     return "\n".join(linhas)
 
 
-def texto_cancelamento(cliente, servico, barbeiro, data_br, hora):
+def texto_cancelamento(cliente, servico, barbeiro, data_br, hora, por=None):
+    """
+    `por` = quem cancelou pelo PAINEL (usuário do login). Sem ele, foi o próprio
+    cliente pelo site.
+
+    Dizer quem cancelou existe por um motivo prático: em 01/09/2026 três
+    agendamentos foram desmarcados e ninguém soube dizer quem tinha feito. Com
+    esta linha, o Telegram vira a segunda fonte pra cruzar com o registro do
+    banco.
+    """
     return "\n".join([
         "❌ <b>Agendamento cancelado</b>",
         "",
@@ -128,6 +137,9 @@ def texto_cancelamento(cliente, servico, barbeiro, data_br, hora):
         "✂️ %s" % servico,
         "💈 %s" % barbeiro,
         "📅 %s às %s" % (data_br, hora),
+        "",
+        ("🔒 Cancelado pelo painel por: <b>%s</b>" % por) if por
+        else "📱 O próprio cliente cancelou pelo site.",
         "",
         "O horário voltou a ficar livre.",
     ])
@@ -196,6 +208,9 @@ def avisar_novo_agendamento(cliente, servico, barbeiro, data_br, hora, telefone=
     )
 
 
-def avisar_cancelamento(cliente, servico, barbeiro, data_br, hora):
-    """Cliente cancelou pelo site — o horário voltou a ficar livre."""
-    return enviar(texto_cancelamento(cliente, servico, barbeiro, data_br, hora))
+def avisar_cancelamento(cliente, servico, barbeiro, data_br, hora, por=None):
+    """
+    Agendamento cancelado — o horário voltou a ficar livre.
+    `por` preenchido = veio do painel (e diz qual login fez).
+    """
+    return enviar(texto_cancelamento(cliente, servico, barbeiro, data_br, hora, por))

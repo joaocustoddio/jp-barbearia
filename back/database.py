@@ -250,6 +250,16 @@ def init_db():
     # Quando o lembrete automático (1h antes) foi enviado — evita mandar duas vezes.
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lembrete_enviado_em TIMESTAMPTZ")
 
+    # QUEM cancelou, QUANDO e POR ONDE.
+    #
+    # Em 01/09/2026 três clientes foram desmarcados e não houve como descobrir
+    # quem fez: o sistema só trocava o status. A resposta só apareceu porque
+    # existia backup do dia anterior pra comparar — arqueologia, não registro.
+    # cancelado_via: 'painel' (alguém logado) ou 'site' (o próprio cliente).
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS cancelado_em TIMESTAMPTZ")
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS cancelado_por TEXT")
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS cancelado_via TEXT")
+
     # ---------------------------------------------------------
     # ADMIN (usuários do painel — senha em hash bcrypt)
     # Agora com PAPEL: 'master' (dono, vê tudo) ou 'barbeiro' (vê só o dele).

@@ -110,7 +110,15 @@ def cancelar_agendamento_cliente():
     if not row:
         conn.close()
         return jsonify({"erro": "Agendamento não encontrado para esse telefone"}), 404
-    conn.execute("UPDATE agendamentos SET status = 'cancelado' WHERE id = %s", (agendamento_id,))
+    # cancelado_por fica com o telefone: é o que identifica quem cancelou pelo
+    # site (a pessoa não tem login).
+    conn.execute(
+        """UPDATE agendamentos
+           SET status = 'cancelado', cancelado_em = now(),
+               cancelado_por = %s, cancelado_via = 'site'
+           WHERE id = %s""",
+        (tel_num, agendamento_id)
+    )
     conn.commit()
     conn.close()
 

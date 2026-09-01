@@ -12,14 +12,17 @@ horário ocupado tem que ser RECUSADO, e a recusa tem que ser 409, não 500.
 Conexão falsa: nada de banco, nada de Telegram, nada de e-mail.
 """
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
+
+import jwt
 
 import agendamentos
 import app
 import emails
 import notificacoes
+import rotas_admin_agenda
 import rotas_publicas
 import validacoes
 
@@ -143,6 +146,16 @@ def relogio(monkeypatch):
     monkeypatch.setattr(validacoes, "data_hoje", lambda: HOJE)
     monkeypatch.setattr(agendamentos, "horario_efetivo",
                         lambda *a, **k: ("09:00", "20:00"))
+
+
+def cabecalho_admin(papel="master", barbeiro_id=None):
+    """Token de painel, no mesmo formato que o /api/admin/login devolve."""
+    token = jwt.encode(
+        {"admin_id": 1, "papel": papel, "barbeiro_id": barbeiro_id,
+         "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+        app.app.config["SECRET_KEY"], algorithm="HS256",
+    )
+    return {"Authorization": "Bearer %s" % token}
 
 
 def corpo(**troca):
@@ -452,3 +465,81 @@ def test_cancelamento_sem_dados_da_400(cliente, monkeypatch, avisos, dados):
     status, _, conn = cancelar(cliente, monkeypatch, dados)
     assert status == 400
     assert conn.commits == 0
+
+
+def test_cancelamento_pelo_site_fica_registrado(cliente, monkeypatch, avisos):
+    """
+    Quem cancelou tem que ficar gravado. Em 01/09/2026 três clientes foram
+    desmarcados e não houve como descobrir quem fez — o sistema só trocava o
+    status. Aqui se garante que o registro é escrito.
+    """
+    _, _, conn = cancelar(cliente, monkeypatch,
+                          {"agendamento_id": 555, "telefone": "11988887777"})
+    update = [(s, p) for s, p in conn.executados if s.startswith("update agendamentos")]
+    assert update, "não gravou o cancelamento"
+    sql, params = update[0]
+    assert "cancelado_em" in sql
+    assert "cancelado_via = 'site'" in sql
+    assert params[0] == "11988887777"      # cancelado_por = telefone de quem cancelou
+
+
+# ------------------------------------------- cancelamento pelo PAINEL (auditoria)
+
+class ConexaoCancelamentoPainel:
+    """Finge o banco do cancelamento pelo painel e anota o que foi executado."""
+
+    def __init__(self, barbeiro_id=2, status="confirmado", usuario="rian"):
+        self.barbeiro_id = barbeiro_id
+        self.status = status
+        self.usuario = usuario
+        self.executados = []
+        self.commits = 0
+
+    def execute(self, sql, params=None):
+        consulta = " ".join(sql.split()).lower()
+        self.executados.append((consulta, params))
+        if consulta.startswith("update agendamentos"):
+            return _Cursor([])
+        if "from admin where id" in consulta:
+            return _Cursor([{"usuario": self.usuario}])
+        if "join clientes" in consulta:          # detalhes pro aviso
+            return _Cursor([{"data": DATA, "hora": HORA, "cliente": "João Silva",
+                             "servico": "Degradê", "barbeiro": "Rian"}])
+        return _Cursor([{"id": 555, "status": self.status,
+                         "barbeiro_id": self.barbeiro_id}])
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        pass
+
+
+def test_painel_registra_quem_cancelou_e_avisa_no_telegram(cliente, monkeypatch, avisos):
+    conn = ConexaoCancelamentoPainel(usuario="rian")
+    monkeypatch.setattr(rotas_admin_agenda, "get_connection", lambda: conn)
+    resposta = cliente.patch("/api/admin/agendamentos/555/cancelar",
+                             headers=cabecalho_admin("barbeiro", barbeiro_id=2))
+    assert resposta.status_code == 200
+
+    sql, params = [(s, p) for s, p in conn.executados
+                   if s.startswith("update agendamentos")][0]
+    assert "cancelado_via = 'painel'" in sql
+    assert "cancelado_em" in sql
+    # Confere que o SQL GRAVA a coluna, não só que o login foi passado adiante:
+    # sem isto, desligar o registro e continuar mandando o parâmetro passaria.
+    assert "cancelado_por = %s" in sql
+    assert params[0] == "rian"                       # e o valor é o login certo
+
+    assert len(avisos["telegram"]) == 1              # a equipe fica sabendo
+    assert avisos["telegram"][0]["por"] == "rian"    # e sabe de quem foi
+
+
+def test_painel_nao_avisa_se_o_agendamento_ja_estava_cancelado(cliente, monkeypatch, avisos):
+    conn = ConexaoCancelamentoPainel(status="cancelado")
+    monkeypatch.setattr(rotas_admin_agenda, "get_connection", lambda: conn)
+    resposta = cliente.patch("/api/admin/agendamentos/555/cancelar",
+                             headers=cabecalho_admin("master"))
+    assert resposta.status_code == 400
+    assert conn.commits == 0
+    assert avisos["telegram"] == []

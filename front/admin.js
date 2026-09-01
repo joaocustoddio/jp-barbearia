@@ -811,14 +811,23 @@ async function carregarCaderninhoLista(barbeiroId, data) {
               <td data-rotulo="Hora">${escapeHTML(a.hora.slice(0, 5))}${a.encaixe ? ' <span class="tag-encaixe">encaixe</span>' : ''}</td>
               <td data-rotulo="Cliente">${escapeHTML(a.cliente_nome)}</td>
               <td data-rotulo="Serviço">${escapeHTML(a.servico_nome)}</td>
-              <td data-rotulo=""><button class="btn-mini perigo" data-rem-cad="${a.id}">Remover</button></td>
+              <td data-rotulo=""><button class="btn-mini perigo" data-rem-cad="${a.id}"
+                    data-cliente="${escapeHTML(a.cliente_nome)}"
+                    data-hora="${escapeHTML(a.hora.slice(0, 5))}">Desmarcar</button></td>
             </tr>`).join("")}
         </tbody>
       </table>
     `;
+    // Esta lista mostra TODOS os cortes do dia, não só os encaixes — então o
+    // botão desmarca cliente de verdade. O texto antigo ("Remover") com a
+    // pergunta "Remover este corte?" parecia tirar da listinha, e em 01/09/2026
+    // três clientes foram desmarcados sem ninguém saber por quem. Agora a
+    // confirmação diz o NOME e a HORA, pra não dar pra confundir.
     alvo.querySelectorAll("[data-rem-cad]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        if (!confirm("Remover este corte?")) return;
+        const aviso = `Desmarcar o corte de ${btn.dataset.cliente} às ${btn.dataset.hora}?\n\n`
+                    + "O cliente perde o horário e a equipe é avisada no Telegram.";
+        if (!confirm(aviso)) return;
         try {
           await API.admin.cancelarAgendamento(btn.dataset.remCad);
           carregarCaderninhoLista(barbeiroId, data);

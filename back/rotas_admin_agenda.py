@@ -7,7 +7,7 @@ cancelamento, pagamento e adicionais, bloqueios, almoço e expediente.
 
 from flask import request, jsonify, g
 
-from agendamentos import _processar_novo_agendamento
+from agendamentos import _data_br, _processar_novo_agendamento
 from auth import (
     barbeiro_do_escopo, pode_ver_valores, somente_master, token_requerido,
 )
@@ -17,6 +17,7 @@ from extensoes import app
 from horarios import hhmm_para_min
 from rotas_admin_gestao import _produtos_ativos
 from validacoes import dia_fechado, horario_do_dia, validar_data, validar_hora
+import notificacoes
 
 
 @app.route("/api/admin/agendamentos", methods=["GET"])
@@ -135,6 +136,11 @@ def cancelar_agendamento(agendamento_id):
     Cancela um agendamento pelo ID.
     Usa PATCH porque estamos atualizando só o status,
     não o agendamento inteiro.
+
+    Registra QUEM cancelou (login), quando e por onde, e avisa a equipe no
+    Telegram dizendo o nome de quem fez. São duas fontes independentes: se um
+    dia alguém perguntar "quem desmarcou o cliente?", dá pra responder na hora
+    em vez de comparar backups.
     """
     conn = get_connection()
     existe = conn.execute(
@@ -156,12 +162,44 @@ def cancelar_agendamento(agendamento_id):
         conn.close()
         return jsonify({"erro": "Agendamento já está cancelado"}), 400
 
-    conn.execute(
-        "UPDATE agendamentos SET status = 'cancelado' WHERE id = %s",
+    # Quem está logado. O token guarda o admin_id; o nome do login vem do banco
+    # pra a mensagem ficar legível ("rian" em vez de "3").
+    quem = conn.execute(
+        "SELECT usuario FROM admin WHERE id = %s",
+        (getattr(g, "usuario", {}).get("admin_id"),)
+    ).fetchone()
+    login = quem["usuario"] if quem else "desconhecido"
+
+    # Dados pro aviso — lidos ANTES do update, com os joins que a mensagem usa.
+    detalhes = conn.execute(
+        """SELECT agendamentos.data, agendamentos.hora,
+                  clientes.nome  AS cliente,
+                  servicos.nome  AS servico,
+                  barbeiros.nome AS barbeiro
+           FROM agendamentos
+           JOIN clientes  ON agendamentos.cliente_id  = clientes.id
+           JOIN servicos  ON agendamentos.servico_id  = servicos.id
+           JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
+           WHERE agendamentos.id = %s""",
         (agendamento_id,)
+    ).fetchone()
+
+    conn.execute(
+        """UPDATE agendamentos
+           SET status = 'cancelado', cancelado_em = now(),
+               cancelado_por = %s, cancelado_via = 'painel'
+           WHERE id = %s""",
+        (login, agendamento_id)
     )
     conn.commit()
     conn.close()
+
+    if detalhes:
+        notificacoes.avisar_cancelamento(
+            cliente=detalhes["cliente"], servico=detalhes["servico"],
+            barbeiro=detalhes["barbeiro"], data_br=_data_br(detalhes["data"]),
+            hora=detalhes["hora"], por=login,
+        )
 
     return jsonify({"mensagem": "Agendamento cancelado com sucesso"})
 

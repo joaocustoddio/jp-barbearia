@@ -53,6 +53,23 @@ def test_texto_de_cancelamento_avisa_que_liberou():
     assert "cancelado" in texto.lower()
     assert "livre" in texto.lower()
 
+
+def test_cancelamento_pelo_painel_diz_quem_fez():
+    """
+    A equipe precisa saber QUEM desmarcou. Sem isso, um cliente some da agenda e
+    ninguém sabe explicar — foi o que aconteceu em 01/09/2026.
+    """
+    texto = notificacoes.texto_cancelamento(
+        "João", "Barba", "JP", "25/08/2026", "10:00", por="rian")
+    assert "rian" in texto
+    assert "painel" in texto.lower()
+
+
+def test_cancelamento_pelo_site_diz_que_foi_o_cliente():
+    texto = notificacoes.texto_cancelamento("João", "Barba", "JP", "25/08/2026", "10:00")
+    assert "cliente" in texto.lower()
+    assert "painel" not in texto.lower()   # não confundir as duas origens
+
 def test_lembretes_sem_ninguem():
     assert "Nenhum agendamento" in notificacoes.texto_lembretes("25/08/2026", [])
 
