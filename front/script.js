@@ -950,7 +950,7 @@ function renderCancelamento() {
   elConteudo.innerHTML = "";
   elConteudo.appendChild(botaoVoltar(voltarAoAgendamento));
   elConteudo.insertAdjacentHTML("beforeend",
-    cabecalhoPasso("Cancelar agendamento", "Informe seu telefone para ver e cancelar seus agendamentos"));
+    cabecalhoPasso("Meus agendamentos", "Informe seu telefone para ver seus horários marcados"));
 
   const bloco = document.createElement("div");
   bloco.className = "bloco-cancelar";
