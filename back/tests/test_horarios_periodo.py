@@ -19,6 +19,7 @@ from datetime import date, datetime
 import pytest
 
 import app
+import validacoes
 
 
 class _Cursor:
@@ -94,11 +95,25 @@ def cliente():
     return app.app.test_client()
 
 
+def congelar(monkeypatch, quando):
+    """
+    Congela o relógio nos DOIS módulos que leem a hora.
+
+    O validacoes.py importou data_hoje/agora_br pro próprio namespace, então
+    trocar só em `app` deixava o validar_data enxergando o dia de VERDADE.
+    Enquanto 07/09/2026 era futuro ninguém percebia; passada a data, todo o
+    arquivo começou a falhar sozinho com 400 ("data no passado") — teste que
+    quebra pelo calendário, não por regressão.
+    """
+    for modulo in (app, validacoes):
+        monkeypatch.setattr(modulo, "data_hoje", lambda: HOJE)
+        monkeypatch.setattr(modulo, "agora_br", lambda: quando)
+
+
 @pytest.fixture(autouse=True)
 def relogio(monkeypatch):
     """Congela o dia e a hora: senão 'hoje' muda o corte de antecedência."""
-    monkeypatch.setattr(app, "data_hoje", lambda: HOJE)
-    monkeypatch.setattr(app, "agora_br", lambda: datetime(2026, 9, 7, 7, 0))
+    congelar(monkeypatch, datetime(2026, 9, 7, 7, 0))
 
 
 def datas_do_periodo():
@@ -213,8 +228,7 @@ def test_antecedencia_de_hoje_vale_nos_dois(cliente, monkeypatch):
     hoje_real, inicio_real = HOJE, INICIO
     HOJE, INICIO = date(2026, 9, 8), "2026-09-08"        # terça
     try:
-        monkeypatch.setattr(app, "data_hoje", lambda: HOJE)
-        monkeypatch.setattr(app, "agora_br", lambda: datetime(2026, 9, 8, 10, 30))
+        congelar(monkeypatch, datetime(2026, 9, 8, 10, 30))
         por_dia, periodo = comparar(cliente, monkeypatch)
 
         assert periodo == por_dia

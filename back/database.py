@@ -201,6 +201,10 @@ def init_db():
     """)
     # imagem: nome do arquivo em front/img (ex: 'degrade.jpg'); NULL = sem foto.
     cur.execute("ALTER TABLE servicos ADD COLUMN IF NOT EXISTS imagem TEXT")
+    # ativo (1/0) tira o serviço do cardápio SEM apagar a linha. Apagar não é
+    # opção: agendamentos.servico_id aponta pra cá, então o corte que já foi
+    # feito sumiria do histórico, da contagem e do faturamento.
+    cur.execute("ALTER TABLE servicos ADD COLUMN IF NOT EXISTS ativo INTEGER NOT NULL DEFAULT 1")
 
     # ---------------------------------------------------------
     # BARBEIROS
@@ -595,6 +599,14 @@ def ajustar_servicos():
                 "INSERT INTO servicos (nome, duracao_min, preco, imagem) VALUES (%s,%s,%s,%s)",
                 (nome, dur, preco, img)
             )
+
+    # Serviços que saíram do cardápio. Ficam no banco (o histórico de quem já
+    # fez depende deles) mas não aparecem pra marcar. Pra voltar a oferecer,
+    # tire o nome daqui: o serviço volta com o preço que estava.
+    fora_do_cardapio = ["Navalhado"]
+    for nome in fora_do_cardapio:
+        conn.execute("UPDATE servicos SET ativo = 0 WHERE nome = %s", (nome,))
+
     conn.commit()
     conn.close()
 

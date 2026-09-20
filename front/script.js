@@ -32,7 +32,6 @@ const ICONES = {
 const DESCRICOES_SERVICO = {
   "Degradê": "Corte com transição gradual nas laterais",
   "Social": "Corte clássico, alinhado e discreto",
-  "Navalhado": "Acabamento na navalha para um corte preciso",
   "Barba": "Aparo e desenho completo da barba",
   "Corte + Barba": "Combo completo: cabelo e barba no mesmo horário",
   "Sobrancelha": "Design e alinhamento da sobrancelha"

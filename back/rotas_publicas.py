@@ -22,8 +22,10 @@ import notificacoes
 
 @app.route("/api/servicos", methods=["GET"])
 def listar_servicos():
+    """Cardápio do site e do painel. Só os ativos: serviço desativado continua
+    na tabela por causa do histórico, mas não pode mais ser marcado."""
     conn = get_connection()
-    servicos = conn.execute("SELECT * FROM servicos").fetchall()
+    servicos = conn.execute("SELECT * FROM servicos WHERE ativo = 1 ORDER BY id").fetchall()
     conn.close()
     return jsonify([dict(s) for s in servicos])
 

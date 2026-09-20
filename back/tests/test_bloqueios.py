@@ -17,7 +17,7 @@ O que importa aqui:
 Conexão falsa: nada de banco.
 """
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import jwt
 import pytest
@@ -97,18 +97,23 @@ def ligar(monkeypatch, conexao):
 
 BARBEIRO = {"papel": "barbeiro", "barbeiro_id": 3}
 
+# Data SEMPRE no futuro. Com data fixa o arquivo passava ate ela chegar e
+# depois comecava a falhar sozinho com 400 ("data no passado") - foi o que
+# aconteceu com o test_horarios_periodo.
+DATA = (date.today() + timedelta(days=5)).isoformat()
+
 
 # ------------------------------------------------------------------ intervalo
 
 def test_saida_e_volta_viram_uma_linha_com_duracao(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "14:00",
+                            json={"data": DATA, "hora": "14:00",
                                   "volta": "15:30", "motivo": "Médico"},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 201
     # data, hora, motivo, barbeiro_id, duracao_min — 90 min, não 3 linhas
-    assert conn.inserts() == [("2026-09-10", "14:00", "Médico", 3, 90)]
+    assert conn.inserts() == [(DATA, "14:00", "Médico", 3, 90)]
     assert conn.commits == 1
     assert "15:30" in json.loads(resposta.data)["mensagem"]
 
@@ -116,7 +121,7 @@ def test_saida_e_volta_viram_uma_linha_com_duracao(cliente, monkeypatch):
 def test_sem_volta_bloqueia_so_aquele_horario(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "14:00"},
+                            json={"data": DATA, "hora": "14:00"},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 201
     assert conn.inserts()[0][4] is None      # sem duracao_min
@@ -125,7 +130,7 @@ def test_sem_volta_bloqueia_so_aquele_horario(cliente, monkeypatch):
 def test_volta_antes_da_saida_e_recusada(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "15:30", "volta": "14:00"},
+                            json={"data": DATA, "hora": "15:30", "volta": "14:00"},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 400
     assert conn.inserts() == []
@@ -136,7 +141,7 @@ def test_volta_igual_a_saida_e_recusada(cliente, monkeypatch):
     """Duração zero não bloqueia nada, mas deixaria uma linha inútil na lista."""
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "14:00", "volta": "14:00"},
+                            json={"data": DATA, "hora": "14:00", "volta": "14:00"},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 400
     assert conn.inserts() == []
@@ -145,7 +150,7 @@ def test_volta_igual_a_saida_e_recusada(cliente, monkeypatch):
 def test_volta_sem_saida_e_recusada(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "volta": "15:30"},
+                            json={"data": DATA, "volta": "15:30"},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 400
     assert conn.inserts() == []
@@ -157,7 +162,7 @@ def test_barbeiro_bloqueia_a_propria_agenda_mesmo_pedindo_outra(cliente, monkeyp
     """barbeiro_id do corpo é ignorado: o do token manda."""
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "14:00", "barbeiro_id": 99},
+                            json={"data": DATA, "hora": "14:00", "barbeiro_id": 99},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 201
     assert conn.inserts()[0][3] == 3
@@ -166,7 +171,7 @@ def test_barbeiro_bloqueia_a_propria_agenda_mesmo_pedindo_outra(cliente, monkeyp
 def test_barbeiro_nao_fecha_o_dia_inteiro(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10"},
+                            json={"data": DATA},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 403
     assert conn.inserts() == []
@@ -175,16 +180,16 @@ def test_barbeiro_nao_fecha_o_dia_inteiro(cliente, monkeypatch):
 def test_master_sem_barbeiro_fecha_a_barbearia_toda(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-12-25", "motivo": "Natal"},
+                            json={"data": DATA, "motivo": "Natal"},
                             headers=cabecalho())
     assert resposta.status_code == 201
-    assert conn.inserts() == [("2026-12-25", None, "Natal", None, None)]
+    assert conn.inserts() == [(DATA, None, "Natal", None, None)]
 
 
 def test_master_bloqueia_a_agenda_de_um_barbeiro(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "09:00", "barbeiro_id": 5},
+                            json={"data": DATA, "hora": "09:00", "barbeiro_id": 5},
                             headers=cabecalho())
     assert resposta.status_code == 201
     assert conn.inserts()[0][3] == 5
@@ -193,7 +198,7 @@ def test_master_bloqueia_a_agenda_de_um_barbeiro(cliente, monkeypatch):
 def test_salao_nao_cria_bloqueio(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao())
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "14:00"},
+                            json={"data": DATA, "hora": "14:00"},
                             headers=cabecalho(papel="salao"))
     assert resposta.status_code == 403
     assert conn.inserts() == []
@@ -202,7 +207,7 @@ def test_salao_nao_cria_bloqueio(cliente, monkeypatch):
 def test_bloqueio_repetido_da_409(cliente, monkeypatch):
     conn = ligar(monkeypatch, Conexao(existente={"id": 1}))
     resposta = cliente.post("/api/admin/bloqueios",
-                            json={"data": "2026-09-10", "hora": "14:00"},
+                            json={"data": DATA, "hora": "14:00"},
                             headers=cabecalho(**BARBEIRO))
     assert resposta.status_code == 409
     assert conn.inserts() == []
