@@ -267,22 +267,20 @@ abas.addEventListener("click", (e) => {
 // A API aceita os dois formatos, então o estado vai direto pra ela.
 let filtroDashboard = "dia";
 
-// "2026-10" → faixa do mês. No mês CORRENTE para em hoje, pra bater com o
-// atalho "Mês" — senão o número incluiria agendamento que ainda nem aconteceu
-// e pareceria que o mês rendeu mais do que rendeu.
-function faixaDoMes(valorMes) {
-  const [ano, mes] = valorMes.split("-").map(Number);
-  const inicio = `${valorMes}-01`;
-  const ultimo = new Date(ano, mes, 0).getDate();
-  let fim = `${valorMes}-${String(ultimo).padStart(2, "0")}`;
-  const hoje = hojeISO();
-  if (inicio <= hoje && fim > hoje) fim = hoje;
-  return { inicio, fim };
+// Faixa do mês anterior, fechado (01 ao último dia). É o período que o dono
+// mais pede — "quanto deu mês passado" — e vira um atalho de um toque em vez
+// de obrigar a escolher duas datas no calendário do celular.
+function faixaMesPassado() {
+  const [ano, mes] = hojeISO().split("-").map(Number);
+  const anoAlvo = mes === 1 ? ano - 1 : ano;
+  const mesAlvo = mes === 1 ? 12 : mes - 1;
+  const mm = String(mesAlvo).padStart(2, "0");
+  const ultimo = new Date(anoAlvo, mesAlvo, 0).getDate();
+  return { inicio: `${anoAlvo}-${mm}-01`, fim: `${anoAlvo}-${mm}-${ultimo}` };
 }
 
 async function renderDashboard() {
   const faixa = typeof filtroDashboard === "string" ? null : filtroDashboard;
-  const mesAtual = hojeISO().slice(0, 7);
 
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Dashboard</h2>
@@ -292,14 +290,10 @@ async function renderDashboard() {
       <button class="chip-filtro" data-periodo="dia">Hoje</button>
       <button class="chip-filtro" data-periodo="semana">Semana</button>
       <button class="chip-filtro" data-periodo="mes">Este mês</button>
+      <button class="chip-filtro" data-periodo="mes-passado">Mês passado</button>
     </div>
 
     <div class="filtro-faixa">
-      <label class="filtro-campo">
-        <span>Mês</span>
-        <input type="month" id="dash-mes" class="campo-input" value="${faixa ? faixa.inicio.slice(0, 7) : mesAtual}" />
-      </label>
-      <span class="filtro-ou">ou</span>
       <label class="filtro-campo">
         <span>De</span>
         <input type="date" id="dash-inicio" class="campo-input" value="${faixa ? faixa.inicio : ""}" />
@@ -317,19 +311,19 @@ async function renderDashboard() {
 
   const filtros = document.getElementById("filtros-periodo");
   filtros.querySelectorAll(".chip-filtro").forEach((c) => {
-    c.classList.toggle("ativo", c.dataset.periodo === filtroDashboard);
+    // "Mês passado" vira faixa de datas (o backend não tem esse atalho), então
+    // a marcação dele acompanha a faixa, não o nome.
+    const ativo = c.dataset.periodo === "mes-passado"
+      ? !!faixa && faixa.inicio === faixaMesPassado().inicio
+                && faixa.fim === faixaMesPassado().fim
+      : c.dataset.periodo === filtroDashboard;
+    c.classList.toggle("ativo", ativo);
     c.addEventListener("click", () => {
-      filtroDashboard = c.dataset.periodo;
+      filtroDashboard = c.dataset.periodo === "mes-passado"
+        ? faixaMesPassado()
+        : c.dataset.periodo;
       renderDashboard();
     });
-  });
-
-  // Escolher o mês já aplica: pedir pra escolher e depois clicar em Aplicar
-  // é um passo a mais sem ganho nenhum.
-  document.getElementById("dash-mes").addEventListener("change", (e) => {
-    if (!e.target.value) return;
-    filtroDashboard = faixaDoMes(e.target.value);
-    renderDashboard();
   });
 
   document.getElementById("dash-aplicar").addEventListener("click", () => {

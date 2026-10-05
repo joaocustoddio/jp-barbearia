@@ -244,12 +244,14 @@
   color: var(--acento);
 }
 
-/* ---------- Período escolhido a dedo (mês fechado ou faixa de datas) ---------- */
+/* ---------- Período escolhido a dedo (faixa de datas) ---------- */
+/* "De" e "Até" são UMA pergunta só, então nunca se separam em linhas
+   diferentes: sem wrap, e os dois campos dividem a largura por igual. O
+   Aplicar acompanha, do tamanho do texto. */
 .filtro-faixa {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
-  flex-wrap: wrap;
   margin: -8px 0 18px;
 }
 
@@ -261,19 +263,22 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--texto-suave);
+  flex: 1 1 0;
+  min-width: 0;          /* deixa encolher: sem isto o input estoura a linha */
+  max-width: 190px;
 }
 
 .filtro-campo .campo-input {
   padding: 7px 10px;
   font-size: 13px;
-  width: auto;
-  min-width: 132px;
+  width: 100%;
+  /* o .campo-input global tem margin-bottom: 16px (serve pros formulários
+     empilhados). Aqui ela desalinharia o Aplicar do resto da linha. */
+  margin: 0;
 }
 
-.filtro-ou {
-  color: var(--texto-suave);
-  font-size: 12px;
-  padding-bottom: 9px;
+.filtro-faixa .btn-mini {
+  flex: 0 0 auto;
 }
 
 /* Faixa que de fato entrou na conta, acima dos cards */
@@ -286,13 +291,12 @@
 }
 
 @media (max-width: 480px) {
-  /* no celular o "ou" só rouba linha: os campos já ficam um embaixo do outro */
-  .filtro-ou { display: none; }
-  .filtro-campo { flex: 1 1 128px; }
-  .filtro-campo .campo-input { min-width: 0; width: 100%; }
-  /* botão na própria linha: espremido ao lado do último campo ele ficava
-     pequeno demais pra acertar com o dedo */
-  .filtro-faixa .btn-mini { flex: 1 1 100%; }
+  /* Espaço apertado: aperta o respiro antes de deixar o campo ilegível, e
+     tira o limite de largura pra os dois dividirem o que sobra. */
+  .filtro-faixa { gap: 6px; }
+  .filtro-campo { max-width: none; }
+  .filtro-campo .campo-input { padding: 7px 6px; }
+  .filtro-faixa .btn-mini { padding-left: 12px; padding-right: 12px; }
 }
 
 /* ---------- Painéis/blocos ---------- */
