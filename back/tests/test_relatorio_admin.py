@@ -34,13 +34,17 @@ class ConexaoRelatorio:
     """Responde às cinco consultas do relatório e anota os parâmetros recebidos."""
 
     def __init__(self, faturamento=0, total=0, por_dia=(),
-                 produtos_centavos=0, produtos_qtd=0, servicos=()):
+                 produtos_centavos=0, produtos_qtd=0, servicos=(),
+                 comissoes=0, cancelados_qtd=0, cancelados_valor=0):
         self.faturamento = faturamento
         self.total = total
         self.por_dia = por_dia
         self.produtos_centavos = produtos_centavos
         self.produtos_qtd = produtos_qtd
         self.servicos = servicos
+        self.comissoes = comissoes
+        self.cancelados_qtd = cancelados_qtd
+        self.cancelados_valor = cancelados_valor
         self.executados = []
 
     def execute(self, sql, params=None):
@@ -49,6 +53,11 @@ class ConexaoRelatorio:
         if "as centavos" in consulta:
             return _Cursor([{"centavos": self.produtos_centavos,
                              "quantidade": self.produtos_qtd}])
+        if "comissao_pct" in consulta:
+            return _Cursor([{"total": self.comissoes}])
+        if "status = 'cancelado'" in consulta:
+            return _Cursor([{"quantidade": self.cancelados_qtd,
+                             "valor": self.cancelados_valor}])
         if "group by agendamentos.data" in consulta:
             return _Cursor(self.por_dia)
         if "group by servicos.id" in consulta:
@@ -164,6 +173,66 @@ def test_periodo_mes_comeca_no_dia_um(cliente, monkeypatch):
 def test_periodo_desconhecido_cai_no_dia(cliente, monkeypatch):
     _, corpo, _ = pedir(cliente, monkeypatch, periodo="decada")
     assert corpo["data_inicio"] == corpo["data_fim"] == "2026-08-20"
+
+
+# ------------------------------------------------- lucro real e cancelamentos
+
+def test_lucro_e_faturamento_menos_comissao(cliente, monkeypatch):
+    """Serviços 1000 + produtos 200, comissão 600 -> sobra 600 pra casa.
+    Produto NÃO comissiona, então entra inteiro no lucro."""
+    _, corpo, _ = pedir(cliente, monkeypatch, faturamento=1000,
+                        produtos_centavos=20000, comissoes=600)
+    assert corpo["faturamento_total"] == 1200.0
+    assert corpo["comissoes"] == 600.0
+    assert corpo["lucro_real"] == 600.0
+
+
+def test_lucro_com_tudo_do_dono_e_o_faturamento_inteiro(cliente, monkeypatch):
+    """O dono entra com comissão 0: o que ele corta fica todo pra casa."""
+    _, corpo, _ = pedir(cliente, monkeypatch, faturamento=500, comissoes=0)
+    assert corpo["lucro_real"] == 500.0
+
+
+def test_comissao_usa_o_pct_do_barbeiro_no_banco(cliente, monkeypatch):
+    """A conta não pode ser refeita no Python com um percentual chutado: tem
+    que sair do comissao_pct de cada barbeiro, igual à Contagem."""
+    _, _, conn = pedir(cliente, monkeypatch, comissoes=10)
+    sql = [s for s, _ in conn.executados if "comissao_pct" in s]
+    assert len(sql) == 1
+    assert "servicos.preco * barbeiros.comissao_pct / 100.0" in sql[0]
+    assert "status != 'cancelado'" in sql[0]
+
+
+def test_barbeiro_nao_recebe_lucro_nem_comissoes(cliente, monkeypatch):
+    """É o número da casa. Some da RESPOSTA, não só da tela."""
+    _, corpo, _ = pedir(cliente, monkeypatch, papel="barbeiro", barbeiro_id=3,
+                        faturamento=1000, comissoes=600)
+    assert corpo["lucro_real"] is None
+    assert corpo["comissoes"] is None
+
+
+def test_cancelados_vem_com_quantidade_e_valor(cliente, monkeypatch):
+    _, corpo, _ = pedir(cliente, monkeypatch, cancelados_qtd=4,
+                        cancelados_valor=160)
+    assert corpo["cancelados_qtd"] == 4
+    assert corpo["cancelados_valor"] == 160.0
+
+
+def test_cancelado_nao_entra_no_faturamento(cliente, monkeypatch):
+    """O resto do relatório ignora cancelado; a contagem deles é a única
+    consulta que olha pra esse status — e nenhuma outra pode olhar."""
+    _, _, conn = pedir(cliente, monkeypatch, cancelados_qtd=4)
+    olham_cancelado = [s for s, _ in conn.executados if "status = 'cancelado'" in s]
+    assert len(olham_cancelado) == 1
+    ignoram = [s for s, _ in conn.executados if "status != 'cancelado'" in s]
+    assert len(ignoram) == len(conn.executados) - 1
+
+
+def test_cancelados_respeitam_o_periodo(cliente, monkeypatch):
+    _, _, conn = pedir(cliente, monkeypatch, inicio="2026-09-01", fim="2026-09-30",
+                       cancelados_qtd=2)
+    sql, params = next((s, p) for s, p in conn.executados if "status = 'cancelado'" in s)
+    assert params[:2] == ["2026-09-01", "2026-09-30"]
 
 
 # ----------------------------------------------------- período escolhido a dedo

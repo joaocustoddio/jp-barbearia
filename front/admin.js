@@ -388,6 +388,19 @@ async function renderDashboard() {
           ${relatorio.produtos_qtd
             ? `<p class="kpi-detalhe">${relatorio.produtos_qtd} item(ns) vendido(s)</p>` : ""}
         </div>
+        ${relatorio.lucro_real == null ? "" : `
+        <div class="kpi">
+          <p class="kpi-rotulo">Lucro ${escapeHTML(rotuloPeriodo)}</p>
+          <p class="kpi-valor lucro">${formatarMoeda(relatorio.lucro_real)}</p>
+          <p class="kpi-detalhe">depois de pagar ${formatarMoeda(relatorio.comissoes)} de comissão</p>
+        </div>`}
+        <div class="kpi">
+          <p class="kpi-rotulo">Cancelados ${escapeHTML(rotuloPeriodo)}</p>
+          <p class="kpi-valor ${relatorio.cancelados_qtd ? "alerta" : ""}">${relatorio.cancelados_qtd}</p>
+          ${relatorio.cancelados_qtd
+            ? `<p class="kpi-detalhe">${formatarMoeda(relatorio.cancelados_valor)} que deixaram de entrar</p>`
+            : `<p class="kpi-detalhe">nenhum cancelamento</p>`}
+        </div>
         <div class="kpi">
           <p class="kpi-rotulo">Confirmados hoje</p>
           <p class="kpi-valor">${confirmadosHoje.length}</p>

@@ -163,10 +163,11 @@
   .grid-kpis { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* Só vira 4 colunas quando sobra largura pro valor inteiro em cada card
-   (~250px). Antes disso, 2x2 com número grande lê melhor que 4 apertados. */
+/* Só abre mais colunas quando sobra largura pro valor inteiro em cada card
+   (~250px). São 6 indicadores, então 3 colunas fecham duas linhas cheias —
+   com 4 sobrariam dois cards soltos na segunda linha. */
 @media (min-width: 1140px) {
-  .grid-kpis { grid-template-columns: repeat(4, 1fr); }
+  .grid-kpis { grid-template-columns: repeat(3, 1fr); }
 }
 
 .kpi {
@@ -210,6 +211,16 @@
 
 .kpi-valor.acento {
   color: var(--acento);
+}
+
+/* Lucro em verde e cancelados em vermelho: num painel de dinheiro, a cor diz
+   na hora se o número é dos bons ou dos ruins, sem precisar ler o rótulo. */
+.kpi-valor.lucro {
+  color: #4ade80;
+}
+
+.kpi-valor.alerta {
+  color: #f87171;
 }
 
 /* ---------- Filtro de período ---------- */
@@ -319,10 +330,21 @@
   .filtro-datas {
     flex: 1 1 100%;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;            /* respiro entre um campo e o outro */
   }
 
-  .filtro-campo { max-width: none; }
+  /* Largura suficiente pros ~204px que o campo de data do iOS ocupa, e não
+     mais: esticado na tela inteira ele vira uma barra enorme pra mostrar dez
+     números. */
+  .filtro-campo {
+    max-width: 240px;
+    gap: 7px;             /* afasta o rótulo "De"/"Até" do campo */
+  }
+
+  .filtro-faixa {
+    gap: 16px;            /* afasta o Aplicar do último campo */
+  }
+
   .filtro-faixa .btn-mini { flex: 0 0 auto; }
 
   /* Os quatro atalhos numa linha só: com o respiro do desktop o último caía

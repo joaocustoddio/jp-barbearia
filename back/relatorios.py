@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 
 from flask import request, jsonify
 
-from auth import barbeiro_do_escopo, pode_ver_valores, token_requerido
+from auth import barbeiro_do_escopo, eh_master, pode_ver_valores, token_requerido
 from config import data_hoje
 from database import get_connection
 from extensoes import app
@@ -148,6 +148,33 @@ def relatorio_admin():
     """, per).fetchone()
     produtos_valor = round(float(produtos["centavos"] or 0) / 100, 2)
 
+    # Comissões do período. MESMA regra da Contagem: comissao_pct é a fatia do
+    # barbeiro, o resto fica com a barbearia. Produtos não comissionam, então
+    # entram inteiros no lucro.
+    #
+    # O dono entra com comissão 0 (BARBEIRO1_COMISSAO), então o que ele corta já
+    # fica todo pra casa — é o que o JP chama de "lucro real": o que sobra
+    # depois de pagar os outros barbeiros.
+    comissoes = conn.execute(f"""
+        SELECT COALESCE(SUM(servicos.preco * barbeiros.comissao_pct / 100.0), 0) AS total
+        FROM agendamentos
+        JOIN servicos ON agendamentos.servico_id = servicos.id
+        JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
+        WHERE agendamentos.status != 'cancelado'
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+    """, per).fetchone()["total"]
+
+    # Cancelados: quantos e quanto deixou de entrar. O resto do relatório
+    # ignora cancelado — aqui é o único lugar que olha pra eles de propósito.
+    cancelados = conn.execute(f"""
+        SELECT COUNT(*) AS quantidade,
+               COALESCE(SUM(servicos.preco), 0) AS valor
+        FROM agendamentos
+        JOIN servicos ON agendamentos.servico_id = servicos.id
+        WHERE agendamentos.status = 'cancelado'
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+    """, per).fetchone()
+
     # Ranking dos serviços mais realizados no período (pro dashboard)
     servicos_mais_realizados = conn.execute(f"""
         SELECT servicos.nome,
@@ -174,6 +201,15 @@ def relatorio_admin():
         "faturamento_servicos": round(float(faturamento or 0), 2),
         "faturamento_produtos": produtos_valor,
         "produtos_qtd": int(produtos["quantidade"] or 0),
+        # Comissões e lucro só pro master: é o número da casa, não do barbeiro.
+        # Quem não é master nem recebe o campo — esconder só na tela deixaria o
+        # valor viajando na resposta.
+        "comissoes": round(float(comissoes or 0), 2) if eh_master() else None,
+        "lucro_real": round(
+            float(faturamento or 0) + produtos_valor - float(comissoes or 0), 2
+        ) if eh_master() else None,
+        "cancelados_qtd": int(cancelados["quantidade"] or 0),
+        "cancelados_valor": round(float(cancelados["valor"] or 0), 2),
         "por_dia": [dict(d) for d in por_dia],
         "servicos_mais_realizados": [dict(s) for s in servicos_mais_realizados]
     })
