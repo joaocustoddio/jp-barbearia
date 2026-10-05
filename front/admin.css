@@ -301,13 +301,27 @@
   color: var(--texto-suave);
 }
 
-@media (max-width: 480px) {
-  /* Espaço apertado: aperta o respiro antes de deixar o campo ilegível, e
-     tira o teto de largura pra os dois dividirem o que sobra. */
-  .filtro-faixa { gap: 6px 8px; }
-  .filtro-datas { gap: 6px; }
-  .filtro-campo { max-width: none; min-width: 116px; }
-  .filtro-campo .campo-input { padding: 7px 6px; }
+/* Celular: o Aplicar desce e os dois campos de data ficam com a linha inteira.
+   No iOS (todo navegador do iPhone é WebKit, Chrome incluído) o input de data
+   escreve o valor por extenso — "30 de set. de 2026" em vez de "30/09/2026" —
+   e NÃO encolhe abaixo desse conteúdo. Dividindo a linha com o botão, os três
+   estouravam a largura e o campo passava por baixo dele. Com a linha só pra
+   eles, sobra o dobro de espaço por campo. */
+@media (max-width: 520px) {
+  .filtro-datas { flex: 1 1 100%; gap: 8px; }
+  .filtro-campo { max-width: none; min-width: 0; }
+  .filtro-faixa .btn-mini { flex: 0 0 auto; }
+
+  /* Os quatro atalhos numa linha só: com o respiro do desktop o último caía
+     sozinho pra linha de baixo. */
+  .filtros .chip-filtro { padding: 7px 11px; }
+}
+
+/* Telas bem estreitas (320px): a data por extenso do iOS passa a caber por
+   poucos pixels. Aperta fonte e respiro pra não ficar na dependência de o
+   iPhone medir a fonte igual ao navegador onde isto foi conferido. */
+@media (max-width: 360px) {
+  .filtro-campo .campo-input { font-size: 12.5px; padding-left: 8px; padding-right: 8px; }
 }
 
 /* ---------- Painéis/blocos ---------- */
