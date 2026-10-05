@@ -245,14 +245,22 @@
 }
 
 /* ---------- Período escolhido a dedo (faixa de datas) ---------- */
-/* "De" e "Até" são UMA pergunta só, então nunca se separam em linhas
-   diferentes: sem wrap, e os dois campos dividem a largura por igual. O
-   Aplicar acompanha, do tamanho do texto. */
 .filtro-faixa {
   display: flex;
   gap: 8px;
   align-items: flex-end;
+  flex-wrap: wrap;
   margin: -8px 0 18px;
+}
+
+/* "De" e "Até" são UMA pergunta só. Ficam num container próprio em vez de
+   soltos na linha: assim é ESTRUTURALMENTE impossível um cair numa linha e o
+   outro em outra — não depende de sobrar largura. Quando falta espaço, quem
+   desce é o Aplicar. */
+.filtro-datas {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 280px;
 }
 
 .filtro-campo {
@@ -264,7 +272,10 @@
   letter-spacing: 0.04em;
   color: var(--texto-suave);
   flex: 1 1 0;
-  min-width: 0;          /* deixa encolher: sem isto o input estoura a linha */
+  /* Piso de 124px: o input de data tem conteúdo de largura fixa ("01/09/2026"
+     mais o ícone do calendário). Encolhendo além disso o conteúdo vaza por
+     cima do campo vizinho — é o que acontecia no celular. */
+  min-width: 124px;
   max-width: 190px;
 }
 
@@ -292,11 +303,11 @@
 
 @media (max-width: 480px) {
   /* Espaço apertado: aperta o respiro antes de deixar o campo ilegível, e
-     tira o limite de largura pra os dois dividirem o que sobra. */
-  .filtro-faixa { gap: 6px; }
-  .filtro-campo { max-width: none; }
+     tira o teto de largura pra os dois dividirem o que sobra. */
+  .filtro-faixa { gap: 6px 8px; }
+  .filtro-datas { gap: 6px; }
+  .filtro-campo { max-width: none; min-width: 116px; }
   .filtro-campo .campo-input { padding: 7px 6px; }
-  .filtro-faixa .btn-mini { padding-left: 12px; padding-right: 12px; }
 }
 
 /* ---------- Painéis/blocos ---------- */

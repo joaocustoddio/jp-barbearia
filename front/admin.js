@@ -294,14 +294,16 @@ async function renderDashboard() {
     </div>
 
     <div class="filtro-faixa">
-      <label class="filtro-campo">
-        <span>De</span>
-        <input type="date" id="dash-inicio" class="campo-input" value="${faixa ? faixa.inicio : ""}" />
-      </label>
-      <label class="filtro-campo">
-        <span>Até</span>
-        <input type="date" id="dash-fim" class="campo-input" value="${faixa ? faixa.fim : ""}" />
-      </label>
+      <div class="filtro-datas">
+        <label class="filtro-campo">
+          <span>De</span>
+          <input type="date" id="dash-inicio" class="campo-input" value="${faixa ? faixa.inicio : ""}" />
+        </label>
+        <label class="filtro-campo">
+          <span>Até</span>
+          <input type="date" id="dash-fim" class="campo-input" value="${faixa ? faixa.fim : ""}" />
+        </label>
+      </div>
       <button class="btn-mini" id="dash-aplicar">Aplicar</button>
     </div>
     <p class="login-erro" id="dash-erro" style="margin:-8px 0 14px;"></p>

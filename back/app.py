@@ -57,8 +57,20 @@ import relatorios            # noqa: F401
 
 @app.route("/", methods=["GET"])
 def health():
-    """Health check simples (o Render usa pra saber que o serviço está de pé)."""
-    return jsonify({"status": "ok", "servico": "jp-barbearia"})
+    """Health check simples (o Render usa pra saber que o serviço está de pé).
+
+    Devolve também o commit que está rodando. Sem isso não dá pra saber, de
+    fora, se um deploy já saiu: o front na Vercel publica em segundos e o
+    backend demora minutos, e a diferença entre "ainda subindo" e "deploy
+    falhou" fica sendo chute — o que já me fez dar um deploy como pronto
+    quando o backend ainda era o antigo.
+    """
+    return jsonify({
+        "status": "ok",
+        "servico": "jp-barbearia",
+        # RENDER_GIT_COMMIT é preenchido pelo próprio Render em cada deploy.
+        "versao": (os.getenv("RENDER_GIT_COMMIT") or "local")[:7],
+    })
 
 
 @app.route("/api/horarios-disponiveis", methods=["GET"])
