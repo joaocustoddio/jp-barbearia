@@ -292,6 +292,26 @@ function salvarKpis(lista) {
   try { localStorage.setItem(CHAVE_KPIS, JSON.stringify(lista)); } catch (_) {}
 }
 
+// Linha de baixo do card de cancelados.
+//
+// Monta só com o que o backend REALMENTE mandou. Durante um deploy o site novo
+// fica alguns minutos conversando com a API antiga (a Vercel publica em
+// segundos, o Render leva minutos), e campo que ainda não existe virava
+// "undefined remarcaram" e "R$ 0,00" na tela do dono.
+function detalheCancelados(r) {
+  if (!r.cancelados_qtd) return `<p class="kpi-detalhe">nenhum cancelamento</p>`;
+
+  const partes = [];
+  if (r.cancelados_remarcou != null) partes.push(`${r.cancelados_remarcou} remarcaram`);
+  if (r.cancelados_perda != null) {
+    const valor = r.cancelados_perda_valor != null
+      ? ` (${formatarMoeda(r.cancelados_perda_valor)})` : "";
+    partes.push(`${r.cancelados_perda} de perda real${valor}`);
+  }
+  if (!partes.length) return "";
+  return `<p class="kpi-detalhe">${partes.join(" &middot; ")}</p>`;
+}
+
 function aplicarFiltroKpis() {
   const visiveis = kpisVisiveis();
   document.querySelectorAll("[data-kpi]").forEach((card) => {
@@ -355,7 +375,12 @@ async function renderDashboard() {
   `;
 
   const filtros = document.getElementById("filtros-periodo");
-  filtros.querySelectorAll(".chip-filtro").forEach((c) => {
+  // [data-periodo] de propósito, não só .chip-filtro: o botão ☰ usa a mesma
+  // classe pra ficar igual aos outros, mas não é um período. Sem isto, tocar
+  // nele disparava "trocar período" com período undefined — o Dashboard
+  // renderizava de novo e o menu reaparecia fechado, parecendo que o botão
+  // não funcionava.
+  filtros.querySelectorAll(".chip-filtro[data-periodo]").forEach((c) => {
     // "Mês passado" vira faixa de datas (o backend não tem esse atalho), então
     // a marcação dele acompanha a faixa, não o nome.
     const ativo = c.dataset.periodo === "mes-passado"
@@ -464,11 +489,7 @@ async function renderDashboard() {
         <div class="kpi" data-kpi="cancelados">
           <p class="kpi-rotulo">Cancelados ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor ${relatorio.cancelados_qtd ? "alerta" : ""}">${relatorio.cancelados_qtd}</p>
-          ${relatorio.cancelados_qtd
-            ? `<p class="kpi-detalhe">${relatorio.cancelados_remarcou} remarcaram
-               &middot; ${relatorio.cancelados_perda} de perda real
-               (${formatarMoeda(relatorio.cancelados_perda_valor)})</p>`
-            : `<p class="kpi-detalhe">nenhum cancelamento</p>`}
+          ${detalheCancelados(relatorio)}
         </div>
         <div class="kpi" data-kpi="confirmados">
           <p class="kpi-rotulo">Confirmados hoje</p>
