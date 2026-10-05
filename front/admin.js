@@ -349,6 +349,13 @@ async function renderDashboard() {
 
     const confirmadosHoje = agsHoje.filter((a) => a.status !== "cancelado");
 
+    // Os campos SEMPRE mostram a faixa que está valendo, mesmo quando veio de
+    // um atalho. Além de dizer qual período está na tela, resolve um problema
+    // do iPhone: campo de data vazio lá aparece como uma caixa em branco, sem
+    // o "dd/mm/aaaa" que o computador desenha — viram dois quadrados mudos.
+    document.getElementById("dash-inicio").value = relatorio.data_inicio;
+    document.getElementById("dash-fim").value = relatorio.data_fim;
+
     const rotuloPeriodo = { dia: "hoje", semana: "na semana", mes: "no mês" }[filtroDashboard]
       || "no período";
 
