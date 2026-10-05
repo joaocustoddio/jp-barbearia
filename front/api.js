@@ -309,9 +309,16 @@ const API = (() => {
         });
       },
 
-      /** GET /api/admin/relatorio?periodo=dia|semana|mes */
-      relatorio(periodo = "dia") {
-        return requestAuth(`/api/admin/relatorio?periodo=${encodeURIComponent(periodo)}`);
+      /**
+       * GET /api/admin/relatorio
+       * Atalho:      relatorio("mes")
+       * Faixa livre: relatorio({ inicio: "2026-10-01", fim: "2026-10-31" })
+       */
+      relatorio(filtro = "dia") {
+        const q = typeof filtro === "string"
+          ? { periodo: filtro }
+          : { inicio: filtro.inicio, fim: filtro.fim };
+        return requestAuth("/api/admin/relatorio?" + new URLSearchParams(q));
       },
 
       /** GET /api/admin/bloqueios */

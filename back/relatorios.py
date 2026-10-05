@@ -5,7 +5,7 @@ Números: o relatório público (total geral), o relatório do painel por perío
 e a contagem do dia (fechamento por barbeiro, com comissão e produtos).
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import request, jsonify
 
@@ -54,17 +54,41 @@ def relatorio():
 def relatorio_admin():
     """
     Relatório financeiro com filtro por período.
-    Parâmetro: ?periodo=dia | semana | mes
-    Padrão: dia (hoje)
+
+    Atalhos:        ?periodo=dia | semana | mes      (padrão: dia)
+    Faixa livre:    ?inicio=AAAA-MM-DD&fim=AAAA-MM-DD
+
+    A faixa livre tem precedência: é ela que o painel manda quando o barbeiro
+    escolhe um mês fechado ("outubro inteiro") ou um intervalo qualquer. Os
+    atalhos continuam porque são o uso de todo dia e não exigem calcular data
+    no front.
     """
     # Salão (tablet compartilhado) não vê dinheiro.
     if not pode_ver_valores():
         return jsonify({"erro": "Sem acesso a valores financeiros."}), 403
 
     periodo = request.args.get("periodo", "dia")
-
     hoje = data_hoje()
-    if periodo == "semana":
+
+    inicio_arg = (request.args.get("inicio") or "").strip()
+    fim_arg = (request.args.get("fim") or "").strip()
+
+    if inicio_arg or fim_arg:
+        # Os dois juntos ou nenhum: só um lado da faixa daria um relatório que
+        # parece filtrado mas não é.
+        if not (inicio_arg and fim_arg):
+            return jsonify({"erro": "Informe as duas datas do período (início e fim)"}), 400
+        # Não usa validar_data de propósito: lá data passada é erro (ninguém
+        # agenda pra ontem), e aqui o passado é justamente o que se consulta.
+        try:
+            inicio = date.fromisoformat(inicio_arg)
+            fim = date.fromisoformat(fim_arg)
+        except ValueError:
+            return jsonify({"erro": "Formato de data inválido (use YYYY-MM-DD)"}), 400
+        if fim < inicio:
+            return jsonify({"erro": "A data final não pode ser antes da inicial"}), 400
+        periodo = "personalizado"
+    elif periodo == "semana":
         # Segunda-feira da semana atual até hoje
         inicio = hoje - timedelta(days=hoje.weekday())
         fim = hoje

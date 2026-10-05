@@ -263,30 +263,83 @@ abas.addEventListener("click", (e) => {
    Indicadores: agendamentos do dia, agenda semanal,
    faturamento e serviços mais realizados.
    ===================================================== */
-let periodoDashboard = "dia";
+// Atalho ("dia" | "semana" | "mes") ou faixa escolhida ({ inicio, fim }).
+// A API aceita os dois formatos, então o estado vai direto pra ela.
+let filtroDashboard = "dia";
+
+// "2026-10" → faixa do mês. No mês CORRENTE para em hoje, pra bater com o
+// atalho "Mês" — senão o número incluiria agendamento que ainda nem aconteceu
+// e pareceria que o mês rendeu mais do que rendeu.
+function faixaDoMes(valorMes) {
+  const [ano, mes] = valorMes.split("-").map(Number);
+  const inicio = `${valorMes}-01`;
+  const ultimo = new Date(ano, mes, 0).getDate();
+  let fim = `${valorMes}-${String(ultimo).padStart(2, "0")}`;
+  const hoje = hojeISO();
+  if (inicio <= hoje && fim > hoje) fim = hoje;
+  return { inicio, fim };
+}
 
 async function renderDashboard() {
+  const faixa = typeof filtroDashboard === "string" ? null : filtroDashboard;
+  const mesAtual = hojeISO().slice(0, 7);
+
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Dashboard</h2>
     <p class="secao-subtitulo">Visão geral do movimento da barbearia</p>
 
     <div class="filtros" id="filtros-periodo">
-      <span class="secao-subtitulo" style="margin:0 6px 0 0;">Período:</span>
       <button class="chip-filtro" data-periodo="dia">Hoje</button>
       <button class="chip-filtro" data-periodo="semana">Semana</button>
-      <button class="chip-filtro" data-periodo="mes">Mês</button>
+      <button class="chip-filtro" data-periodo="mes">Este mês</button>
     </div>
+
+    <div class="filtro-faixa">
+      <label class="filtro-campo">
+        <span>Mês</span>
+        <input type="month" id="dash-mes" class="campo-input" value="${faixa ? faixa.inicio.slice(0, 7) : mesAtual}" />
+      </label>
+      <span class="filtro-ou">ou</span>
+      <label class="filtro-campo">
+        <span>De</span>
+        <input type="date" id="dash-inicio" class="campo-input" value="${faixa ? faixa.inicio : ""}" />
+      </label>
+      <label class="filtro-campo">
+        <span>Até</span>
+        <input type="date" id="dash-fim" class="campo-input" value="${faixa ? faixa.fim : ""}" />
+      </label>
+      <button class="btn-mini" id="dash-aplicar">Aplicar</button>
+    </div>
+    <p class="login-erro" id="dash-erro" style="margin:-8px 0 14px;"></p>
 
     <div id="dashboard-corpo">${carregando("Carregando indicadores...")}</div>
   `;
 
   const filtros = document.getElementById("filtros-periodo");
   filtros.querySelectorAll(".chip-filtro").forEach((c) => {
-    c.classList.toggle("ativo", c.dataset.periodo === periodoDashboard);
+    c.classList.toggle("ativo", c.dataset.periodo === filtroDashboard);
     c.addEventListener("click", () => {
-      periodoDashboard = c.dataset.periodo;
+      filtroDashboard = c.dataset.periodo;
       renderDashboard();
     });
+  });
+
+  // Escolher o mês já aplica: pedir pra escolher e depois clicar em Aplicar
+  // é um passo a mais sem ganho nenhum.
+  document.getElementById("dash-mes").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    filtroDashboard = faixaDoMes(e.target.value);
+    renderDashboard();
+  });
+
+  document.getElementById("dash-aplicar").addEventListener("click", () => {
+    const inicio = document.getElementById("dash-inicio").value;
+    const fim = document.getElementById("dash-fim").value;
+    const erroEl = document.getElementById("dash-erro");
+    if (!inicio || !fim) { erroEl.textContent = "Preencha as duas datas."; return; }
+    if (fim < inicio) { erroEl.textContent = "A data final não pode ser antes da inicial."; return; }
+    filtroDashboard = { inicio, fim };
+    renderDashboard();
   });
 
   const corpo = document.getElementById("dashboard-corpo");
@@ -294,15 +347,25 @@ async function renderDashboard() {
   try {
     // Relatório do período + agendamentos de hoje (pra lista do dia)
     const [relatorio, agsHoje] = await Promise.all([
-      API.admin.relatorio(periodoDashboard),
+      API.admin.relatorio(filtroDashboard),
       API.admin.listarAgendamentos({ data: hojeISO() })
     ]);
 
     const confirmadosHoje = agsHoje.filter((a) => a.status !== "cancelado");
 
-    const rotuloPeriodo = { dia: "hoje", semana: "na semana", mes: "no mês" }[periodoDashboard];
+    const rotuloPeriodo = { dia: "hoje", semana: "na semana", mes: "no mês" }[filtroDashboard]
+      || "no período";
 
+    // A faixa vem do BACKEND, não do que foi clicado: é ela que de fato
+    // entrou na conta. Mostrar na tela evita a dúvida de "esse valor é até
+    // hoje ou o mês inteiro?".
     corpo.innerHTML = `
+      <p class="faixa-periodo">
+        ${relatorio.data_inicio === relatorio.data_fim
+          ? formatarDataBR(relatorio.data_inicio)
+          : `${formatarDataBR(relatorio.data_inicio)} &rarr; ${formatarDataBR(relatorio.data_fim)}`}
+      </p>
+
       <div class="grid-kpis">
         <div class="kpi">
           <p class="kpi-rotulo">Agendamentos ${escapeHTML(rotuloPeriodo)}</p>

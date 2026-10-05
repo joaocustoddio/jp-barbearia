@@ -82,11 +82,18 @@ def cliente():
 
 
 def pedir(cliente, monkeypatch, periodo=None, papel="master", barbeiro_id=None,
-          hoje=date(2026, 8, 20), **conexao):
+          hoje=date(2026, 8, 20), inicio=None, fim=None, **conexao):
     conn = ConexaoRelatorio(**conexao)
     monkeypatch.setattr(relatorios, "get_connection", lambda: conn)
     monkeypatch.setattr(relatorios, "data_hoje", lambda: hoje)
-    url = "/api/admin/relatorio" + ("?periodo=%s" % periodo if periodo else "")
+    filtros = []
+    if periodo:
+        filtros.append("periodo=%s" % periodo)
+    if inicio is not None:
+        filtros.append("inicio=%s" % inicio)
+    if fim is not None:
+        filtros.append("fim=%s" % fim)
+    url = "/api/admin/relatorio" + ("?" + "&".join(filtros) if filtros else "")
     resposta = cliente.get(url, headers={"Authorization": "Bearer %s" % token(papel, barbeiro_id)})
     corpo = json.loads(resposta.data) if resposta.data else {}
     return resposta.status_code, corpo, conn
@@ -157,6 +164,82 @@ def test_periodo_mes_comeca_no_dia_um(cliente, monkeypatch):
 def test_periodo_desconhecido_cai_no_dia(cliente, monkeypatch):
     _, corpo, _ = pedir(cliente, monkeypatch, periodo="decada")
     assert corpo["data_inicio"] == corpo["data_fim"] == "2026-08-20"
+
+
+# ----------------------------------------------------- período escolhido a dedo
+
+def test_faixa_livre_entra_na_consulta(cliente, monkeypatch):
+    _, corpo, conn = pedir(cliente, monkeypatch,
+                           inicio="2026-10-01", fim="2026-10-31")
+    assert corpo["data_inicio"] == "2026-10-01"
+    assert corpo["data_fim"] == "2026-10-31"
+    assert corpo["periodo"] == "personalizado"
+    # não basta devolver na resposta: tem que ter ido pras cinco consultas
+    assert all(p[:2] == ["2026-10-01", "2026-10-31"] for _, p in conn.executados)
+
+
+def test_mes_ja_fechado_e_aceito(cliente, monkeypatch):
+    """O relatório é sobre o PASSADO. O validar_data do agendamento recusa data
+    passada — se um dia alguém o reaproveitar aqui, este teste estoura."""
+    status, corpo, _ = pedir(cliente, monkeypatch, hoje=date(2026, 10, 5),
+                             inicio="2026-01-01", fim="2026-01-31")
+    assert status == 200
+    assert corpo["data_inicio"] == "2026-01-01"
+
+
+def test_faixa_livre_ganha_do_atalho(cliente, monkeypatch):
+    """Mandando os dois, vale a faixa — é a escolha explícita de quem clicou."""
+    _, corpo, _ = pedir(cliente, monkeypatch, periodo="mes",
+                        inicio="2026-10-01", fim="2026-10-10")
+    assert corpo["data_inicio"] == "2026-10-01"
+    assert corpo["data_fim"] == "2026-10-10"
+
+
+@pytest.mark.parametrize("inicio,fim", [
+    ("2026-10-01", None),        # só um lado da faixa
+    (None, "2026-10-31"),
+])
+def test_faixa_pela_metade_da_400(cliente, monkeypatch, inicio, fim):
+    """Aceitar meia faixa daria um relatório que parece filtrado e não é."""
+    status, _, conn = pedir(cliente, monkeypatch, inicio=inicio, fim=fim)
+    assert status == 400
+    assert conn.executados == []
+
+
+def test_fim_antes_do_inicio_da_400(cliente, monkeypatch):
+    status, _, conn = pedir(cliente, monkeypatch,
+                            inicio="2026-10-31", fim="2026-10-01")
+    assert status == 400
+    assert conn.executados == []
+
+
+@pytest.mark.parametrize("data_ruim", ["31/10/2026", "2026-13-01", "ontem"])
+def test_data_invalida_da_400(cliente, monkeypatch, data_ruim):
+    status, _, conn = pedir(cliente, monkeypatch, inicio=data_ruim, fim="2026-10-31")
+    assert status == 400
+    assert conn.executados == []
+
+
+def test_um_dia_so_e_faixa_valida(cliente, monkeypatch):
+    status, corpo, _ = pedir(cliente, monkeypatch,
+                             inicio="2026-10-05", fim="2026-10-05")
+    assert status == 200
+    assert corpo["data_inicio"] == corpo["data_fim"] == "2026-10-05"
+
+
+def test_barbeiro_na_faixa_livre_continua_restrito(cliente, monkeypatch):
+    """A faixa não pode ser uma porta pra enxergar o faturamento dos outros."""
+    _, _, conn = pedir(cliente, monkeypatch, papel="barbeiro", barbeiro_id=3,
+                       inicio="2026-10-01", fim="2026-10-31")
+    assert all("agendamentos.barbeiro_id = %s" in sql for sql, _ in conn.executados)
+    assert all(p[-1] == 3 for _, p in conn.executados)
+
+
+def test_salao_nao_escapa_pela_faixa_livre(cliente, monkeypatch):
+    status, _, conn = pedir(cliente, monkeypatch, papel="salao",
+                            inicio="2026-10-01", fim="2026-10-31")
+    assert status == 403
+    assert conn.executados == []
 
 
 # ------------------------------------------------------------- quem vê o quê

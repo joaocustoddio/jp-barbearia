@@ -151,16 +151,32 @@
 /* ---------- Cards de indicadores (KPIs) ---------- */
 .grid-kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
   margin-bottom: 26px;
+  /* Colunas fixas por faixa em vez de auto-fit: com 4 cards, o auto-fit cai em
+     3+1 nas telas médias e o quarto fica sozinho na linha. 2x2 fecha o bloco —
+     e é o que aparece no print. */
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .grid-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Só vira 4 colunas quando sobra largura pro valor inteiro em cada card
+   (~250px). Antes disso, 2x2 com número grande lê melhor que 4 apertados. */
+@media (min-width: 1140px) {
+  .grid-kpis { grid-template-columns: repeat(4, 1fr); }
 }
 
 .kpi {
   background: var(--card);
   border: 1px solid var(--borda);
   border-radius: var(--raio-md);
-  padding: 18px;
+  padding: 18px 16px;
+  /* deixa o valor reagir à largura DO CARD, não à da tela: dois cards lado a
+     lado num celular são estreitos mesmo com a tela larga */
+  container-type: inline-size;
 }
 
 .kpi-rotulo {
@@ -176,6 +192,20 @@
   font-size: 26px;
   font-weight: 800;
   margin: 0;
+  /* números em largura fixa: a coluna não "balança" ao trocar de período */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* Card estreito: diminui o número em vez de deixar vazar. Os cortes são onde
+   "R$ 12.345,67" (o pior caso realista) deixa de caber. */
+@container (max-width: 230px) {
+  .kpi-valor { font-size: 22px; }
+}
+
+@container (max-width: 185px) {
+  .kpi-valor { font-size: 19px; }
 }
 
 .kpi-valor.acento {
@@ -212,6 +242,57 @@
   background: var(--acento-fraco);
   border-color: var(--acento);
   color: var(--acento);
+}
+
+/* ---------- Período escolhido a dedo (mês fechado ou faixa de datas) ---------- */
+.filtro-faixa {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: -8px 0 18px;
+}
+
+.filtro-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--texto-suave);
+}
+
+.filtro-campo .campo-input {
+  padding: 7px 10px;
+  font-size: 13px;
+  width: auto;
+  min-width: 132px;
+}
+
+.filtro-ou {
+  color: var(--texto-suave);
+  font-size: 12px;
+  padding-bottom: 9px;
+}
+
+/* Faixa que de fato entrou na conta, acima dos cards */
+.faixa-periodo {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--texto-suave);
+}
+
+@media (max-width: 480px) {
+  /* no celular o "ou" só rouba linha: os campos já ficam um embaixo do outro */
+  .filtro-ou { display: none; }
+  .filtro-campo { flex: 1 1 128px; }
+  .filtro-campo .campo-input { min-width: 0; width: 100%; }
+  /* botão na própria linha: espremido ao lado do último campo ele ficava
+     pequeno demais pra acertar com o dedo */
+  .filtro-faixa .btn-mini { flex: 1 1 100%; }
 }
 
 /* ---------- Painéis/blocos ---------- */
