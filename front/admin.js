@@ -459,12 +459,15 @@ async function renderDashboard() {
         <div class="kpi" data-kpi="lucro">
           <p class="kpi-rotulo">Lucro ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor lucro">${formatarMoeda(relatorio.lucro_real)}</p>
+          <p class="kpi-detalhe">já com as comissões pagas</p>
         </div>`}
         <div class="kpi" data-kpi="cancelados">
           <p class="kpi-rotulo">Cancelados ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor ${relatorio.cancelados_qtd ? "alerta" : ""}">${relatorio.cancelados_qtd}</p>
           ${relatorio.cancelados_qtd
-            ? `<p class="kpi-detalhe">${relatorio.cancelados_perda} viraram perda real</p>`
+            ? `<p class="kpi-detalhe">${relatorio.cancelados_remarcou} remarcaram
+               &middot; ${relatorio.cancelados_perda} de perda real
+               (${formatarMoeda(relatorio.cancelados_perda_valor)})</p>`
             : `<p class="kpi-detalhe">nenhum cancelamento</p>`}
         </div>
         <div class="kpi" data-kpi="confirmados">

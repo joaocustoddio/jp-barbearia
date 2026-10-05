@@ -36,7 +36,8 @@ class ConexaoRelatorio:
     def __init__(self, faturamento=0, total=0, por_dia=(),
                  produtos_centavos=0, produtos_qtd=0, servicos=(),
                  comissoes=0, cancelados_qtd=0, cancelados_valor=0,
-                 cancelados_perda=0):
+                 cancelados_perda=0, cancelados_perda_valor=0,
+                 cancelados_remarcou=0):
         self.faturamento = faturamento
         self.total = total
         self.por_dia = por_dia
@@ -47,6 +48,8 @@ class ConexaoRelatorio:
         self.cancelados_qtd = cancelados_qtd
         self.cancelados_valor = cancelados_valor
         self.cancelados_perda = cancelados_perda
+        self.cancelados_perda_valor = cancelados_perda_valor
+        self.cancelados_remarcou = cancelados_remarcou
         self.executados = []
 
     def execute(self, sql, params=None):
@@ -57,8 +60,10 @@ class ConexaoRelatorio:
                              "quantidade": self.produtos_qtd}])
         if "comissao_pct" in consulta:
             return _Cursor([{"total": self.comissoes}])
-        if "not exists" in consulta:
-            return _Cursor([{"quantidade": self.cancelados_perda}])
+        if "not exists" in consulta or "filter (where" in consulta:
+            return _Cursor([{"perda": self.cancelados_perda,
+                             "perda_valor": self.cancelados_perda_valor,
+                             "remarcou": self.cancelados_remarcou}])
         if "status = 'cancelado'" in consulta:
             return _Cursor([{"quantidade": self.cancelados_qtd,
                              "valor": self.cancelados_valor}])
@@ -245,18 +250,24 @@ def test_cancelado_nao_entra_no_faturamento(cliente, monkeypatch):
 
 def test_perda_real_vem_separada_da_contagem(cliente, monkeypatch):
     """Nem todo cancelamento é prejuízo: medido em setembro/2026, de 94
-    cancelamentos só 46 eram perda de verdade."""
-    _, corpo, _ = pedir(cliente, monkeypatch, cancelados_qtd=94, cancelados_perda=46)
+    cancelamentos só 46 eram perda de verdade, R$ 2.015 dos R$ 4.050 cheios."""
+    _, corpo, _ = pedir(cliente, monkeypatch, cancelados_qtd=94, cancelados_valor=4050,
+                        cancelados_perda=46, cancelados_perda_valor=2015,
+                        cancelados_remarcou=37)
     assert corpo["cancelados_qtd"] == 94
     assert corpo["cancelados_perda"] == 46
+    assert corpo["cancelados_remarcou"] == 37
+    # o valor da perda tem que ser MENOR que o cheio - é esse o ponto do card
+    assert corpo["cancelados_perda_valor"] == 2015.0
+    assert corpo["cancelados_perda_valor"] < corpo["cancelados_valor"]
 
 
 def test_perda_real_descarta_quem_remarcou_e_vaga_reocupada(cliente, monkeypatch):
     """Os dois escapes precisam estar na consulta: remarcou em até 24h, ou
-    outra pessoa pegou o horário."""
+    outra pessoa pegou o horário. Sem um deles, a perda real vira o total."""
     _, _, conn = pedir(cliente, monkeypatch, cancelados_perda=1)
-    sql = next(s for s, _ in conn.executados if "not exists" in s)
-    assert sql.count("not exists") == 2
+    sql = next(s for s, _ in conn.executados if "filter (where" in s)
+    assert sql.count("exists (") == 2
     assert "interval '24 hours'" in sql
     assert "outro.hora = agendamentos.hora" in sql
 
@@ -266,7 +277,7 @@ def test_perda_real_cruza_cliente_por_telefone(cliente, monkeypatch):
     telefone tem dezenas de ids. Cruzar por cliente_id nunca acharia
     remarcação nenhuma — foi o erro da primeira análise."""
     _, _, conn = pedir(cliente, monkeypatch, cancelados_perda=1)
-    sql = next(s for s, _ in conn.executados if "not exists" in s)
+    sql = next(s for s, _ in conn.executados if "filter (where" in s)
     assert "dono.telefone" in sql and "clientes.telefone" in sql
     assert "novo.cliente_id = dono.id" in sql
 
@@ -275,7 +286,7 @@ def test_perda_real_ignora_cancelamento_sem_hora_registrada(cliente, monkeypatch
     """Cancelamento anterior a 01/09/2026 não tem cancelado_em. Sem a hora não
     dá pra saber o que veio depois, e chutar viraria número errado."""
     _, _, conn = pedir(cliente, monkeypatch, cancelados_perda=1)
-    sql = next(s for s, _ in conn.executados if "not exists" in s)
+    sql = next(s for s, _ in conn.executados if "filter (where" in s)
     assert "cancelado_em is not null" in sql
 
 

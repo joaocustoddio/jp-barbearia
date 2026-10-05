@@ -196,29 +196,37 @@ def relatorio_admin():
     # passou a existir) fica de fora: sem a hora não dá pra dizer o que veio
     # depois, e chutar aqui viraria número errado na cara do dono.
     perda_real = conn.execute(f"""
-        SELECT COUNT(*) AS quantidade
-        FROM agendamentos
-        JOIN clientes ON agendamentos.cliente_id = clientes.id
-        WHERE agendamentos.status = 'cancelado'
-          AND agendamentos.cancelado_em IS NOT NULL
-          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
-          AND NOT EXISTS (
-                SELECT 1 FROM agendamentos novo
-                JOIN clientes dono ON novo.cliente_id = dono.id
-                WHERE novo.status != 'cancelado'
-                  AND regexp_replace(COALESCE(dono.telefone, ''), '\\D', '', 'g') <> ''
-                  AND regexp_replace(COALESCE(dono.telefone, ''), '\\D', '', 'g')
-                      = regexp_replace(COALESCE(clientes.telefone, ''), '\\D', '', 'g')
-                  AND novo.criado_em >= agendamentos.cancelado_em
-                  AND novo.criado_em <= agendamentos.cancelado_em + interval '24 hours'
-          )
-          AND NOT EXISTS (
-                SELECT 1 FROM agendamentos outro
-                WHERE outro.status != 'cancelado'
-                  AND outro.data = agendamentos.data
-                  AND outro.hora = agendamentos.hora
-                  AND outro.barbeiro_id = agendamentos.barbeiro_id
-          )
+        SELECT
+            COUNT(*) FILTER (WHERE remarcou)                       AS remarcou,
+            COUNT(*) FILTER (WHERE NOT remarcou AND NOT vaga_cheia) AS perda,
+            COALESCE(SUM(preco) FILTER (WHERE NOT remarcou AND NOT vaga_cheia), 0)
+                                                                   AS perda_valor
+        FROM (
+            SELECT servicos.preco AS preco,
+                   EXISTS (
+                        SELECT 1 FROM agendamentos novo
+                        JOIN clientes dono ON novo.cliente_id = dono.id
+                        WHERE novo.status != 'cancelado'
+                          AND regexp_replace(COALESCE(dono.telefone, ''), '\\D', '', 'g') <> ''
+                          AND regexp_replace(COALESCE(dono.telefone, ''), '\\D', '', 'g')
+                              = regexp_replace(COALESCE(clientes.telefone, ''), '\\D', '', 'g')
+                          AND novo.criado_em >= agendamentos.cancelado_em
+                          AND novo.criado_em <= agendamentos.cancelado_em + interval '24 hours'
+                   ) AS remarcou,
+                   EXISTS (
+                        SELECT 1 FROM agendamentos outro
+                        WHERE outro.status != 'cancelado'
+                          AND outro.data = agendamentos.data
+                          AND outro.hora = agendamentos.hora
+                          AND outro.barbeiro_id = agendamentos.barbeiro_id
+                   ) AS vaga_cheia
+            FROM agendamentos
+            JOIN clientes ON agendamentos.cliente_id = clientes.id
+            JOIN servicos ON agendamentos.servico_id = servicos.id
+            WHERE agendamentos.status = 'cancelado'
+              AND agendamentos.cancelado_em IS NOT NULL
+              AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+        ) classificados
     """, per).fetchone()
 
     # Ranking dos serviços mais realizados no período (pro dashboard)
@@ -256,7 +264,9 @@ def relatorio_admin():
         ) if eh_master() else None,
         "cancelados_qtd": int(cancelados["quantidade"] or 0),
         "cancelados_valor": round(float(cancelados["valor"] or 0), 2),
-        "cancelados_perda": int(perda_real["quantidade"] or 0),
+        "cancelados_perda": int(perda_real["perda"] or 0),
+        "cancelados_perda_valor": round(float(perda_real["perda_valor"] or 0), 2),
+        "cancelados_remarcou": int(perda_real["remarcou"] or 0),
         "por_dia": [dict(d) for d in por_dia],
         "servicos_mais_realizados": [dict(s) for s in servicos_mais_realizados]
     })
