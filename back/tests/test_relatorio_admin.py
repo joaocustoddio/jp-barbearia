@@ -35,7 +35,8 @@ class ConexaoRelatorio:
 
     def __init__(self, faturamento=0, total=0, por_dia=(),
                  produtos_centavos=0, produtos_qtd=0, servicos=(),
-                 comissoes=0, cancelados_qtd=0, cancelados_valor=0):
+                 comissoes=0, cancelados_qtd=0, cancelados_valor=0,
+                 cancelados_perda=0):
         self.faturamento = faturamento
         self.total = total
         self.por_dia = por_dia
@@ -45,6 +46,7 @@ class ConexaoRelatorio:
         self.comissoes = comissoes
         self.cancelados_qtd = cancelados_qtd
         self.cancelados_valor = cancelados_valor
+        self.cancelados_perda = cancelados_perda
         self.executados = []
 
     def execute(self, sql, params=None):
@@ -55,6 +57,8 @@ class ConexaoRelatorio:
                              "quantidade": self.produtos_qtd}])
         if "comissao_pct" in consulta:
             return _Cursor([{"total": self.comissoes}])
+        if "not exists" in consulta:
+            return _Cursor([{"quantidade": self.cancelados_perda}])
         if "status = 'cancelado'" in consulta:
             return _Cursor([{"quantidade": self.cancelados_qtd,
                              "valor": self.cancelados_valor}])
@@ -219,13 +223,60 @@ def test_cancelados_vem_com_quantidade_e_valor(cliente, monkeypatch):
 
 
 def test_cancelado_nao_entra_no_faturamento(cliente, monkeypatch):
-    """O resto do relatório ignora cancelado; a contagem deles é a única
-    consulta que olha pra esse status — e nenhuma outra pode olhar."""
+    """Só as DUAS consultas de cancelamento (a contagem e a perda real) olham
+    pra esse status. Todas as outras precisam continuar ignorando — se uma
+    delas deixar cancelado entrar, o faturamento incha calado."""
     _, _, conn = pedir(cliente, monkeypatch, cancelados_qtd=4)
-    olham_cancelado = [s for s, _ in conn.executados if "status = 'cancelado'" in s]
-    assert len(olham_cancelado) == 1
-    ignoram = [s for s, _ in conn.executados if "status != 'cancelado'" in s]
-    assert len(ignoram) == len(conn.executados) - 1
+    consultas = [s for s, _ in conn.executados]
+
+    # Só duas CONTAM cancelado: a contagem e a perda real.
+    olham = [s for s in consultas if "agendamentos.status = 'cancelado'" in s]
+    assert len(olham) == 2
+
+    # E nenhuma consulta pode ficar SEM filtro de status — é assim que
+    # cancelado entraria no faturamento sem ninguém notar. A da perda real
+    # aparece nas duas listas de propósito: conta cancelado por fora e exclui
+    # cancelado nas subconsultas de "remarcou" e "outro pegou a vaga".
+    for sql in consultas:
+        assert "status = 'cancelado'" in sql or "status != 'cancelado'" in sql, sql
+
+
+# ------------------------------------------------------------------ perda real
+
+def test_perda_real_vem_separada_da_contagem(cliente, monkeypatch):
+    """Nem todo cancelamento é prejuízo: medido em setembro/2026, de 94
+    cancelamentos só 46 eram perda de verdade."""
+    _, corpo, _ = pedir(cliente, monkeypatch, cancelados_qtd=94, cancelados_perda=46)
+    assert corpo["cancelados_qtd"] == 94
+    assert corpo["cancelados_perda"] == 46
+
+
+def test_perda_real_descarta_quem_remarcou_e_vaga_reocupada(cliente, monkeypatch):
+    """Os dois escapes precisam estar na consulta: remarcou em até 24h, ou
+    outra pessoa pegou o horário."""
+    _, _, conn = pedir(cliente, monkeypatch, cancelados_perda=1)
+    sql = next(s for s, _ in conn.executados if "not exists" in s)
+    assert sql.count("not exists") == 2
+    assert "interval '24 hours'" in sql
+    assert "outro.hora = agendamentos.hora" in sql
+
+
+def test_perda_real_cruza_cliente_por_telefone(cliente, monkeypatch):
+    """Cada agendamento cria uma linha nova em clientes, então o mesmo
+    telefone tem dezenas de ids. Cruzar por cliente_id nunca acharia
+    remarcação nenhuma — foi o erro da primeira análise."""
+    _, _, conn = pedir(cliente, monkeypatch, cancelados_perda=1)
+    sql = next(s for s, _ in conn.executados if "not exists" in s)
+    assert "dono.telefone" in sql and "clientes.telefone" in sql
+    assert "novo.cliente_id = dono.id" in sql
+
+
+def test_perda_real_ignora_cancelamento_sem_hora_registrada(cliente, monkeypatch):
+    """Cancelamento anterior a 01/09/2026 não tem cancelado_em. Sem a hora não
+    dá pra saber o que veio depois, e chutar viraria número errado."""
+    _, _, conn = pedir(cliente, monkeypatch, cancelados_perda=1)
+    sql = next(s for s, _ in conn.executados if "not exists" in s)
+    assert "cancelado_em is not null" in sql
 
 
 def test_cancelados_respeitam_o_periodo(cliente, monkeypatch):

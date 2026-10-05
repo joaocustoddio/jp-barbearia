@@ -267,6 +267,38 @@ abas.addEventListener("click", (e) => {
 // A API aceita os dois formatos, então o estado vai direto pra ela.
 let filtroDashboard = "dia";
 
+// Quais indicadores aparecem. A escolha fica no próprio aparelho: cada um usa
+// o painel de um jeito (o dono olha lucro, o barbeiro olha quantidade), e isso
+// não é configuração da barbearia pra ir pro banco.
+const KPIS = [
+  { chave: "agendamentos", rotulo: "Agendamentos" },
+  { chave: "faturamento",  rotulo: "Faturamento" },
+  { chave: "lucro",        rotulo: "Lucro" },
+  { chave: "produtos",     rotulo: "Produtos" },
+  { chave: "cancelados",   rotulo: "Cancelados" },
+  { chave: "confirmados",  rotulo: "Confirmados hoje" },
+];
+const CHAVE_KPIS = "dashboard_kpis";
+
+function kpisVisiveis() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_KPIS));
+    if (Array.isArray(salvo)) return salvo;
+  } catch (_) { /* nada salvo ou json quebrado: mostra tudo */ }
+  return KPIS.map((k) => k.chave);
+}
+
+function salvarKpis(lista) {
+  try { localStorage.setItem(CHAVE_KPIS, JSON.stringify(lista)); } catch (_) {}
+}
+
+function aplicarFiltroKpis() {
+  const visiveis = kpisVisiveis();
+  document.querySelectorAll("[data-kpi]").forEach((card) => {
+    card.hidden = !visiveis.includes(card.dataset.kpi);
+  });
+}
+
 // Faixa do mês anterior, fechado (01 ao último dia). É o período que o dono
 // mais pede — "quanto deu mês passado" — e vira um atalho de um toque em vez
 // de obrigar a escolher duas datas no calendário do celular.
@@ -291,6 +323,17 @@ async function renderDashboard() {
       <button class="chip-filtro" data-periodo="semana">Semana</button>
       <button class="chip-filtro" data-periodo="mes">Este mês</button>
       <button class="chip-filtro" data-periodo="mes-passado">Mês passado</button>
+      <div class="menu-kpis">
+        <button class="chip-filtro chip-icone" id="btn-kpis" aria-expanded="false"
+                title="Escolher indicadores">&#9776;</button>
+        <div class="menu-kpis-lista" id="lista-kpis" hidden>
+          ${KPIS.map((k) => `
+            <label class="menu-kpis-item">
+              <input type="checkbox" value="${k.chave}" />
+              <span>${escapeHTML(k.rotulo)}</span>
+            </label>`).join("")}
+        </div>
+      </div>
     </div>
 
     <div class="filtro-faixa">
@@ -326,6 +369,30 @@ async function renderDashboard() {
         : c.dataset.periodo;
       renderDashboard();
     });
+  });
+
+  // Menu de indicadores
+  const botaoKpis = document.getElementById("btn-kpis");
+  const listaKpis = document.getElementById("lista-kpis");
+  const visiveis = kpisVisiveis();
+  listaKpis.querySelectorAll("input").forEach((c) => {
+    c.checked = visiveis.includes(c.value);
+    c.addEventListener("change", () => {
+      salvarKpis([...listaKpis.querySelectorAll("input:checked")].map((i) => i.value));
+      aplicarFiltroKpis();
+    });
+  });
+  botaoKpis.addEventListener("click", () => {
+    listaKpis.hidden = !listaKpis.hidden;
+    botaoKpis.setAttribute("aria-expanded", String(!listaKpis.hidden));
+  });
+  // Toque fora fecha o menu — no celular não existe "clicar fora do dropdown"
+  // por acidente, a pessoa simplesmente toca na tela pra seguir.
+  document.addEventListener("click", (e) => {
+    if (!listaKpis.hidden && !e.target.closest(".menu-kpis")) {
+      listaKpis.hidden = true;
+      botaoKpis.setAttribute("aria-expanded", "false");
+    }
   });
 
   document.getElementById("dash-aplicar").addEventListener("click", () => {
@@ -370,11 +437,11 @@ async function renderDashboard() {
       </p>
 
       <div class="grid-kpis">
-        <div class="kpi">
+        <div class="kpi" data-kpi="agendamentos">
           <p class="kpi-rotulo">Agendamentos ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor">${relatorio.total_agendamentos}</p>
         </div>
-        <div class="kpi">
+        <div class="kpi" data-kpi="faturamento">
           <p class="kpi-rotulo">Faturamento ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor acento">${formatarMoeda(relatorio.faturamento_total)}</p>
           ${relatorio.faturamento_produtos
@@ -382,26 +449,25 @@ async function renderDashboard() {
                + ${formatarMoeda(relatorio.faturamento_produtos)} em produtos</p>`
             : ""}
         </div>
-        <div class="kpi">
+        <div class="kpi" data-kpi="produtos">
           <p class="kpi-rotulo">Produtos ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor">${formatarMoeda(relatorio.faturamento_produtos || 0)}</p>
           ${relatorio.produtos_qtd
             ? `<p class="kpi-detalhe">${relatorio.produtos_qtd} item(ns) vendido(s)</p>` : ""}
         </div>
         ${relatorio.lucro_real == null ? "" : `
-        <div class="kpi">
+        <div class="kpi" data-kpi="lucro">
           <p class="kpi-rotulo">Lucro ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor lucro">${formatarMoeda(relatorio.lucro_real)}</p>
-          <p class="kpi-detalhe">depois de pagar ${formatarMoeda(relatorio.comissoes)} de comissão</p>
         </div>`}
-        <div class="kpi">
+        <div class="kpi" data-kpi="cancelados">
           <p class="kpi-rotulo">Cancelados ${escapeHTML(rotuloPeriodo)}</p>
           <p class="kpi-valor ${relatorio.cancelados_qtd ? "alerta" : ""}">${relatorio.cancelados_qtd}</p>
           ${relatorio.cancelados_qtd
-            ? `<p class="kpi-detalhe">${formatarMoeda(relatorio.cancelados_valor)} que deixaram de entrar</p>`
+            ? `<p class="kpi-detalhe">${relatorio.cancelados_perda} viraram perda real</p>`
             : `<p class="kpi-detalhe">nenhum cancelamento</p>`}
         </div>
-        <div class="kpi">
+        <div class="kpi" data-kpi="confirmados">
           <p class="kpi-rotulo">Confirmados hoje</p>
           <p class="kpi-valor">${confirmadosHoje.length}</p>
         </div>
@@ -418,6 +484,7 @@ async function renderDashboard() {
       </div>
     `;
 
+    aplicarFiltroKpis();
     renderRanking(document.getElementById("ranking-servicos"), relatorio.servicos_mais_realizados || []);
     renderAgendaHoje(document.getElementById("agenda-hoje"), confirmadosHoje);
 

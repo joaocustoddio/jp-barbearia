@@ -175,6 +175,52 @@ def relatorio_admin():
           AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
     """, per).fetchone()
 
+    # PERDA REAL: cancelamento que não virou nada. Dois escapes tiram o
+    # cancelamento dessa conta:
+    #   1. o cliente remarcou — qualquer horário novo criado por ele até 24h
+    #      depois de cancelar;
+    #   2. outra pessoa pegou a vaga — o horário não ficou ocioso.
+    #
+    # Medido no dado de setembro/2026: dos 94 cancelamentos com registro, 46
+    # eram perda de verdade. O valor cheio contava o dobro do prejuízo.
+    #
+    # A janela de 24h é escolha, não lei: a mediana entre cancelar e remarcar
+    # foi 17h, e esticar pra 7 dias passa a contar o corte seguinte do cliente
+    # como se fosse remarcação.
+    #
+    # Cliente é cruzado por TELEFONE, não por cliente_id: cada agendamento
+    # cria uma linha nova em clientes, então o mesmo telefone aparece com
+    # dezenas de ids diferentes e cruzar por id nunca acha nada.
+    #
+    # Cancelamento sem cancelado_em (anterior a 01/09/2026, quando a coluna
+    # passou a existir) fica de fora: sem a hora não dá pra dizer o que veio
+    # depois, e chutar aqui viraria número errado na cara do dono.
+    perda_real = conn.execute(f"""
+        SELECT COUNT(*) AS quantidade
+        FROM agendamentos
+        JOIN clientes ON agendamentos.cliente_id = clientes.id
+        WHERE agendamentos.status = 'cancelado'
+          AND agendamentos.cancelado_em IS NOT NULL
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+          AND NOT EXISTS (
+                SELECT 1 FROM agendamentos novo
+                JOIN clientes dono ON novo.cliente_id = dono.id
+                WHERE novo.status != 'cancelado'
+                  AND regexp_replace(COALESCE(dono.telefone, ''), '\\D', '', 'g') <> ''
+                  AND regexp_replace(COALESCE(dono.telefone, ''), '\\D', '', 'g')
+                      = regexp_replace(COALESCE(clientes.telefone, ''), '\\D', '', 'g')
+                  AND novo.criado_em >= agendamentos.cancelado_em
+                  AND novo.criado_em <= agendamentos.cancelado_em + interval '24 hours'
+          )
+          AND NOT EXISTS (
+                SELECT 1 FROM agendamentos outro
+                WHERE outro.status != 'cancelado'
+                  AND outro.data = agendamentos.data
+                  AND outro.hora = agendamentos.hora
+                  AND outro.barbeiro_id = agendamentos.barbeiro_id
+          )
+    """, per).fetchone()
+
     # Ranking dos serviços mais realizados no período (pro dashboard)
     servicos_mais_realizados = conn.execute(f"""
         SELECT servicos.nome,
@@ -210,6 +256,7 @@ def relatorio_admin():
         ) if eh_master() else None,
         "cancelados_qtd": int(cancelados["quantidade"] or 0),
         "cancelados_valor": round(float(cancelados["valor"] or 0), 2),
+        "cancelados_perda": int(perda_real["quantidade"] or 0),
         "por_dia": [dict(d) for d in por_dia],
         "servicos_mais_realizados": [dict(s) for s in servicos_mais_realizados]
     })
