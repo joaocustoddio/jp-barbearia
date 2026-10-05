@@ -308,20 +308,26 @@
    estouravam a largura e o campo passava por baixo dele. Com a linha só pra
    eles, sobra o dobro de espaço por campo. */
 @media (max-width: 520px) {
-  .filtro-datas { flex: 1 1 100%; gap: 8px; }
-  .filtro-campo { max-width: none; min-width: 0; }
+  /* Os campos passam a ficar um embaixo do outro.
+     Lado a lado cabia só na raspa: o campo de data do iPhone escreve o valor
+     por extenso ("30 de set. de 2026") E reserva ~60px de espaço interno,
+     somando ~204px onde a metade da linha dá 194px. Para caber, só diminuindo
+     a fonte — e a folga ficava tão pequena que quem usa fonte aumentada no
+     sistema veria as caixas se encostando de novo.
+     Empilhados, cada campo pega a linha inteira (~396px): quase o dobro do
+     que o iOS pede, com o texto no tamanho normal. */
+  .filtro-datas {
+    flex: 1 1 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filtro-campo { max-width: none; }
   .filtro-faixa .btn-mini { flex: 0 0 auto; }
 
   /* Os quatro atalhos numa linha só: com o respiro do desktop o último caía
      sozinho pra linha de baixo. */
   .filtros .chip-filtro { padding: 7px 11px; }
-}
-
-/* Telas bem estreitas (320px): a data por extenso do iOS passa a caber por
-   poucos pixels. Aperta fonte e respiro pra não ficar na dependência de o
-   iPhone medir a fonte igual ao navegador onde isto foi conferido. */
-@media (max-width: 360px) {
-  .filtro-campo .campo-input { font-size: 12.5px; padding-left: 8px; padding-right: 8px; }
 }
 
 /* ---------- Painéis/blocos ---------- */
