@@ -1800,3 +1800,56 @@ table.tabela .btn-mini {
 .ficha-numeros .ruim span { color: #f87171; }
 
 .ficha-cancelado { opacity: 0.5; text-decoration: line-through; }
+
+/* Botão de chamar no WhatsApp. Verde próprio, não o laranja do sistema: num
+   painel inteiro laranja, o verde diz "isto fala com a pessoa" antes de a
+   pessoa ler. */
+.btn-wpp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: #25d366;
+  color: #0b1a10;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.btn-wpp:hover { background: #1fb855; }
+
+.btn-wpp svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.ficha-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Cor nos números da ficha: o que o cliente já deixou em verde, o alerta de
+   sumido em vermelho. Sem cor, a ficha é um bloco cinza onde tudo pesa igual. */
+.ficha-numeros .bom span { color: #4ade80; }
+
+.ficha-numeros .atencao {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.ficha-numeros .atencao span { color: #f87171; }
+
+@media (max-width: 640px) {
+  /* na tabela empilhada o botão ocupa a linha inteira, como os outros */
+  table.tabela td.td-acao .btn-wpp { width: 100%; }
+}

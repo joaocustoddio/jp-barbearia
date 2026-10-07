@@ -717,6 +717,13 @@ function addDiasISO(iso, n) {
 }
 function recarregarAgenda() { carregarAgenda(dataAgenda || hojeISO()); }
 
+/* Balão de conversa — marca o botão como "falar com a pessoa" sem depender
+   de ler o texto. */
+const ICONE_WPP =
+  '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<path d="M12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 12 2zm0 2a8 8 0 1 1-4.1 14.9l-.4-.2-3 .8.8-2.9-.2-.4A8 8 0 0 1 12 4zm-3.2 4.2c-.2 0-.5.1-.7.4-.3.3-.9.9-.9 2.1s.9 2.4 1 2.6c.1.2 1.7 2.8 4.3 3.8 2.1.8 2.6.7 3 .6.6-.1 1.8-.7 2-1.5.3-.7.3-1.3.2-1.4l-.6-.3-1.6-.8c-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.5 6.5 0 0 1-1.9-1.2 7 7 0 0 1-1.3-1.7c-.1-.2 0-.3.1-.4l.4-.5.3-.5v-.5l-.7-1.7c-.2-.4-.4-.4-.6-.4h-.1z"/>' +
+  '</svg>';
+
 /* Número no formato que o wa.me espera: só dígitos, com o 55 do Brasil na
    frente — e só quando ele ainda não veio, senão vira 5555. */
 function numeroWhatsApp(telefone) {
@@ -2212,8 +2219,8 @@ async function carregarListaRetorno() {
                 <td data-label="Parado há"><strong>${c.dias_parado} dias</strong></td>
                 <td class="td-acao">
                   ${c.telefone
-                    ? `<a class="btn-mini" target="_blank" rel="noopener"
-                          href="https://wa.me/${numeroWhatsApp(c.telefone)}">WhatsApp</a>`
+                    ? `<a class="btn-wpp" target="_blank" rel="noopener"
+                          href="https://wa.me/${numeroWhatsApp(c.telefone)}">${ICONE_WPP}Chamar</a>`
                     : ""}
                 </td>
               </tr>`).join("")}
@@ -2226,6 +2233,14 @@ async function carregarListaRetorno() {
     const msg = tratarErro(erro);
     if (msg !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
   }
+}
+
+/* Mesma régua da lista de retorno (1,5x o ciclo, piso de 21 dias). Se a tela
+   usasse outro critério, a ficha diria que o cliente está em dia e a lista
+   diria que sumiu. */
+function sumido(c) {
+  if (c.dias_desde_ultima == null || !c.ciclo_dias) return false;
+  return c.dias_desde_ultima >= Math.max(21, Math.round(c.ciclo_dias * 1.5));
 }
 
 /* Ficha do cliente — abre por cima da tela, sem perder onde a pessoa estava. */
@@ -2246,14 +2261,22 @@ async function abrirFichaCliente(id) {
           <h3 class="bloco-titulo" style="margin:0;">${escapeHTML(c.nome || "sem nome")}</h3>
           <p class="secao-subtitulo" style="margin:2px 0 0;">${escapeHTML(c.telefone || "sem telefone")}</p>
         </div>
-        <button class="btn-mini" id="ficha-fechar">Fechar</button>
+        <div class="ficha-acoes">
+          ${c.telefone
+            ? `<a class="btn-wpp" target="_blank" rel="noopener"
+                  href="https://wa.me/${numeroWhatsApp(c.telefone)}">${ICONE_WPP}Chamar</a>`
+            : ""}
+          <button class="btn-mini" id="ficha-fechar">Fechar</button>
+        </div>
       </div>
 
       <div class="ficha-numeros">
         <div><span>${c.total_atendimentos}</span><small>cortes</small></div>
-        ${c.total_gasto != null ? `<div><span>${formatarMoeda(c.total_gasto)}</span><small>já gastou</small></div>` : ""}
+        ${c.total_gasto != null ? `<div class="bom"><span>${formatarMoeda(c.total_gasto)}</span><small>já gastou</small></div>` : ""}
         ${c.ciclo_dias ? `<div><span>${c.ciclo_dias} dias</span><small>entre cortes</small></div>` : ""}
-        ${c.dias_desde_ultima != null ? `<div><span>${c.dias_desde_ultima} dias</span><small>desde a última</small></div>` : ""}
+        ${c.dias_desde_ultima != null
+          ? `<div class="${sumido(c) ? "atencao" : ""}"><span>${c.dias_desde_ultima} dias</span>
+             <small>${sumido(c) ? "sumido" : "desde a última"}</small></div>` : ""}
         ${c.total_cancelados ? `<div class="ruim"><span>${c.total_cancelados}</span><small>cancelou</small></div>` : ""}
       </div>
 
