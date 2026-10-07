@@ -1437,6 +1437,7 @@ function abrirMenuCard(ev, a, dataRef) {
     ` : ""}
     <div class="card-menu-acoes">
       ${wpp ? `<a class="card-menu-item" href="${wpp}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+      ${a.cliente_id ? `<button class="card-menu-item" data-ficha-card="${a.cliente_id}">Ver ficha do cliente</button>` : ""}
       <button class="card-menu-item" data-rep>Remarcar em 7 dias</button>
       <button class="card-menu-item perigo" data-canc>Cancelar agendamento</button>
     </div>`;
@@ -1460,6 +1461,15 @@ function abrirMenuCard(ev, a, dataRef) {
   });
   const btnCons = pop.querySelector("[data-consumo]");
   if (btnCons) btnCons.addEventListener("click", () => { fecharMenuCard(); abrirModalConsumo(a); });
+  // A ficha é mais útil AQUI do que na aba Clientes: é com o cliente na
+  // cadeira que saber "já veio 12 vezes" ou "cancelou 3" muda alguma coisa.
+  // E a aba Clientes é só do master, então sem este botão o barbeiro não
+  // alcançava a ficha de jeito nenhum.
+  const btnFicha = pop.querySelector("[data-ficha-card]");
+  if (btnFicha) btnFicha.addEventListener("click", () => {
+    fecharMenuCard();
+    abrirFichaCliente(btnFicha.dataset.fichaCard);
+  });
   pop.querySelector("[data-rep]").addEventListener("click", () => {
     fecharMenuCard();
     abrirModalRepetir(a, addDiasISO(dataRef || hojeISO(), 7));

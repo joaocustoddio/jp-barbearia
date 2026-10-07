@@ -1738,7 +1738,9 @@ table.tabela .btn-mini {
 .ficha-fundo {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  /* acima do menu do card (1100) e dos modais (1000): a ficha é aberta a
+     partir deles e precisa cobrir quem a chamou */
+  z-index: 1200;
   background: rgba(0, 0, 0, 0.62);
   display: flex;
   align-items: center;
