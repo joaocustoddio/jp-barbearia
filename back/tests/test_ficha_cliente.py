@@ -14,9 +14,24 @@ O que precisa continuar valendo:
 
 Conexão falsa: nada de banco.
 """
+import pathlib
+
 import pytest
 
 import agendamentos
+import app
+
+
+def test_unificacao_roda_no_boot_de_producao():
+    """
+    A migração precisa ser chamada no boot do app.py, não no `__main__` do
+    database.py: sob gunicorn o `__main__` NÃO executa, e a migração sobe sem
+    nunca rodar. Foi o que aconteceu na primeira tentativa — o deploy passou,
+    os testes passaram, e o banco continuou com 920 fichas para 920 cortes.
+    """
+    fonte = pathlib.Path(app.__file__).read_text(encoding="utf-8")
+    boot = fonte.split('if os.getenv("APP_SKIP_BOOT") != "1":')[1].split("if __name__")[0]
+    assert "unificar_clientes()" in boot
 
 
 class _Cursor:

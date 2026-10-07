@@ -38,6 +38,7 @@ from config import (
 from database import (
     get_connection, init_db, criar_admin_padrao, criar_salao_padrao,
     criar_barbeiros_padrao, ajustar_servicos, criar_produtos_padrao,
+    unificar_clientes,
 )
 from extensoes import app, limiter, logger
 from horarios import hhmm_para_min, gerar_slots, filtrar_por_antecedencia
@@ -435,6 +436,7 @@ if os.getenv("APP_SKIP_BOOT") != "1":
     criar_barbeiros_padrao()  # logins dos barbeiros comuns (2 e 3) — do .env
     ajustar_servicos()        # cria os serviços que faltarem (preço é do banco)
     criar_produtos_padrao()   # cria os adicionais que faltarem (preço é do banco)
+    unificar_clientes()       # junta as fichas repetidas da mesma pessoa
 
 if __name__ == "__main__":
     print(f"[config] Ambiente: {FLASK_ENV}")
