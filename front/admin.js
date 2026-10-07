@@ -1440,6 +1440,8 @@ function abrirMenuCard(ev, a, dataRef) {
       ${a.cliente_id ? `<button class="card-menu-item" data-ficha-card="${a.cliente_id}">Ver ficha do cliente</button>` : ""}
       <button class="card-menu-item" data-rep>Remarcar em 7 dias</button>
       <button class="card-menu-item perigo" data-canc>Cancelar agendamento</button>
+      ${API.admin.ehMaster() && a.cliente_telefone
+        ? `<button class="card-menu-item perigo" data-bloq>Bloquear cliente no site</button>` : ""}
     </div>`;
   document.body.appendChild(pop);
 
@@ -1474,6 +1476,27 @@ function abrirMenuCard(ev, a, dataRef) {
     fecharMenuCard();
     abrirModalRepetir(a, addDiasISO(dataRef || hojeISO(), 7));
   });
+  // Bloquear: só o master, porque impede a pessoa de marcar com QUALQUER
+  // barbeiro — é decisão da casa, não de quem está atendendo. Sem telefone
+  // não dá: o bloqueio é por número.
+  const btnBloq = pop.querySelector("[data-bloq]");
+  if (btnBloq) btnBloq.addEventListener("click", async () => {
+    fecharMenuCard();
+    const nome = a.cliente_nome || "este cliente";
+    if (!confirm(
+      `Bloquear ${nome} (${a.cliente_telefone})?
+
+` +
+      "Ele deixa de conseguir marcar sozinho pelo site. Você continua " +
+      "conseguindo anotar o corte dele pelo Caderninho."
+    )) return;
+    const motivo = prompt("Motivo (opcional) — aparece na lista de bloqueados:", "") || "";
+    try {
+      await API.admin.bloquearCliente(a.cliente_telefone, nome, motivo.trim());
+      alert(`${nome} foi bloqueado. Para liberar, vá em Gerenciar > Clientes.`);
+    } catch (e) { const m = tratarErro(e); if (m !== null) alert(m); }
+  });
+
   pop.querySelector("[data-canc]").addEventListener("click", async () => {
     fecharMenuCard();
     if (!confirm("Cancelar este agendamento? O horário voltará a ficar livre.")) return;
