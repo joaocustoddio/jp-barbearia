@@ -717,12 +717,19 @@ function addDiasISO(iso, n) {
 }
 function recarregarAgenda() { carregarAgenda(dataAgenda || hojeISO()); }
 
-/* Monta o link wa.me com a mensagem de lembrete já preenchida.
-   Retorna "" se não tiver telefone. Número: só dígitos, com 55 (BR) na frente. */
-function linkWhatsApp(a) {
-  let tel = (a.cliente_telefone || "").replace(/\D/g, "");
+/* Número no formato que o wa.me espera: só dígitos, com o 55 do Brasil na
+   frente — e só quando ele ainda não veio, senão vira 5555. */
+function numeroWhatsApp(telefone) {
+  const tel = (telefone || "").replace(/\D/g, "");
   if (!tel) return "";
-  if (tel.length <= 11) tel = "55" + tel;   // adiciona DDI do Brasil se não veio
+  return tel.length <= 11 ? "55" + tel : tel;
+}
+
+/* Monta o link wa.me com a mensagem de lembrete já preenchida.
+   Retorna "" se não tiver telefone. */
+function linkWhatsApp(a) {
+  const tel = numeroWhatsApp(a.cliente_telefone);
+  if (!tel) return "";
   const barbeiro = a.barbeiro_nome || "nosso profissional";
   const msg =
     "*JP BARBEARIA*\n" +
@@ -1914,7 +1921,18 @@ async function carregarListaBarbeiros() {
    ===================================================== */
 async function renderClientesBloqueados() {
   elConteudo.innerHTML = `
-    <h2 class="secao-titulo">Clientes bloqueados</h2>
+    <h2 class="secao-titulo">Clientes</h2>
+    <p class="secao-subtitulo">Quem está sumido e quem não pode marcar pelo site</p>
+
+    <div class="bloco">
+      <h3 class="bloco-titulo">Está na hora de voltar</h3>
+      <p class="secao-subtitulo" style="margin-top:0;">
+        Clientes de casa parados há mais tempo do que costumam ficar. Toque pra ver a ficha.
+      </p>
+      <div id="lista-retorno">${carregando("Procurando...")}</div>
+    </div>
+
+    <h2 class="secao-titulo" style="margin-top:28px;">Clientes bloqueados</h2>
     <p class="secao-subtitulo">Quem está aqui não consegue marcar sozinho pelo site</p>
 
     <div class="bloco">
@@ -1948,6 +1966,7 @@ async function renderClientesBloqueados() {
   `;
 
   document.getElementById("blo-add").addEventListener("click", adicionarBloqueioCliente);
+  carregarListaRetorno();
   carregarClientesBloqueados();
 }
 
@@ -2133,6 +2152,107 @@ async function carregarPrecosProdutos() {
   }
 }
 
+
+async function carregarListaRetorno() {
+  const alvo = document.getElementById("lista-retorno");
+  if (!alvo) return;
+  try {
+    const lista = await API.admin.clientesParaChamar();
+    if (!lista.length) {
+      alvo.innerHTML = vazio("Ninguém atrasado por enquanto.");
+      return;
+    }
+    alvo.innerHTML = `
+      <div class="tabela-wrap">
+        <table class="tabela">
+          <thead>
+            <tr><th>Cliente</th><th>Costuma vir</th><th>Parado há</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${lista.map((c) => `
+              <tr>
+                <td data-label="Cliente">
+                  <button class="link-ficha" data-ficha="${c.id}">${escapeHTML(c.nome || "sem nome")}</button>
+                  <span class="retorno-visitas">${c.visitas} visitas</span>
+                </td>
+                <td data-label="Costuma vir">a cada ${c.ciclo_dias} dias</td>
+                <td data-label="Parado há"><strong>${c.dias_parado} dias</strong></td>
+                <td class="td-acao">
+                  ${c.telefone
+                    ? `<a class="btn-mini" target="_blank" rel="noopener"
+                          href="https://wa.me/${numeroWhatsApp(c.telefone)}">WhatsApp</a>`
+                    : ""}
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+    alvo.querySelectorAll("[data-ficha]").forEach((b) =>
+      b.addEventListener("click", () => abrirFichaCliente(b.dataset.ficha)));
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg !== null) alvo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
+}
+
+/* Ficha do cliente — abre por cima da tela, sem perder onde a pessoa estava. */
+async function abrirFichaCliente(id) {
+  const fundo = document.createElement("div");
+  fundo.className = "ficha-fundo";
+  fundo.innerHTML = `<div class="ficha-caixa">${carregando("Abrindo ficha...")}</div>`;
+  document.body.appendChild(fundo);
+  const fechar = () => fundo.remove();
+  fundo.addEventListener("click", (e) => { if (e.target === fundo) fechar(); });
+
+  try {
+    const c = await API.admin.fichaCliente(id);
+    const linhas = c.historico.slice(0, 12);
+    fundo.querySelector(".ficha-caixa").innerHTML = `
+      <div class="ficha-topo">
+        <div>
+          <h3 class="bloco-titulo" style="margin:0;">${escapeHTML(c.nome || "sem nome")}</h3>
+          <p class="secao-subtitulo" style="margin:2px 0 0;">${escapeHTML(c.telefone || "sem telefone")}</p>
+        </div>
+        <button class="btn-mini" id="ficha-fechar">Fechar</button>
+      </div>
+
+      <div class="ficha-numeros">
+        <div><span>${c.total_atendimentos}</span><small>cortes</small></div>
+        ${c.total_gasto != null ? `<div><span>${formatarMoeda(c.total_gasto)}</span><small>já gastou</small></div>` : ""}
+        ${c.ciclo_dias ? `<div><span>${c.ciclo_dias} dias</span><small>entre cortes</small></div>` : ""}
+        ${c.dias_desde_ultima != null ? `<div><span>${c.dias_desde_ultima} dias</span><small>desde a última</small></div>` : ""}
+        ${c.total_cancelados ? `<div class="ruim"><span>${c.total_cancelados}</span><small>cancelou</small></div>` : ""}
+      </div>
+
+      <p class="secao-subtitulo">
+        ${c.servico_preferido ? `Costuma fazer <strong>${escapeHTML(c.servico_preferido)}</strong>` : ""}
+        ${c.barbeiro_preferido ? ` com <strong>${escapeHTML(c.barbeiro_preferido)}</strong>` : ""}
+      </p>
+
+      <div class="tabela-wrap" style="margin-top:4px;">
+        <table class="tabela">
+          <thead><tr><th>Data</th><th>Serviço</th><th>Barbeiro</th></tr></thead>
+          <tbody>
+            ${linhas.map((h) => `
+              <tr class="${h.status === "cancelado" ? "ficha-cancelado" : ""}">
+                <td data-label="Data">${formatarDataBR(h.data)} ${escapeHTML(h.hora.slice(0, 5))}</td>
+                <td data-label="Serviço">${escapeHTML(h.servico)}${h.status === "cancelado" ? " (cancelado)" : ""}</td>
+                <td data-label="Barbeiro">${escapeHTML(h.barbeiro)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      ${c.historico.length > linhas.length
+        ? `<p class="secao-subtitulo">e mais ${c.historico.length - linhas.length} atendimento(s)</p>` : ""}
+    `;
+    document.getElementById("ficha-fechar").addEventListener("click", fechar);
+  } catch (erro) {
+    const msg = tratarErro(erro);
+    if (msg === null) { fechar(); return; }
+    fundo.querySelector(".ficha-caixa").innerHTML =
+      `<div class="painel-erro">${escapeHTML(msg)}</div>`;
+  }
+}
 
 /* =====================================================
    SEÇÃO: HORÁRIOS (bloqueios)

@@ -321,6 +321,16 @@ const API = (() => {
         return requestAuth("/api/admin/relatorio?" + new URLSearchParams(q));
       },
 
+      /** GET /api/admin/clientes/:id → ficha com histórico */
+      fichaCliente(id) {
+        return requestAuth(`/api/admin/clientes/${id}`);
+      },
+
+      /** GET /api/admin/clientes/retorno → quem está atrasado pra voltar */
+      clientesParaChamar() {
+        return requestAuth("/api/admin/clientes/retorno");
+      },
+
       /** GET /api/admin/bloqueios */
       listarBloqueios() {
         return requestAuth("/api/admin/bloqueios");

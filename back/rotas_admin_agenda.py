@@ -42,6 +42,7 @@ def painel_agendamentos():
             agendamentos.servico_id,
             agendamentos.encaixe,
             agendamentos.forma_pagamento,
+            agendamentos.cliente_id,
             clientes.nome       AS cliente_nome,
             clientes.telefone   AS cliente_telefone,
             servicos.nome       AS servico_nome,

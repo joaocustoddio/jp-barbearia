@@ -1710,3 +1710,91 @@ table.tabela .btn-mini {
     font-size: 15px;
   }
 }
+
+/* =====================================================
+   FICHA DO CLIENTE e lista de quem está sumido
+   ===================================================== */
+.link-ficha {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--acento);
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-ficha:hover { text-decoration: underline; }
+
+.retorno-visitas {
+  display: block;
+  font-size: 11.5px;
+  color: var(--texto-suave);
+}
+
+/* A ficha abre por cima: o barbeiro está no meio do atendimento e não pode
+   perder a tela onde estava. */
+.ficha-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ficha-caixa {
+  background: var(--card);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-md);
+  padding: 18px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 86vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ficha-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ficha-numeros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.ficha-numeros > div {
+  background: var(--bg-elevada);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ficha-numeros span {
+  font-family: var(--fonte-titulo);
+  font-size: 17px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ficha-numeros small {
+  font-size: 11px;
+  color: var(--texto-suave);
+}
+
+.ficha-numeros .ruim span { color: #f87171; }
+
+.ficha-cancelado { opacity: 0.5; text-decoration: line-through; }

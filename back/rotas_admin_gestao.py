@@ -8,8 +8,13 @@ produtos, preço/duração dos serviços e troca de senhas.
 import bcrypt
 from flask import request, jsonify, g
 
+from collections import Counter
+from datetime import date
+
 from agendamentos import so_digitos
-from auth import somente_master, token_requerido
+from auth import (
+    barbeiro_do_escopo, pode_ver_valores, somente_master, token_requerido,
+)
 from config import data_hoje
 from database import get_connection
 from extensoes import app
@@ -375,3 +380,156 @@ def atualizar_status_barbeiro(barbeiro_id):
 
     estado = "reativado" if novo_ativo else "inativado"
     return jsonify({"mensagem": f"Barbeiro {estado} com sucesso", "ativo": bool(novo_ativo)})
+
+
+# -------------------------------------------------------
+# FICHA DO CLIENTE
+#
+# Só existe porque cada pessoa passou a ter UMA ficha. Antes, cada corte criava
+# um cadastro novo e "histórico do cliente" era literalmente impossível de
+# montar — eram 920 fichas para 385 pessoas.
+# -------------------------------------------------------
+@app.route("/api/admin/clientes/<int:cliente_id>", methods=["GET"])
+@token_requerido
+def ficha_cliente(cliente_id):
+    """Histórico da pessoa: quantas vezes veio, o que costuma fazer, quando foi
+    a última vez. Valores só pra quem pode ver dinheiro (salão não vê)."""
+    conn = get_connection()
+    cliente = conn.execute(
+        "SELECT id, nome, telefone, email, criado_em FROM clientes WHERE id = %s",
+        (cliente_id,)
+    ).fetchone()
+    if not cliente:
+        conn.close()
+        return jsonify({"erro": "Cliente não encontrado"}), 404
+
+    # Um barbeiro comum só abre a ficha de quem ele já atendeu — não é uma
+    # lista da carteira de clientes dos colegas.
+    escopo = barbeiro_do_escopo()
+    if escopo is not None:
+        atendeu = conn.execute(
+            "SELECT 1 FROM agendamentos WHERE cliente_id = %s AND barbeiro_id = %s "
+            "AND status != 'cancelado' LIMIT 1",
+            (cliente_id, escopo)
+        ).fetchone()
+        if not atendeu:
+            conn.close()
+            return jsonify({"erro": "Cliente não encontrado"}), 404
+
+    historico = conn.execute(
+        """SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
+                  agendamentos.status, agendamentos.forma_pagamento,
+                  servicos.nome AS servico, servicos.preco,
+                  barbeiros.nome AS barbeiro
+             FROM agendamentos
+             JOIN servicos  ON agendamentos.servico_id  = servicos.id
+             JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
+            WHERE agendamentos.cliente_id = %s
+            ORDER BY agendamentos.data DESC, agendamentos.hora DESC""",
+        (cliente_id,)
+    ).fetchall()
+    conn.close()
+
+    feitos = [h for h in historico if h["status"] != "cancelado"]
+    cancelados = [h for h in historico if h["status"] == "cancelado"]
+    ver_valores = pode_ver_valores()
+
+    # Ciclo: média de dias entre uma visita e a próxima. Serve pra dizer se a
+    # pessoa está atrasada SEGUNDO O HÁBITO DELA — quem corta a cada 15 dias e
+    # sumiu há 30 é um caso; quem corta a cada 45, não.
+    datas = sorted({h["data"] for h in feitos})
+    ciclo = None
+    if len(datas) >= 2:
+        d0 = date.fromisoformat(datas[0])
+        d1 = date.fromisoformat(datas[-1])
+        ciclo = round((d1 - d0).days / (len(datas) - 1))
+
+    def preferido(campo):
+        if not feitos:
+            return None
+        return Counter(h[campo] for h in feitos).most_common(1)[0][0]
+
+    ficha = {
+        "id": cliente["id"],
+        "nome": cliente["nome"],
+        "telefone": cliente["telefone"],
+        "email": cliente["email"],
+        "total_atendimentos": len(feitos),
+        "total_cancelados": len(cancelados),
+        "primeira_visita": datas[0] if datas else None,
+        "ultima_visita": datas[-1] if datas else None,
+        "dias_desde_ultima": (data_hoje() - date.fromisoformat(datas[-1])).days if datas else None,
+        "ciclo_dias": ciclo,
+        "servico_preferido": preferido("servico"),
+        "barbeiro_preferido": preferido("barbeiro"),
+        "historico": [
+            {k: h[k] for k in ("id", "data", "hora", "status", "servico", "barbeiro")}
+            for h in historico
+        ],
+    }
+    if ver_valores:
+        ficha["total_gasto"] = round(sum(float(h["preco"] or 0) for h in feitos), 2)
+        for item, linha in zip(ficha["historico"], historico):
+            item["preco"] = round(float(linha["preco"] or 0), 2)
+            item["forma_pagamento"] = linha["forma_pagamento"]
+    return jsonify(ficha)
+
+
+@app.route("/api/admin/clientes/retorno", methods=["GET"])
+@token_requerido
+def clientes_para_chamar():
+    """
+    Quem já é cliente de casa e está atrasado para voltar.
+
+    "Atrasado" é pelo hábito de cada um, não por um prazo fixo: compara os dias
+    desde a última visita com o intervalo médio daquela pessoa. Quem corta a
+    cada 15 dias entra na lista antes de quem corta a cada 45.
+
+    Só entra quem já voltou pelo menos duas vezes — uma visita só não diz se a
+    pessoa é cliente ou passou ali uma vez. Telefone genérico fica de fora: lá
+    moram várias pessoas e o "hábito" não é de ninguém.
+    """
+    escopo = barbeiro_do_escopo()
+    filtro = " AND agendamentos.barbeiro_id = %s" if escopo is not None else ""
+    params = [escopo] if escopo is not None else []
+
+    conn = get_connection()
+    linhas = conn.execute(rf"""
+        SELECT clientes.id, clientes.nome, clientes.telefone,
+               COUNT(DISTINCT agendamentos.data) AS visitas,
+               MIN(agendamentos.data) AS primeira,
+               MAX(agendamentos.data) AS ultima
+          FROM agendamentos
+          JOIN clientes ON agendamentos.cliente_id = clientes.id
+         WHERE agendamentos.status != 'cancelado'
+           AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') <> ''
+           AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g')
+               NOT IN (SELECT telefone FROM telefones_genericos){filtro}
+         GROUP BY clientes.id
+        HAVING COUNT(DISTINCT agendamentos.data) >= 2
+    """, params).fetchall()
+    conn.close()
+
+    hoje = data_hoje()
+    atrasados = []
+    for linha in linhas:
+        primeira = date.fromisoformat(linha["primeira"])
+        ultima = date.fromisoformat(linha["ultima"])
+        ciclo = max(1, round((ultima - primeira).days / (linha["visitas"] - 1)))
+        parado = (hoje - ultima).days
+        # 1,5x o próprio ciclo, com piso de 21 dias: sem o piso, quem corta
+        # toda semana apareceria na lista por ter faltado 11 dias.
+        if parado >= max(21, round(ciclo * 1.5)):
+            atrasados.append({
+                "id": linha["id"],
+                "nome": linha["nome"],
+                "telefone": linha["telefone"],
+                "visitas": linha["visitas"],
+                "ciclo_dias": ciclo,
+                "ultima_visita": linha["ultima"],
+                "dias_parado": parado,
+                "atraso": parado - ciclo,
+            })
+
+    atrasados.sort(key=lambda c: c["atraso"], reverse=True)
+    return jsonify(atrasados)
