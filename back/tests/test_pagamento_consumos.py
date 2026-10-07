@@ -280,3 +280,15 @@ def test_consumos_sem_token_bloqueia(cliente):
     assert cliente.get("/api/admin/agendamentos/7/consumos").status_code == 401
     assert cliente.put("/api/admin/agendamentos/7/consumos",
                        json={"itens": []}).status_code == 401
+
+
+def test_cartao_vip_e_forma_valida(cliente, monkeypatch):
+    """O corte do cartão fidelidade precisa ser registrável: sem isso o
+    barbeiro marca "dinheiro" e o fechamento do dia não bate com o caixa."""
+    conn = ligar(monkeypatch, ConexaoAgendamento(agendamento=AGENDAMENTO))
+    resposta = cliente.patch("/api/admin/agendamentos/7/pagamento",
+                             json={"forma": "vip"}, headers=cabecalho())
+    assert resposta.status_code == 200
+    assert json.loads(resposta.data)["forma_pagamento"] == "vip"
+    updates = [p for sql, p in conn.executados if sql.startswith("update agendamentos")]
+    assert updates == [("vip", 7)]

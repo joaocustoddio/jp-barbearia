@@ -209,7 +209,12 @@ def cancelar_agendamento(agendamento_id):
 # -------------------------------------------------------
 # PAGAMENTO + CONSUMOS (produtos) de um agendamento
 # -------------------------------------------------------
-FORMAS_PAGAMENTO = {"cartao", "pix", "dinheiro"}
+# "vip" = corte do cartão fidelidade. Por enquanto é só o registro de COMO foi
+# pago — o valor continua entrando igual no faturamento e na comissão. Tirar
+# esse corte do caixa depende de uma decisão que ainda não veio: se o barbeiro
+# recebe comissão nele. Como as duas contas saem do mesmo número hoje, zerar o
+# faturamento zeraria a comissão junto, sem ninguém ter escolhido isso.
+FORMAS_PAGAMENTO = {"cartao", "pix", "dinheiro", "vip"}
 
 
 def _agendamento_no_escopo(conn, agendamento_id):
@@ -229,7 +234,7 @@ def _agendamento_no_escopo(conn, agendamento_id):
 @app.route("/api/admin/agendamentos/<int:agendamento_id>/pagamento", methods=["PATCH"])
 @token_requerido
 def registrar_pagamento(agendamento_id):
-    """Registra a forma de pagamento do atendimento. { forma: cartao|pix|dinheiro }
+    """Registra a forma de pagamento do atendimento. { forma: cartao|pix|dinheiro|vip }
     (forma vazia limpa o registro)."""
     dados = request.get_json(silent=True) or {}
     forma = (dados.get("forma") or "").strip().lower()

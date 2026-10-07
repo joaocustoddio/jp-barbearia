@@ -701,7 +701,7 @@ let dataAgenda = "";          // vazio = hoje
 let statusAgenda = "ativos";  // "ativos" (confirmados) ou "cancelados" — filtro da timeline
 const ALTURA_HORA = 104;      // px por hora na timeline (dá espaço pros textos + marcações de 30min)
 const ALTURA_CARD_COMPACTO = 40;  // card empilhado (sobreposto) — só o essencial, numa linha
-const PG_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão" };
+const PG_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", vip: "Cartão VIP" };
 
 function minutosDe(hhmm) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
 function minParaHHMM(min) {
@@ -1430,7 +1430,7 @@ function abrirMenuCard(ev, a, dataRef) {
     ${verVal ? `
     <div class="card-menu-sec">Pagamento</div>
     <div class="card-menu-pgto">
-      ${["dinheiro", "pix", "cartao"].map((f) =>
+      ${["dinheiro", "pix", "cartao", "vip"].map((f) =>
         `<button class="pg-chip${a.forma_pagamento === f ? " ativo" : ""}" data-pg="${f}">${PG_ROTULO[f]}</button>`).join("")}
     </div>
     <button class="card-menu-item" data-consumo>Produtos${prodTotal ? ` — ${formatarMoeda(prodTotal)}` : ""}</button>
