@@ -188,6 +188,43 @@ def init_db():
     # email: opcional, usado pra mandar a confirmação e o lembrete automático.
     cur.execute("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS email TEXT")
 
+    # O telefone é o que identifica a pessoa. Índice sobre o número LIMPO porque
+    # é assim que a busca compara — o mesmo cliente digita com e sem máscara.
+    cur.execute(r"""
+        CREATE INDEX IF NOT EXISTS idx_clientes_telefone_limpo
+        ON clientes (regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'))
+    """)
+
+    # ---------------------------------------------------------
+    # TELEFONES QUE NÃO IDENTIFICAM NINGUÉM
+    #
+    # Quando o cliente não informa telefone, a equipe acabou usando o número da
+    # própria barbearia. Um deles acumulou 22 nomes diferentes — Pedro, Raul,
+    # Aline, "Cliente 1". Se esses números entrassem na unificação, dezenas de
+    # pessoas virariam UMA, com um histórico que não é de ninguém.
+    #
+    # Número listado aqui nunca junta: cada atendimento continua com ficha
+    # própria, como era antes.
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS telefones_genericos (
+            id SERIAL PRIMARY KEY,
+            telefone TEXT NOT NULL UNIQUE,
+            motivo TEXT,
+            criado_em TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+    for numero, motivo in [
+        ("11972570084", "número da barbearia, usado quando o cliente não informa"),
+        ("11915128934", "número usado para mais de 8 nomes diferentes"),
+        ("11988887777", "número de testes do sistema"),
+    ]:
+        cur.execute(
+            "INSERT INTO telefones_genericos (telefone, motivo) VALUES (%s, %s) "
+            "ON CONFLICT (telefone) DO NOTHING",
+            (numero, motivo)
+        )
+
     # ---------------------------------------------------------
     # SERVICOS
     # ---------------------------------------------------------
@@ -551,6 +588,63 @@ def criar_barbeiros_padrao():
     )
 
 
+def unificar_clientes():
+    """
+    Junta as fichas repetidas da mesma pessoa. Roda no boot e é idempotente:
+    depois da primeira vez não existe mais o que juntar e ela não faz nada.
+
+    O sistema criava uma linha nova em `clientes` a CADA agendamento. Em
+    05/10/2026 isso era 846 fichas para 284 telefones — a mesma pessoa aparecia
+    três vezes em média, e por isso não havia como ver histórico de ninguém.
+
+    A pessoa é identificada pelo telefone sem máscara. Fica de fora:
+    - quem não tem telefone (não dá pra saber se é a mesma pessoa);
+    - os números de `telefones_genericos` (o número da barbearia e afins).
+
+    Só `agendamentos` aponta pra `clientes`, então religar os agendamentos e
+    apagar as fichas órfãs resolve sem deixar ponta solta.
+    """
+    conn = get_connection()
+    limpo = r"regexp_replace(COALESCE(%s, ''), '\D', '', 'g')"
+
+    # 1. Religa cada agendamento na ficha mais antiga daquele telefone.
+    conn.execute(f"""
+        WITH primeira AS (
+            SELECT {limpo % 'telefone'} AS tel, MIN(id) AS id
+            FROM clientes
+            WHERE {limpo % 'telefone'} <> ''
+              AND {limpo % 'telefone'} NOT IN (SELECT telefone FROM telefones_genericos)
+            GROUP BY 1
+        ),
+        duplicada AS (
+            SELECT c.id AS antiga, primeira.id AS nova
+            FROM clientes c
+            JOIN primeira ON primeira.tel = {limpo % 'c.telefone'}
+            WHERE c.id <> primeira.id
+        )
+        UPDATE agendamentos
+           SET cliente_id = duplicada.nova
+          FROM duplicada
+         WHERE agendamentos.cliente_id = duplicada.antiga
+    """)
+
+    # 2. Apaga as fichas que ficaram sem nenhum agendamento. Como `agendamentos`
+    #    é a única tabela que referencia `clientes`, uma ficha sem agendamento
+    #    não é usada em lugar nenhum.
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM clientes
+         WHERE NOT EXISTS (
+            SELECT 1 FROM agendamentos WHERE agendamentos.cliente_id = clientes.id
+         )
+    """)
+    apagadas = cur.rowcount
+    conn.commit()
+    conn.close()
+    if apagadas:
+        print(f"[clientes] {apagadas} fichas repetidas unificadas.")
+
+
 def ajustar_servicos():
     """
     Garante que o cardápio de serviços EXISTA. Roda no boot e é idempotente.
@@ -655,4 +749,5 @@ if __name__ == "__main__":
     criar_barbeiros_padrao()
     ajustar_servicos()
     criar_produtos_padrao()
+    unificar_clientes()
     print("Banco de dados (Postgres/Supabase) criado/verificado.")

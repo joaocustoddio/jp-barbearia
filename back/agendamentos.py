@@ -103,6 +103,53 @@ MENSAGEM_CLIENTE_BLOQUEADO = (
 )
 
 
+def buscar_ou_criar_cliente(conn, nome, telefone, email):
+    """
+    Devolve o id da ficha do cliente, reaproveitando a que já existe.
+
+    Antes, cada agendamento criava uma ficha nova: a mesma pessoa virava três
+    cadastros em média e não havia histórico de ninguém. Agora o TELEFONE
+    identifica a pessoa — comparado sem máscara, porque o mesmo cliente digita
+    com e sem parênteses.
+
+    Cria ficha nova (comportamento antigo) em dois casos:
+    - sem telefone, porque não dá pra afirmar que é a mesma pessoa;
+    - telefone da lista de genéricos, como o número da própria barbearia usado
+      quando o cliente não informa o dele. Juntar por ali empilharia dezenas de
+      pessoas diferentes numa ficha só.
+    """
+    numero = so_digitos(telefone)
+    nome = (nome or "").strip()
+    email = (email or "").strip() or None
+
+    if numero:
+        generico = conn.execute(
+            "SELECT 1 FROM telefones_genericos WHERE telefone = %s", (numero,)
+        ).fetchone()
+        if not generico:
+            ja = conn.execute(
+                r"""SELECT id FROM clientes
+                    WHERE regexp_replace(COALESCE(telefone, ''), '\D', '', 'g') = %s
+                    ORDER BY id LIMIT 1""",
+                (numero,)
+            ).fetchone()
+            if ja:
+                # Mantém o cadastro vivo com o que a pessoa acabou de informar,
+                # sem apagar o e-mail antigo quando ela não digita um novo.
+                conn.execute(
+                    "UPDATE clientes SET nome = %s, email = COALESCE(%s, email) WHERE id = %s",
+                    (nome, email, ja["id"])
+                )
+                return ja["id"]
+
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO clientes (nome, telefone, email) VALUES (%s, %s, %s) RETURNING id",
+        (nome, telefone or None, email)
+    )
+    return cursor.fetchone()["id"]
+
+
 def so_digitos(telefone):
     """'(11) 98888-7777' -> '11988887777'. Como o telefone é comparado no banco."""
     return re.sub(r"\D", "", telefone or "")
@@ -261,14 +308,11 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
             conn.close()
             return {"erro": mensagem_de_conflito(conflito)}, 409
 
-    # Salva cliente + agendamento (RETURNING id — Postgres não tem lastrowid)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO clientes (nome, telefone, email) VALUES (%s, %s, %s) RETURNING id",
-        (dados["nome_cliente"].strip(), dados.get("telefone") or None,
-         (dados.get("email") or "").strip() or None)
+    # Reaproveita a ficha de quem já veio, em vez de criar uma nova por corte.
+    cliente_id = buscar_ou_criar_cliente(
+        conn, dados["nome_cliente"], dados.get("telefone"), dados.get("email")
     )
-    cliente_id = cursor.fetchone()["id"]
+    cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status, encaixe)
            VALUES (%s, %s, %s, %s, %s, 'confirmado', %s) RETURNING id""",

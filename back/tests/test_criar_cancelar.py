@@ -53,7 +53,8 @@ class ConexaoCriacao:
 
     def __init__(self, barbeiro_ativo=True, servico_existe=True, duracao=30,
                  agendamentos_do_dia=(), bloqueios=(), almoco_fixo=None,
-                 detalhes=None, cliente_bloqueado=False):
+                 detalhes=None, cliente_bloqueado=False,
+                 cliente_existente=None, telefone_generico=False):
         self.barbeiro_ativo = barbeiro_ativo
         self.servico_existe = servico_existe
         self.cliente_bloqueado = cliente_bloqueado
@@ -63,6 +64,9 @@ class ConexaoCriacao:
         self.almoco_fixo = almoco_fixo
         self.detalhes = detalhes or {"servico": "Degradê", "preco": 40,
                                      "duracao_min": 40, "barbeiro": "Rian"}
+        # ficha que já existe pra esse telefone (None = cliente novo)
+        self.cliente_existente = cliente_existente
+        self.telefone_generico = telefone_generico
         self.executados = []
         self.commits = 0
         self._ultimo = _Cursor([])
@@ -84,6 +88,12 @@ class ConexaoCriacao:
         consulta = " ".join(sql.split()).lower()
         self.executados.append((consulta, params))
 
+        if "from telefones_genericos" in consulta:
+            return _Cursor([{"?column?": 1}] if self.telefone_generico else [])
+        if "from clientes where regexp_replace" in consulta:
+            return _Cursor([{"id": self.cliente_existente}] if self.cliente_existente else [])
+        if consulta.startswith("update clientes"):
+            return _Cursor([])
         if consulta.startswith("insert into clientes"):
             return _Cursor([{"id": 100}])
         if consulta.startswith("insert into agendamentos"):
