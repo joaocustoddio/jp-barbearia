@@ -410,6 +410,11 @@ const API = (() => {
         return requestAuth(`/api/admin/almocos?data=${encodeURIComponent(data)}`);
       },
 
+      /** GET /api/admin/bloqueios-dia?data= → travas de horário pra desenhar na agenda */
+      bloqueiosDoDia(data) {
+        return requestAuth(`/api/admin/bloqueios-dia?data=${encodeURIComponent(data)}`);
+      },
+
       /** GET /api/admin/expedientes?data= → jornada de cada barbeiro no dia (master) */
       listarExpedientes(data) {
         return requestAuth(`/api/admin/expedientes?data=${encodeURIComponent(data)}`);

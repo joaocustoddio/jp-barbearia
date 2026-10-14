@@ -1853,3 +1853,38 @@ table.tabela .btn-mini {
   /* na tabela empilhada o botão ocupa a linha inteira, como os outros */
   table.tabela td.td-acao .btn-wpp { width: 100%; }
 }
+
+/* Trava de horário desenhada na agenda. Amarelo próprio: o azul já é o almoço
+   e o laranja é o acento do sistema — com a mesma cor, o barbeiro não
+   distinguiria "estou almoçando" de "estou fora". */
+.agenda-card.agenda-trava {
+  flex-flow: column-reverse;
+  gap: 10px;
+  background: rgba(250, 204, 21, 0.14);
+  border-color: #facc15;
+  border-left-color: #facc15;
+  display: flex;
+  justify-content: center;
+}
+
+.agenda-card.agenda-trava .agenda-card-topo { color: #facc15; }
+
+.agenda-card.agenda-trava .agenda-card-cliente {
+  color: #fde68a;
+  font-weight: 700;
+}
+
+/* Marca a trava que vale pra barbearia toda, não só pra aquele barbeiro */
+.tag-geral {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.15);
+  border: 1px solid #facc15;
+  border-radius: 4px;
+  padding: 0 4px;
+  vertical-align: middle;
+}

@@ -12,7 +12,9 @@ from auth import (
     barbeiro_do_escopo, eh_master, pode_ver_valores, somente_master,
     token_requerido,
 )
-from config import DURACAO_ALMOCO_MIN, HORA_FOLGA, expediente_e_folga
+from config import (
+    DURACAO_ALMOCO_MIN, HORA_FOLGA, INTERVALO_MINUTOS, expediente_e_folga,
+)
 from database import get_connection
 from extensoes import app
 from horarios import hhmm_para_min
@@ -635,6 +637,54 @@ def listar_almocos():
         saida.append({"barbeiro_id": f["barbeiro_id"], "barbeiro_nome": f["barbeiro_nome"],
                       "hora": hora, "duracao_min": 60, "tipo": "fixo"})
     return jsonify(saida)
+
+
+@app.route("/api/admin/bloqueios-dia", methods=["GET"])
+@token_requerido
+def bloqueios_do_dia():
+    """
+    Travas de horário do dia, pra desenhar na agenda como bloco — irmã da
+    /api/admin/almocos, que faz o mesmo com o almoço.
+
+    Inclui as travas da barbearia inteira (barbeiro_id nulo). Elas fecham a
+    agenda de TODO mundo — é assim que `janelas_ocupadas` as trata —, então
+    precisam aparecer na coluna de cada barbeiro. Sem isso o horário sumiria do
+    site e continuaria com cara de livre no painel.
+
+    Ficam de fora o almoço, que já vem pela rota dele, e a trava de dia inteiro
+    (hora nula), que não tem onde ser desenhada numa linha do tempo.
+
+    ?data=YYYY-MM-DD
+    """
+    data = request.args.get("data")
+    if not data:
+        return jsonify({"erro": "Data é obrigatória"}), 400
+
+    escopo = barbeiro_do_escopo()      # barbeiro → seu id; master/salão → None
+    consulta = """SELECT id, barbeiro_id, hora, duracao_min, motivo
+                    FROM bloqueios
+                   WHERE data = %s
+                     AND hora IS NOT NULL
+                     AND motivo IS DISTINCT FROM 'Almoço'"""
+    params = [data]
+    if escopo is not None:
+        consulta += " AND (barbeiro_id IS NULL OR barbeiro_id = %s)"
+        params.append(escopo)
+    consulta += " ORDER BY hora"
+
+    conn = get_connection()
+    linhas = conn.execute(consulta, params).fetchall()
+    conn.close()
+
+    return jsonify([{
+        "id": linha["id"],
+        # nulo = trava da barbearia inteira; o painel desenha em toda coluna
+        "barbeiro_id": linha["barbeiro_id"],
+        "hora": linha["hora"][:5],
+        # mesmo padrão que a regra de disponibilidade usa quando não há duração
+        "duracao_min": linha["duracao_min"] or INTERVALO_MINUTOS,
+        "motivo": (linha["motivo"] or "").strip() or None,
+    } for linha in linhas])
 
 
 # -------------------------------------------------------

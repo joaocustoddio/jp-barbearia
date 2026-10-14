@@ -1085,12 +1085,17 @@ async function carregarAgenda(data) {
     const filtrados = ags.filter((a) =>
       statusAgenda === "cancelados" ? a.status === "cancelado" : a.status !== "cancelado"
     );
-    // Almoços aparecem na timeline como bloco (cor diferente) — só na aba de ativos.
+    // Almoços e travas de horário aparecem na timeline como bloco (cor própria)
+    // — só na aba de ativos.
     let almocos = [];
+    let travas = [];
     if (statusAgenda !== "cancelados") {
-      try { almocos = await API.admin.listarAlmocos(data); } catch (_) { /* segue sem almoços */ }
+      [almocos, travas] = await Promise.all([
+        API.admin.listarAlmocos(data).catch(() => []),
+        API.admin.bloqueiosDoDia(data).catch(() => []),
+      ]);
     }
-    renderTimeline(corpo, data, colunas, filtrados, almocos);
+    renderTimeline(corpo, data, colunas, filtrados, almocos, travas);
   } catch (erro) {
     const msg = tratarErro(erro);
     if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
@@ -1225,8 +1230,9 @@ function resumoDoDia(data, ags, verValores) {
   return `<div class="resumo-dia">${itens.join("")}</div>`;
 }
 
-function renderTimeline(container, data, colunas, ags, almocos) {
+function renderTimeline(container, data, colunas, ags, almocos, travas) {
   almocos = almocos || [];
+  travas = travas || [];
   // Janela do dia (horas): a partir dos agendamentos + almoços, com margem 8h–20h.
   let ini = 8 * 60, fim = 20 * 60;
   ags.forEach((a) => {
@@ -1241,6 +1247,12 @@ function renderTimeline(container, data, colunas, ags, almocos) {
     if (s < ini) ini = s;
     if (e > fim) fim = e;
   });
+  travas.forEach((t) => {
+    const s = minutosDe(t.hora);
+    const e = s + (t.duracao_min || 30);
+    if (s < ini) ini = s;
+    if (e > fim) fim = e;
+  });
   const Hs = Math.floor(ini / 60), He = Math.ceil(fim / 60);
   const altura = (He - Hs) * ALTURA_HORA;
   const verValores = API.admin.podeVerValores();
@@ -1251,6 +1263,15 @@ function renderTimeline(container, data, colunas, ags, almocos) {
   colunas.forEach((c) => { porBarbeiro[c.id] = []; porAlmoco[c.id] = []; });
   ags.forEach((a) => { if (porBarbeiro[a.barbeiro_id]) porBarbeiro[a.barbeiro_id].push(a); });
   almocos.forEach((al) => { if (porAlmoco[al.barbeiro_id]) porAlmoco[al.barbeiro_id].push(al); });
+
+  // Trava sem barbeiro é da barbearia inteira: fecha a agenda de todo mundo,
+  // então é desenhada na coluna de cada um.
+  const porTrava = {};
+  colunas.forEach((c) => { porTrava[c.id] = []; });
+  travas.forEach((t) => {
+    if (t.barbeiro_id == null) colunas.forEach((c) => porTrava[c.id].push(t));
+    else if (porTrava[t.barbeiro_id]) porTrava[t.barbeiro_id].push(t);
+  });
 
   // Régua de horas — marcações de 30 em 30 min (a "meia" fica mais discreta).
   let regua = "";
@@ -1280,6 +1301,11 @@ function renderTimeline(container, data, colunas, ags, almocos) {
       const s = minutosDe(al.hora);
       const dur = al.duracao_min || 60;
       lista.push({ tipo: "almoco", al, s, e: s + dur, dur });
+    });
+    (porTrava[c.id] || []).forEach((tv) => {
+      const s = minutosDe(tv.hora);
+      const dur = tv.duracao_min || 30;
+      lista.push({ tipo: "trava", tv, s, e: s + dur, dur });
     });
     let prevBottom = -Infinity;
     const GAP = 6;
@@ -1327,6 +1353,20 @@ function renderTimeline(container, data, colunas, ags, almocos) {
           <div class="agenda-card agenda-almoco${classeCompacta}" style="${pos}">
             <div class="agenda-card-topo"><span>${escapeHTML(al.hora)}–${minParaHHMM(s + dur)}</span></div>
             <div class="agenda-card-cliente">Almoço</div>
+          </div>`;
+      }
+
+      // Card de TRAVA: amarelo, sem ações. Mostra o motivo quando o barbeiro
+      // escreveu um; senão, o texto padrão.
+      if (p.tipo === "trava") {
+        const tv = p.tv;
+        const titulo = tv.motivo || "Horário bloqueado";
+        const geral = tv.barbeiro_id == null
+          ? ' <span class="tag-geral">barbearia</span>' : "";
+        return `
+          <div class="agenda-card agenda-trava${classeCompacta}" style="${pos}">
+            <div class="agenda-card-topo"><span>${escapeHTML(tv.hora)}–${minParaHHMM(s + dur)}</span></div>
+            <div class="agenda-card-cliente">${escapeHTML(titulo)}${geral}</div>
           </div>`;
       }
 
