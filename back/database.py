@@ -288,6 +288,39 @@ def init_db():
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS encaixe BOOLEAN NOT NULL DEFAULT false")
     # forma_pagamento: 'cartao' | 'pix' | 'dinheiro' | NULL (ainda não registrado).
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT")
+    # Snapshot: não é possível reconstruir reajustes antigos; congela o que o
+    # sistema conhece hoje. Só preenche NULL, portanto nunca desfaz uma edição.
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS valor_centavos INTEGER")
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS duracao_min INTEGER")
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS comissao_pct INTEGER")
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS preco_personalizado BOOLEAN NOT NULL DEFAULT false")
+    cur.execute('''UPDATE agendamentos a SET
+        valor_centavos = COALESCE(a.valor_centavos, CAST(ROUND(CAST(s.preco AS NUMERIC) * 100) AS INTEGER)),
+        duracao_min = COALESCE(a.duracao_min, s.duracao_min),
+        comissao_pct = COALESCE(a.comissao_pct, b.comissao_pct)
+        FROM servicos s, barbeiros b
+        WHERE a.servico_id = s.id AND a.barbeiro_id = b.id
+          AND (a.valor_centavos IS NULL OR a.duracao_min IS NULL OR a.comissao_pct IS NULL)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS servico_vigencias (
+        id SERIAL PRIMARY KEY,
+        servico_id INTEGER NOT NULL REFERENCES servicos(id),
+        inicio TEXT NOT NULL,
+        valor_centavos INTEGER NOT NULL CHECK(valor_centavos >= 0),
+        duracao_min INTEGER NOT NULL CHECK(duracao_min BETWEEN 5 AND 480),
+        admin_id INTEGER NOT NULL,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(servico_id, inicio)
+    )''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS agendamento_alteracoes (
+        id SERIAL PRIMARY KEY,
+        agendamento_id INTEGER NOT NULL REFERENCES agendamentos(id),
+        admin_id INTEGER NOT NULL,
+        valor_anterior_centavos INTEGER NOT NULL,
+        valor_novo_centavos INTEGER NOT NULL,
+        duracao_anterior_min INTEGER NOT NULL,
+        duracao_nova_min INTEGER NOT NULL,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    )''')
     # Quando o lembrete automático (1h antes) foi enviado — evita mandar duas vezes.
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lembrete_enviado_em TIMESTAMPTZ")
 

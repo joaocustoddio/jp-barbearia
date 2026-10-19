@@ -39,9 +39,9 @@ class Conexao:
         consulta = " ".join(sql.split()).lower()
         self.consultas.append(consulta)
         linhas = self.servicos
-        if "ativo = 1" in consulta:
+        if "s.ativo = 1" in consulta:
             linhas = [s for s in linhas if s.get("ativo", 1) == 1]
-        return _Cursor(linhas)
+        return _Cursor([dict(s, valor_centavos=round(s["preco"] * 100)) for s in linhas])
 
     def cursor(self):
         return self
@@ -78,4 +78,4 @@ def test_a_consulta_filtra_no_banco(cliente, monkeypatch):
     conn = Conexao(CARDAPIO)
     monkeypatch.setattr(rotas_publicas, "get_connection", lambda: conn)
     cliente.get("/api/servicos")
-    assert any("from servicos where ativo = 1" in c for c in conn.consultas)
+    assert any("where s.ativo = 1" in c for c in conn.consultas)

@@ -1888,3 +1888,11 @@ table.tabela .btn-mini {
   padding: 0 4px;
   vertical-align: middle;
 }
+
+.alterar-explicacao, .preco-programados {
+  color: #9aa1b1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.preco-programados { flex-basis: 100%; }

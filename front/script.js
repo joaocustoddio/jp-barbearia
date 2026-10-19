@@ -59,7 +59,8 @@ const state = {
   nome: "",
   telefone: "",
   email: "",
-  linkAgenda: ""     // link do Google Agenda, devolvido pelo back na confirmação
+  linkAgenda: "",    // link do Google Agenda, devolvido pelo back na confirmação
+  comprovante: ""
 };
 
 let passoAtual = 0;
@@ -566,6 +567,11 @@ async function renderPassoHorario() {
       areaHorarios.before(aviso);
     }
 
+    // A tabela pode ter um reajuste programado para a data escolhida.
+    const catalogo = await carregarServicos(dataUsada);
+    const servicoNaData = catalogo.find((s) => Number(s.id) === Number(state.servico.id));
+    if (!servicoNaData) throw new Error("Este serviço não está mais disponível. Escolha outro serviço.");
+    state.servico = servicoNaData;
     const grid = document.createElement("div");
     grid.className = "grid-horarios";
 
@@ -698,6 +704,7 @@ async function finalizarAgendamento() {
     // O back devolve o link do Google Agenda — o lembrete vira o alarme do
     // próprio celular do cliente.
     state.linkAgenda = (criado && criado.link_agenda) || "";
+    state.comprovante = (criado && criado.comprovante) || "";
 
     concluido = true;
     renderStepper();
@@ -716,7 +723,8 @@ async function finalizarAgendamento() {
 /* =====================================================
    TELA DE SUCESSO
 
-   Fica visível com uma barra de progresso preenchendo em
+   Com comprovante, permanece aberta até o cliente salvar o código.
+   Sem comprovante, fica visível com uma barra de progresso preenchendo em
    ~15s (dá tempo do cliente ler com calma); quando termina,
    volta sozinha pro início (bom pra um totem/tablet na loja
    sendo usado por vários clientes seguidos). O botão "OK"
@@ -724,11 +732,17 @@ async function finalizarAgendamento() {
    ===================================================== */
 const DURACAO_TELA_SUCESSO_SEGUNDOS = 15;
 
+function escaparHtml(valor) {
+  return String(valor ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
 function renderSucesso() {
   // Botão de calendário: o cliente toca e o horário entra na agenda do celular
   // dele — o alarme passa a ser do próprio aparelho, que ele sempre vê.
   const botaoAgenda = state.linkAgenda
-    ? `<a class="btn btn-agenda" id="btn-agenda" href="${state.linkAgenda}" target="_blank" rel="noopener">
+    ? `<a class="btn btn-agenda" id="btn-agenda" href="${escaparHtml(state.linkAgenda)}" target="_blank" rel="noopener">
          ${ICONES.calendario} Adicionar à minha agenda
        </a>`
     : "";
@@ -737,13 +751,19 @@ function renderSucesso() {
     <div class="tela-sucesso">
       <div class="icone-sucesso">${ICONES.check}</div>
       <h2>Agendamento confirmado!</h2>
-      <p>Prontinho, ${state.nome}! Seu horário de <strong>${state.servico.nome}</strong> com <strong>${state.barbeiro.nome}</strong>
+      <p>Prontinho, ${escaparHtml(state.nome)}! Seu horário de <strong>${escaparHtml(state.servico.nome)}</strong> com <strong>${escaparHtml(state.barbeiro.nome)}</strong>
       no dia ${formatarDataBR(state.data)} às ${state.hora} está garantido. Te esperamos!</p>
       ${botaoAgenda}
-      <div class="barra-progresso-container">
+      ${state.comprovante ? `
+        <label for="comprovante-sucesso">Guarde seu código de comprovante</label>
+        <p>Você precisará dele e do telefone para consultar ou cancelar. Mantenha este código em segurança.</p>
+        <textarea id="comprovante-sucesso" class="campo-input" readonly rows="4" spellcheck="false" style="width:100%;resize:vertical;">${escaparHtml(state.comprovante)}</textarea>
+        <button class="btn btn-agenda" id="btn-copiar-comprovante">Copiar código</button>
+        <p id="comprovante-aviso" role="status" aria-live="polite"></p>
+      ` : `<div class="barra-progresso-container">
         <div class="barra-progresso-preenchimento" id="barra-progresso-sucesso"></div>
-      </div>
-      <button class="btn btn-primario" id="btn-ok-sucesso" style="max-width:200px;margin:0 auto;">OK</button>
+      </div>`}
+      <button class="btn btn-primario" id="btn-ok-sucesso" style="max-width:200px;margin:0 auto;">${state.comprovante ? "Já salvei meu código" : "OK"}</button>
     </div>
   `;
 
@@ -758,13 +778,29 @@ function renderSucesso() {
   const segundos = state.linkAgenda
     ? DURACAO_TELA_SUCESSO_SEGUNDOS * 2
     : DURACAO_TELA_SUCESSO_SEGUNDOS;
-  barra.style.animationDuration = `${segundos}s`;
-  barra.addEventListener("animationend", reiniciar);
+  if (!state.comprovante && barra) {
+    barra.style.animationDuration = `${segundos}s`;
+    barra.addEventListener("animationend", reiniciar);
+  }
   btnOk.addEventListener("click", reiniciar); // deixa pular a espera
+
+  const copiar = document.getElementById("btn-copiar-comprovante");
+  if (copiar) copiar.addEventListener("click", async () => {
+    const campo = document.getElementById("comprovante-sucesso");
+    const aviso = document.getElementById("comprovante-aviso");
+    try {
+      await navigator.clipboard.writeText(state.comprovante);
+      aviso.textContent = "Código copiado. Salve-o em um lugar seguro.";
+    } catch (_) {
+      campo.select();
+      campo.setSelectionRange(0, campo.value.length);
+      aviso.textContent = "Selecione e copie o código acima para guardá-lo.";
+    }
+  });
 
   // Se a pessoa foi adicionar na agenda, não reinicia a tela por baixo dela.
   const linkAgenda = document.getElementById("btn-agenda");
-  if (linkAgenda) {
+  if (linkAgenda && barra) {
     linkAgenda.addEventListener("click", () => barra.removeEventListener("animationend", reiniciar));
   }
 }
@@ -887,14 +923,14 @@ async function chamarComRetry(fn) {
   throw ultimoErro;
 }
 
-async function carregarServicos() {
+async function carregarServicos(data) {
   if (EH_LOCAL) {
-    try { return await API.listarServicos(); }
+    try { return await API.listarServicos(data); }
     catch (erro) { console.warn("Backend offline (dev): usando mock.", erro.message); return MOCK_SERVICOS; }
   }
   // Produção: re-tenta (cold start) e, se falhar de vez, deixa o erro subir
   // (a tela mostra erro) — nunca dado falso.
-  return await chamarComRetry(() => API.listarServicos());
+  return await chamarComRetry(() => API.listarServicos(data));
 }
 
 async function carregarBarbeiros() {
@@ -931,7 +967,7 @@ async function carregarHorarios(data, barbeiroId) {
 
 
 /* =====================================================
-   CANCELAMENTO PELO CLIENTE (por telefone)
+   CANCELAMENTO PELO CLIENTE (por telefone e comprovante)
    Reaproveita os helpers do wizard (cabeçalho, voltar, carregando).
    ===================================================== */
 function abrirCancelamento() {
@@ -949,15 +985,18 @@ function renderCancelamento() {
   elConteudo.innerHTML = "";
   elConteudo.appendChild(botaoVoltar(voltarAoAgendamento));
   elConteudo.insertAdjacentHTML("beforeend",
-    cabecalhoPasso("Meus agendamentos", "Informe seu telefone para ver seus horários marcados"));
+    cabecalhoPasso("Meu agendamento", "Informe seu telefone e o código recebido na confirmação"));
 
   const bloco = document.createElement("div");
   bloco.className = "bloco-cancelar";
   bloco.innerHTML = `
-    <div class="campo-cancelar">
+    <div class="campo-cancelar" style="flex-direction:column;">
       <input type="tel" id="canc-telefone" class="campo-input" placeholder="Telefone com DDD (ex: 11999998888)" />
+      <label for="canc-comprovante">Código de comprovante</label>
+      <textarea id="canc-comprovante" class="campo-input" rows="3" required spellcheck="false" autocomplete="off" placeholder="Cole aqui o código da confirmação"></textarea>
       <button class="btn btn-primario" id="canc-buscar">Buscar</button>
     </div>
+    <p>Agendou antes de receber um código ou perdeu seu comprovante? Entre em contato com a barbearia para consultar ou cancelar.</p>
     <p class="login-erro canc-erro" id="canc-erro"></p>
     <div id="canc-lista"></div>
   `;
@@ -974,32 +1013,38 @@ async function buscarAgendamentosCancelar() {
   const erroEl = document.getElementById("canc-erro");
   const lista = document.getElementById("canc-lista");
   erroEl.textContent = "";
+  lista.innerHTML = "";
   const tel = input.value.trim();
+  const comprovante = document.getElementById("canc-comprovante").value.trim();
   if (!/^\d{10,11}$/.test(tel.replace(/\D/g, ""))) {
     erroEl.textContent = "Digite um telefone válido com DDD.";
     return;
   }
+  if (!comprovante) {
+    erroEl.textContent = "Informe o código de comprovante. Sem ele, entre em contato com a barbearia.";
+    return;
+  }
   mostrarCarregando(lista, "Buscando seus agendamentos...");
   try {
-    const ags = await API.consultarAgendamentos(tel);
-    renderListaCancelar(ags, tel);
+    const ags = await API.consultarAgendamentos(tel, comprovante);
+    renderListaCancelar(ags, tel, comprovante);
   } catch (erro) {
     lista.innerHTML = "";
     erroEl.textContent = erro.message || "Não foi possível buscar seus agendamentos.";
   }
 }
 
-function renderListaCancelar(ags, telefone) {
+function renderListaCancelar(ags, telefone, comprovante) {
   const lista = document.getElementById("canc-lista");
   if (!ags.length) {
-    lista.innerHTML = `<div class="canc-vazio">${ICONES.vazio}<span>Nenhum agendamento futuro encontrado para esse telefone.</span></div>`;
+    lista.innerHTML = `<div class="canc-vazio">${ICONES.vazio}<span>Nenhum agendamento futuro encontrado para esse telefone e comprovante.</span></div>`;
     return;
   }
   lista.innerHTML = ags.map((a) => `
     <div class="canc-item" data-item="${a.id}">
       <div class="canc-item-info">
         <strong>${formatarDataBR(a.data)} às ${a.hora.slice(0, 5)}</strong>
-        <span>${a.servico_nome} · ${a.barbeiro_nome}</span>
+        <span>${escaparHtml(a.servico_nome)} · ${escaparHtml(a.barbeiro_nome)}</span>
       </div>
       <button class="btn-cancelar-item" data-cancelar="${a.id}">Cancelar</button>
     </div>
@@ -1011,7 +1056,7 @@ function renderListaCancelar(ags, telefone) {
       btn.disabled = true;
       btn.textContent = "...";
       try {
-        await API.cancelarAgendamentoCliente(btn.dataset.cancelar, telefone);
+        await API.cancelarAgendamentoCliente(Number(btn.dataset.cancelar), telefone, comprovante);
         const item = btn.closest(".canc-item");
         item.classList.add("cancelado");
         btn.remove();

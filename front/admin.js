@@ -917,7 +917,7 @@ async function renderCaderninho() {
 
   // Grid de serviços com foto (toque pra escolher).
   try {
-    const servicos = await carregarServicosCache();
+    const servicos = await carregarServicosParaData();
     const grid = document.getElementById("cad-servicos");
     grid.innerHTML = servicos.map((s) => `
       <button type="button" class="cad-servico-card" data-servico-id="${s.id}">
@@ -1483,6 +1483,7 @@ function abrirMenuCard(ev, a, dataRef) {
     <button class="card-menu-item" data-consumo>Produtos${prodTotal ? ` — ${formatarMoeda(prodTotal)}` : ""}</button>
     ` : ""}
     <div class="card-menu-acoes">
+      ${verVal ? '<button class="card-menu-item" data-alterar>Alterar</button>' : ''}
       ${wpp ? `<a class="card-menu-item" href="${wpp}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
       ${a.cliente_id ? `<button class="card-menu-item" data-ficha-card="${a.cliente_id}">Ver ficha do cliente</button>` : ""}
       <button class="card-menu-item" data-rep>Remarcar em 7 dias</button>
@@ -1509,6 +1510,8 @@ function abrirMenuCard(ev, a, dataRef) {
     });
   });
   const btnCons = pop.querySelector("[data-consumo]");
+  const btnAlterar = pop.querySelector("[data-alterar]");
+  if (btnAlterar) btnAlterar.addEventListener("click", () => { fecharMenuCard(); abrirModalAlterar(a); });
   if (btnCons) btnCons.addEventListener("click", () => { fecharMenuCard(); abrirModalConsumo(a); });
   // A ficha é mais útil AQUI do que na aba Clientes: é com o cliente na
   // cadeira que saber "já veio 12 vezes" ou "cancelou 3" muda alguma coisa.
@@ -1553,6 +1556,73 @@ function abrirMenuCard(ev, a, dataRef) {
 
   // Fecha ao clicar fora (no próximo clique).
   setTimeout(() => document.addEventListener("click", fecharMenuCard, { once: true }), 0);
+}
+
+function validarPrecoDuracao(preco, duracao) {
+  const valor = String(preco).trim().replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(valor) || !Number.isFinite(Number(valor))) {
+    throw new Error("Informe um preço maior ou igual a zero, com até duas casas decimais.");
+  }
+  const minutos = Number(duracao);
+  if (!Number.isInteger(minutos) || minutos < 5 || minutos > 480) {
+    throw new Error("A duração deve ser um número inteiro entre 5 e 480 minutos.");
+  }
+  return { preco: Number(valor), duracao_min: minutos };
+}
+
+function abrirModalAlterar(a) {
+  if (!API.admin.podeVerValores()) return;
+  const precoAtual = Number(a.servico_preco);
+  const duracaoAtual = Number(a.servico_duracao || 30);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <form class="modal-box" role="dialog" aria-modal="true" aria-labelledby="alterar-titulo">
+      <h3 class="modal-titulo" id="alterar-titulo">Alterar agendamento</h3>
+      <p>${escapeHTML(a.cliente_nome)} · ${escapeHTML(a.servico_nome)}</p>
+      <p class="alterar-explicacao">O preço vale apenas para este agendamento. Alterar somente a duração mantém o preço do serviço.</p>
+      <div class="modal-linha">
+        <label class="modal-campo">Preço (R$)
+          <input class="campo-input" name="preco" type="text" inputmode="decimal" required value="${precoAtual.toFixed(2).replace('.', ',')}">
+        </label>
+        <label class="modal-campo">Duração (minutos)
+          <input class="campo-input" name="duracao" type="number" min="5" max="480" step="1" required value="${duracaoAtual}">
+        </label>
+      </div>
+      <p class="login-erro" role="alert"></p>
+      <div class="modal-acoes">
+        <button class="btn-mini" type="button" data-fechar>Fechar</button>
+        <button class="btn btn-primario" type="submit">Salvar</button>
+      </div>
+    </form>`;
+  document.body.appendChild(overlay);
+  const form = overlay.querySelector("form");
+  const btn = form.querySelector('[type="submit"]');
+  const fechar = () => { if (!btn.disabled) overlay.remove(); };
+  overlay.querySelector('[data-fechar]').addEventListener("click", fechar);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+  overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+  form.elements.preco.focus();
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (btn.disabled) return;
+    const erro = form.querySelector('[role="alert"]');
+    erro.textContent = "";
+    try {
+      const valores = validarPrecoDuracao(form.elements.preco.value, form.elements.duracao.value);
+      const campos = {};
+      if (Math.round(valores.preco * 100) !== Math.round(precoAtual * 100)) campos.preco = valores.preco;
+      if (valores.duracao_min !== duracaoAtual) campos.duracao_min = valores.duracao_min;
+      if (!Object.keys(campos).length) { fechar(); return; }
+      btn.disabled = true;
+      await API.admin.alterarAgendamento(a.id, campos);
+      overlay.remove();
+      recarregarAgenda();
+    } catch (err) {
+      const m = tratarErro(err);
+      if (m !== null) erro.textContent = m;
+    } finally { btn.disabled = false; }
+  });
 }
 
 // Modal de produtos (consumo) de um atendimento: lista + adicionar + remover.
@@ -1641,18 +1711,18 @@ async function abrirModalConsumo(a) {
   });
 }
 
-// Cache dos serviços (pro select do modal de repetir) — evita refetch a cada clique.
-let _servicosCache = null;
-async function carregarServicosCache() {
-  if (!_servicosCache) _servicosCache = await API.listarServicos();
-  return _servicosCache;
+// Catálogo consultado pela data do atendimento.
+async function carregarServicosParaData(data = hojeISO()) {
+  // Não reutiliza preços entre datas ou entre reajustes feitos por outro usuário.
+  return API.listarServicos(data);
 }
 
 // Abre uma telinha pra repetir o agendamento podendo ajustar dia, hora e serviço
 // antes de confirmar (padrão: mesmo serviço, +7 dias, mesma hora).
 async function abrirModalRepetir(a, dataPadrao) {
   let servicos = [];
-  try { servicos = await carregarServicosCache(); } catch (_) { /* segue sem lista */ }
+  try { servicos = await carregarServicosParaData(dataPadrao); }
+  catch (e) { const m = tratarErro(e); if (m !== null) alert(m); return; }
   const opts = servicos.map((s) =>
     `<option value="${s.id}"${Number(s.id) === Number(a.servico_id) ? " selected" : ""}>${escapeHTML(s.nome)} — ${formatarMoeda(s.preco)}</option>`
   ).join("");
@@ -1686,6 +1756,28 @@ async function abrirModalRepetir(a, dataPadrao) {
   const fechar = () => overlay.remove();
   overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
   overlay.querySelector("#rep-cancelar").addEventListener("click", fechar);
+
+  let versaoData = 0;
+  overlay.querySelector('#rep-data').addEventListener('change', async () => {
+    const versao = ++versaoData;
+    const btn = overlay.querySelector('#rep-confirmar');
+    const select = overlay.querySelector('#rep-servico');
+    const selecionado = select.value;
+    btn.disabled = true;
+    select.disabled = true;
+    overlay.querySelector('#rep-erro').textContent = '';
+    try {
+      const novaData = overlay.querySelector('#rep-data').value;
+      if (!novaData) throw new Error('Escolha uma data.');
+      const lista = await carregarServicosParaData(novaData);
+      if (versao !== versaoData || !overlay.isConnected) return;
+      select.innerHTML = lista.map(s => `<option value="${s.id}"${String(s.id) === selecionado ? ' selected' : ''}>${escapeHTML(s.nome)} — ${formatarMoeda(s.preco)}</option>`).join('');
+      select.disabled = false;
+      btn.disabled = !lista.length;
+    } catch (e) {
+      if (versao === versaoData) overlay.querySelector('#rep-erro').textContent = tratarErro(e) || '';
+    }
+  });
 
   overlay.querySelector("#rep-confirmar").addEventListener("click", async () => {
     const servico_id = overlay.querySelector("#rep-servico").value;
@@ -2118,7 +2210,7 @@ async function adicionarBloqueioCliente() {
 async function renderPrecos() {
   elConteudo.innerHTML = `
     <h2 class="secao-titulo">Preços</h2>
-    <p class="secao-subtitulo">Ajuste os valores do cardápio. Vale na hora, para todos.</p>
+    <p class="secao-subtitulo">Serviços: escolha a data do reajuste. Atendimentos passados e preços manuais são preservados. Adicionais: alterações valem para novos lançamentos.</p>
 
     <div class="bloco">
       <h3 class="bloco-titulo">Serviços</h3>
@@ -2157,8 +2249,10 @@ async function carregarPrecosServicos() {
   const alvo = document.getElementById("precos-servicos");
   if (!alvo) return;
   try {
-    _servicosCache = null;                     // preço mudou: refaz o cache
-    const servicos = await API.listarServicos();
+    const [servicos, vigencias] = await Promise.all([
+      API.listarServicos(), API.admin.listarVigencias()
+    ]);
+    const hoje = hojeISO();
     alvo.innerHTML = servicos
       .sort((a, b) => a.nome.localeCompare(b.nome))
       .map((s) => linhaPreco(s.id, s.nome, `
@@ -2167,22 +2261,44 @@ async function carregarPrecosServicos() {
                  value="${Number(s.preco).toFixed(2).replace(".", ",")}" />
         </label>
         <label class="preco-campo">
-          <input type="number" min="5" max="480" step="5" class="campo-input preco-duracao"
+          <input type="number" min="5" max="480" step="1" class="campo-input preco-duracao"
                  value="${s.duracao_min}" /> min
-        </label>`)).join("");
+        </label>
+        <label class="preco-campo">Válido a partir de
+          <input type="date" class="campo-input preco-vigencia" required min="${hoje}" value="${hoje}">
+        </label>
+        <div class="preco-programados">
+          ${vigencias.filter((v) => Number(v.servico_id) === Number(s.id) && v.inicio > hoje)
+            .sort((a, b) => a.inicio.localeCompare(b.inicio))
+            .map((v) => `<div>Programado para ${escapeHTML(v.inicio.split('-').reverse().join('/'))}: ${formatarMoeda(v.valor_centavos / 100)} · ${Number(v.duracao_min)} min</div>`).join('')}
+        </div>`)).join("");
 
     alvo.querySelectorAll(".preco-item").forEach((item) => {
+      const data = item.querySelector(".preco-vigencia");
+      data.addEventListener("change", () => {
+        const revisao = vigencias.find((v) => Number(v.servico_id) === Number(item.dataset.id) && v.inicio === data.value);
+        if (revisao) {
+          item.querySelector(".preco-valor").value = Number(revisao.valor_centavos / 100).toFixed(2).replace('.', ',');
+          item.querySelector(".preco-duracao").value = revisao.duracao_min;
+        }
+      });
       item.querySelector(".preco-salvar").addEventListener("click", async (ev) => {
         const btn = ev.currentTarget;
         btn.disabled = true;
         try {
+          if (!data.value || !data.checkValidity() || data.value < hojeISO()) {
+            throw new Error("Escolha uma data de vigência a partir de hoje.");
+          }
+          const valores = validarPrecoDuracao(item.querySelector(".preco-valor").value, item.querySelector(".preco-duracao").value);
+          if (!confirm(`Aplicar ${formatarMoeda(valores.preco)} aos atendimentos a partir de ${data.value.split('-').reverse().join('/')}?\n\nO preço inclui agendamentos futuros já marcados, exceto preços e descontos manuais. A duração de ${valores.duracao_min} minutos vale somente para novos agendamentos. Uma revisão existente nessa data será substituída.`)) return;
           await API.admin.atualizarServico(
             item.dataset.id,
-            item.querySelector(".preco-valor").value.trim(),
-            item.querySelector(".preco-duracao").value
+            valores.preco,
+            valores.duracao_min,
+            data.value
           );
-          _servicosCache = null;
-          avisar(item, "Salvo!");
+              await carregarPrecosServicos();
+          recarregarAgenda();
         } catch (e) {
           const m = tratarErro(e); if (m !== null) avisar(item, m, true);
         } finally { btn.disabled = false; }

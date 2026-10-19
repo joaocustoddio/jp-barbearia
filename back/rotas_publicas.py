@@ -9,14 +9,17 @@ de banco por lá (monkeypatch em app.get_connection / app.horario_efetivo).
 """
 
 import re
+from datetime import datetime
 
 from flask import request, jsonify
 
 from agendamentos import _data_br, _processar_novo_agendamento
-from config import data_hoje
+from config import agora_br, FUSO_BR, data_hoje
+from precos import catalogo_na_data
+from comprovantes import validar_comprovante
 from database import get_connection
-from extensoes import app
-from validacoes import validar_data, validar_telefone
+from extensoes import app, limiter
+from validacoes import validar_telefone
 import notificacoes
 
 
@@ -24,8 +27,13 @@ import notificacoes
 def listar_servicos():
     """Cardápio do site e do painel. Só os ativos: serviço desativado continua
     na tabela por causa do histórico, mas não pode mais ser marcado."""
+    data = request.args.get('data') or data_hoje().isoformat()
+    try:
+        data = datetime.strptime(data, '%Y-%m-%d').date().isoformat()
+    except (TypeError, ValueError):
+        return jsonify({'erro':'Data inválida.'}), 400
     conn = get_connection()
-    servicos = conn.execute("SELECT * FROM servicos WHERE ativo = 1 ORDER BY id").fetchall()
+    servicos = catalogo_na_data(conn, data)
     conn.close()
     return jsonify([dict(s) for s in servicos])
 
@@ -55,17 +63,23 @@ def criar_agendamento():
 
 
 @app.route("/api/agendamentos/consultar", methods=["GET"])
+@limiter.limit("10 per minute")
 def consultar_agendamentos_cliente():
-    """Público: lista os agendamentos FUTUROS (não cancelados) de um telefone,
-    pro cliente poder cancelar pelo site. ?telefone=..."""
+    """Consulta apenas o agendamento autorizado pelo comprovante e telefone."""
     telefone = (request.args.get("telefone") or "").strip()
     if not telefone:
         return jsonify({"erro": "Informe o telefone"}), 400
     valido, erro = validar_telefone(telefone)
     if not valido:
         return jsonify({"erro": erro}), 400
+    token = request.args.get("comprovante")
+    if not token:
+        return jsonify({"erro": "Informe o comprovante. Sem ele, entre em contato com a barbearia."}), 400
+    agendamento_id = validar_comprovante(token)
+    if agendamento_id is None:
+        return jsonify({"erro": "Comprovante inválido"}), 403
     tel_num = re.sub(r"\D", "", telefone)
-    hoje = data_hoje().isoformat()
+    agora = agora_br()
     conn = get_connection()
     rows = conn.execute(
         r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
@@ -75,29 +89,40 @@ def consultar_agendamentos_cliente():
             JOIN clientes  ON agendamentos.cliente_id  = clientes.id
             JOIN servicos  ON agendamentos.servico_id  = servicos.id
             JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
-            WHERE regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
-              AND agendamentos.status != 'cancelado'
-              AND agendamentos.data >= %s
+            WHERE agendamentos.id = %s
+              AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
+              AND agendamentos.status NOT IN ('cancelado', 'concluido')
+              AND (agendamentos.data::date + agendamentos.hora::time) > %s
             ORDER BY agendamentos.data, agendamentos.hora""",
-        (tel_num, hoje)
+        (agendamento_id, tel_num, agora.replace(tzinfo=None))
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
 
 @app.route("/api/agendamentos/cancelar", methods=["POST"])
+@limiter.limit("10 per minute")
 def cancelar_agendamento_cliente():
-    """Público: cliente cancela o próprio agendamento (confere o telefone).
-    Corpo: { agendamento_id, telefone }."""
+    """Cancela com telefone e comprovante assinado do próprio agendamento."""
     dados = request.get_json(silent=True) or {}
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Corpo da requisição inválido"}), 400
     agendamento_id = dados.get("agendamento_id")
-    telefone = (dados.get("telefone") or "").strip()
-    if not agendamento_id or not telefone:
+    telefone = dados.get("telefone")
+    if type(agendamento_id) is not int or agendamento_id <= 0 or not isinstance(telefone, str) or not telefone.strip():
         return jsonify({"erro": "Agendamento e telefone são obrigatórios"}), 400
+    valido, erro = validar_telefone(telefone)
+    if not valido:
+        return jsonify({"erro": erro}), 400
+    token = dados.get("comprovante")
+    if not token:
+        return jsonify({"erro": "Informe o comprovante. Sem ele, entre em contato com a barbearia."}), 400
+    if validar_comprovante(token) != agendamento_id:
+        return jsonify({"erro": "Comprovante inválido"}), 403
     tel_num = re.sub(r"\D", "", telefone)
     conn = get_connection()
     row = conn.execute(
-        r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
+        r"""SELECT agendamentos.id, agendamentos.data, agendamentos.hora, agendamentos.status,
                    clientes.nome AS cliente, servicos.nome AS servico,
                    barbeiros.nome AS barbeiro
             FROM agendamentos
@@ -106,21 +131,29 @@ def cancelar_agendamento_cliente():
             JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
             WHERE agendamentos.id = %s
               AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
-              AND agendamentos.status != 'cancelado'""",
+            FOR UPDATE OF agendamentos""",
         (agendamento_id, tel_num)
     ).fetchone()
     if not row:
         conn.close()
         return jsonify({"erro": "Agendamento não encontrado para esse telefone"}), 404
+    inicio = datetime.fromisoformat(f"{row['data']}T{row['hora']}").replace(tzinfo=FUSO_BR)
+    if row["status"] in ("cancelado", "concluido") or inicio <= agora_br():
+        conn.close()
+        return jsonify({"erro": "Este agendamento não pode mais ser cancelado pelo site."}), 409
     # cancelado_por fica com o telefone: é o que identifica quem cancelou pelo
     # site (a pessoa não tem login).
-    conn.execute(
+    atualizado = conn.execute(
         """UPDATE agendamentos
            SET status = 'cancelado', cancelado_em = now(),
                cancelado_por = %s, cancelado_via = 'site'
-           WHERE id = %s""",
+           WHERE id = %s AND status NOT IN ('cancelado', 'concluido')
+           RETURNING id""",
         (tel_num, agendamento_id)
-    )
+    ).fetchone()
+    if not atualizado:
+        conn.close()
+        return jsonify({"erro": "Este agendamento não pode mais ser cancelado pelo site."}), 409
     conn.commit()
     conn.close()
 
@@ -129,40 +162,3 @@ def cancelar_agendamento_cliente():
         data_br=_data_br(row["data"]), hora=row["hora"],
     )
     return jsonify({"mensagem": "Agendamento cancelado com sucesso."})
-
-
-@app.route("/api/agendamentos", methods=["GET"])
-def listar_agendamentos():
-    data_filtro = request.args.get("data")
-
-    # Valida data se vier como filtro
-    if data_filtro:
-        valido, erro = validar_data(data_filtro)
-        if not valido:
-            return jsonify({"erro": erro}), 400
-
-    conn = get_connection()
-    query = """
-        SELECT
-            agendamentos.id,
-            agendamentos.data,
-            agendamentos.hora,
-            agendamentos.status,
-            clientes.nome  AS cliente_nome,
-            clientes.telefone AS cliente_telefone,
-            servicos.nome  AS servico_nome,
-            servicos.preco AS servico_preco
-        FROM agendamentos
-        JOIN clientes ON agendamentos.cliente_id = clientes.id
-        JOIN servicos ON agendamentos.servico_id = servicos.id
-    """
-    parametros = ()
-    if data_filtro:
-        query += " WHERE agendamentos.data = %s"
-        parametros = (data_filtro,)
-
-    query += " ORDER BY agendamentos.data, agendamentos.hora"
-    resultados = conn.execute(query, parametros).fetchall()
-    conn.close()
-
-    return jsonify([dict(r) for r in resultados])

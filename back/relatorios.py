@@ -15,40 +15,6 @@ from database import get_connection
 from extensoes import app
 
 
-@app.route("/api/relatorio", methods=["GET"])
-def relatorio():
-    conn = get_connection()
-
-    total = conn.execute(
-        "SELECT COUNT(*) as total FROM agendamentos WHERE status != 'cancelado'"
-    ).fetchone()["total"]
-
-    faturamento = conn.execute("""
-        SELECT COALESCE(SUM(servicos.preco), 0) as total
-        FROM agendamentos
-        JOIN servicos ON agendamentos.servico_id = servicos.id
-        WHERE agendamentos.status != 'cancelado'
-    """).fetchone()["total"]
-
-    mais_pedido = conn.execute("""
-        SELECT servicos.nome, COUNT(*) as quantidade
-        FROM agendamentos
-        JOIN servicos ON agendamentos.servico_id = servicos.id
-        WHERE agendamentos.status != 'cancelado'
-        GROUP BY servicos.id
-        ORDER BY quantidade DESC
-        LIMIT 1
-    """).fetchone()
-
-    conn.close()
-
-    return jsonify({
-        "total_agendamentos": total,
-        "faturamento_estimado": faturamento,
-        "servico_mais_pedido": dict(mais_pedido) if mais_pedido else None
-    })
-
-
 @app.route("/api/admin/relatorio", methods=["GET"])
 @token_requerido
 def relatorio_admin():
@@ -109,7 +75,7 @@ def relatorio_admin():
 
     # Faturamento do período
     faturamento = conn.execute(f"""
-        SELECT COALESCE(SUM(servicos.preco), 0) as total
+        SELECT COALESCE(SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC))), 0) as total
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status != 'cancelado'
@@ -126,7 +92,7 @@ def relatorio_admin():
     # Agendamentos por dia (pra montar gráfico no futuro)
     por_dia = conn.execute(f"""
         SELECT agendamentos.data, COUNT(*) as quantidade,
-               SUM(servicos.preco) as faturamento
+               SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC))) as faturamento
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status != 'cancelado'
@@ -156,7 +122,7 @@ def relatorio_admin():
     # fica todo pra casa — é o que o JP chama de "lucro real": o que sobra
     # depois de pagar os outros barbeiros.
     comissoes = conn.execute(f"""
-        SELECT COALESCE(SUM(servicos.preco * barbeiros.comissao_pct / 100.0), 0) AS total
+        SELECT COALESCE(SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) * COALESCE(agendamentos.comissao_pct, barbeiros.comissao_pct) / 100.0), 0) AS total
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
@@ -168,7 +134,7 @@ def relatorio_admin():
     # ignora cancelado — aqui é o único lugar que olha pra eles de propósito.
     cancelados = conn.execute(f"""
         SELECT COUNT(*) AS quantidade,
-               COALESCE(SUM(servicos.preco), 0) AS valor
+               COALESCE(SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC))), 0) AS valor
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status = 'cancelado'
@@ -202,7 +168,7 @@ def relatorio_admin():
             COALESCE(SUM(preco) FILTER (WHERE NOT remarcou AND NOT vaga_cheia), 0)
                                                                    AS perda_valor
         FROM (
-            SELECT servicos.preco AS preco,
+            SELECT COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS preco,
                    EXISTS (
                         SELECT 1 FROM agendamentos novo
                         JOIN clientes dono ON novo.cliente_id = dono.id
@@ -233,7 +199,7 @@ def relatorio_admin():
     servicos_mais_realizados = conn.execute(f"""
         SELECT servicos.nome,
                COUNT(*) as quantidade,
-               SUM(servicos.preco) as faturamento
+               SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC))) as faturamento
         FROM agendamentos
         JOIN servicos ON agendamentos.servico_id = servicos.id
         WHERE agendamentos.status != 'cancelado'
@@ -297,7 +263,8 @@ def contagem_dia():
         SELECT barbeiros.id AS barbeiro_id, barbeiros.nome AS barbeiro_nome,
                barbeiros.comissao_pct,
                COUNT(agendamentos.id) AS clientes,
-               COALESCE(SUM(servicos.preco), 0) AS total
+               COALESCE(SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) * COALESCE(agendamentos.comissao_pct, barbeiros.comissao_pct) / 100.0), 0) AS repasse,
+               COALESCE(SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC))), 0) AS total
         FROM barbeiros
         LEFT JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
              AND agendamentos.data = %s AND agendamentos.status != 'cancelado'
@@ -312,7 +279,7 @@ def contagem_dia():
     detalhe = conn.execute(f"""
         SELECT barbeiros.id AS barbeiro_id, servicos.nome AS servico_nome,
                COUNT(agendamentos.id) AS quantidade,
-               COALESCE(SUM(servicos.preco), 0) AS valor
+               COALESCE(SUM(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC))), 0) AS valor
         FROM barbeiros
         JOIN agendamentos ON agendamentos.barbeiro_id = barbeiros.id
              AND agendamentos.data = %s AND agendamentos.status != 'cancelado'
@@ -356,7 +323,7 @@ def contagem_dia():
     for r in linhas:
         total = float(r["total"] or 0)
         pct = r["comissao_pct"]
-        recebe_barbeiro = round(total * pct / 100, 2)
+        recebe_barbeiro = round(float(r["repasse"] or 0), 2)
         recebe_barbearia = round(total - recebe_barbeiro, 2)
         prod = produtos_por_barbeiro.get(r["barbeiro_id"], {"qtd": 0, "valor": 0})
 

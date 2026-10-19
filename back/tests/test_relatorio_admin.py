@@ -73,7 +73,7 @@ class ConexaoRelatorio:
             return _Cursor(self.servicos)
         if "count(*) as total" in consulta:
             return _Cursor([{"total": self.total}])
-        if "sum(servicos.preco)" in consulta:
+        if "sum(coalesce(agendamentos.valor_centavos" in consulta:
             return _Cursor([{"total": self.faturamento}])
         raise AssertionError("consulta inesperada: %s" % consulta)
 
@@ -208,7 +208,8 @@ def test_comissao_usa_o_pct_do_barbeiro_no_banco(cliente, monkeypatch):
     _, _, conn = pedir(cliente, monkeypatch, comissoes=10)
     sql = [s for s, _ in conn.executados if "comissao_pct" in s]
     assert len(sql) == 1
-    assert "servicos.preco * barbeiros.comissao_pct / 100.0" in sql[0]
+    assert "coalesce(agendamentos.comissao_pct, barbeiros.comissao_pct)" in sql[0]
+    assert "agendamentos.valor_centavos / 100.0" in sql[0]
     assert "status != 'cancelado'" in sql[0]
 
 

@@ -69,7 +69,7 @@ def token(papel="master", barbeiro_id=None):
 
 def linha(barbeiro_id=1, nome="JP", pct=60, clientes=0, total=0):
     return {"barbeiro_id": barbeiro_id, "barbeiro_nome": nome,
-            "comissao_pct": pct, "clientes": clientes, "total": total}
+            "comissao_pct": pct, "clientes": clientes, "total": total, "repasse": total * pct / 100}
 
 
 @pytest.fixture

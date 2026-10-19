@@ -14,6 +14,8 @@ from config import (
     LIMITE_DIAS_AGENDAMENTO, MARGEM_ULTIMA_ENTRADA_MIN, data_hoje, tolerancia_para,
 )
 from database import get_connection
+from precos import servico_na_data
+from comprovantes import criar_comprovante
 from horarios import (
     Janela, hhmm_para_min, cabe_no_expediente, primeiro_conflito,
     mensagem_de_conflito,
@@ -26,7 +28,7 @@ import notificacoes
 import emails
 
 
-def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao):
+def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao, excluir_id=None):
     """
     TUDO que impede um atendimento neste dia/barbeiro, como janelas de minutos:
     agendamentos ativos + bloqueios (globais e do barbeiro, incluindo o almoço
@@ -41,12 +43,13 @@ def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao):
     bloqueio de dia inteiro (hora NULL), que derruba a agenda toda.
     """
     agendados = conn.execute(
-        """SELECT agendamentos.hora, servicos.duracao_min
+        """SELECT agendamentos.hora, COALESCE(agendamentos.duracao_min, servicos.duracao_min) AS duracao_min
            FROM agendamentos
            JOIN servicos ON agendamentos.servico_id = servicos.id
            WHERE agendamentos.data = %s AND agendamentos.barbeiro_id = %s
-             AND agendamentos.status != 'cancelado'""",
-        (data_str, barbeiro_id)
+             AND agendamentos.status != 'cancelado'"""
+        + (" AND agendamentos.id != %s" if excluir_id is not None else ""),
+        (data_str, barbeiro_id, excluir_id) if excluir_id is not None else (data_str, barbeiro_id)
     ).fetchall()
 
     bloqueios = conn.execute(
@@ -215,6 +218,8 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
 
     Retorna (corpo_json, status_http).
     """
+    if not isinstance(dados, dict):
+        return {'erro': 'Dados inválidos.'}, 400
     conn = get_connection()
 
     # Valida barbeiro_id (precisa existir e estar ativo)
@@ -279,11 +284,14 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     # permitido sobrescrever — o barbeiro pelo painel/caderninho pode encaixar em
     # cima). Usa a MESMA base da lista de horários livres (janelas_ocupadas), então
     # o que o cliente vê na tela é exatamente o que o sistema aceita.
+    conn.execute('SELECT id FROM servicos WHERE id = %s FOR UPDATE', (dados['servico_id'],))
+    servico = servico_na_data(conn, dados['servico_id'], dados['data'])
+    if not servico:
+        conn.close()
+        return {'erro': 'Serviço indisponível.'}, 400
+    dur_novo = servico['duracao_min']
+    comissao = conn.execute('SELECT comissao_pct FROM barbeiros WHERE id = %s', (barbeiro_id,)).fetchone()['comissao_pct']
     if not permitir_conflito:
-        srow = conn.execute(
-            "SELECT duracao_min FROM servicos WHERE id = %s", (dados["servico_id"],)
-        ).fetchone()
-        dur_novo = srow["duracao_min"] if srow else INTERVALO_MINUTOS
         inicio_novo = hhmm_para_min(dados["hora"])
 
         # Precisa caber no expediente do barbeiro nesse dia (horário do dia + ajuste).
@@ -314,17 +322,20 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     )
     cursor = conn.cursor()
     cursor.execute(
-        """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status, encaixe)
-           VALUES (%s, %s, %s, %s, %s, 'confirmado', %s) RETURNING id""",
+        """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status, encaixe,
+                                      valor_centavos, duracao_min, comissao_pct)
+           VALUES (%s, %s, %s, %s, %s, 'confirmado', %s, %s, %s, %s) RETURNING id""",
         (cliente_id, int(dados["servico_id"]), int(barbeiro_id), dados["data"], dados["hora"],
-         bool(dados.get("encaixe")))
+         bool(dados.get("encaixe")), servico['valor_centavos'], dur_novo, comissao)
     )
     agendamento_id = cursor.fetchone()["id"]
     conn.commit()
 
     # Avisa a equipe no Telegram e manda a confirmação pro cliente. Só no fluxo
     # público — quando é o próprio barbeiro anotando no caderninho não faz sentido.
-    resposta = {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id}
+    resposta = {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id,
+                'comprovante': criar_comprovante(agendamento_id),
+                'preco': servico['valor_centavos'] / 100, 'duracao_min': dur_novo}
     if avisar_equipe:
         detalhes = conn.execute(
             """SELECT servicos.nome AS servico, servicos.preco, servicos.duracao_min,
@@ -343,7 +354,7 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
             # celular do cliente. Devolvido pro front mostrar o botão também.
             link_agenda = _link_agenda(
                 detalhes["servico"], detalhes["barbeiro"], dados["data"],
-                dados["hora"], detalhes["duracao_min"]
+                dados["hora"], dur_novo
             )
             resposta["link_agenda"] = link_agenda
             email_cliente = (dados.get("email") or "").strip()
@@ -351,9 +362,14 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
                 assunto, html, texto = emails.email_confirmacao(
                     cliente=dados["nome_cliente"].strip(), servico=detalhes["servico"],
                     barbeiro=detalhes["barbeiro"], data_br=data_br, hora=dados["hora"],
-                    preco=detalhes["preco"], link_agenda=link_agenda,
+                    preco=servico['valor_centavos'] / 100, link_agenda=link_agenda,
                     endereco=ENDERECO_BARBEARIA,
                 )
+                # Comprovante opaco assinado: não contém nome nem telefone.
+                from html import escape
+                codigo = resposta['comprovante']
+                html += '<p>Guarde seu código para consultar ou cancelar: <code>%s</code></p>' % escape(codigo)
+                texto += '\n\nCódigo para consultar ou cancelar: ' + codigo
                 emails.enviar(email_cliente, assunto, html, texto)
     conn.close()
 

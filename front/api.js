@@ -113,8 +113,8 @@ const API = (() => {
 
   return {
     /** GET /api/servicos */
-    listarServicos() {
-      return request("/api/servicos");
+    listarServicos(data) {
+      return request("/api/servicos" + (data ? `?data=${encodeURIComponent(data)}` : ""));
     },
 
     /** GET /api/barbeiros */
@@ -152,15 +152,15 @@ const API = (() => {
     },
 
     /** GET /api/agendamentos/consultar?telefone= → agendamentos futuros do cliente */
-    consultarAgendamentos(telefone) {
-      return request(`/api/agendamentos/consultar?telefone=${encodeURIComponent(telefone)}`);
+    consultarAgendamentos(telefone, comprovante) {
+      return request(`/api/agendamentos/consultar?telefone=${encodeURIComponent(telefone)}&comprovante=${encodeURIComponent(comprovante)}`);
     },
 
     /** POST /api/agendamentos/cancelar → cliente cancela o próprio (confere telefone) */
-    cancelarAgendamentoCliente(agendamento_id, telefone) {
+    cancelarAgendamentoCliente(agendamento_id, telefone, comprovante) {
       return request("/api/agendamentos/cancelar", {
         method: "POST",
-        body: JSON.stringify({ agendamento_id, telefone })
+        body: JSON.stringify({ agendamento_id: Number(agendamento_id), telefone, comprovante })
       });
     },
 
@@ -217,6 +217,12 @@ const API = (() => {
         return requestAuth(`/api/admin/agendamentos/${id}/cancelar`, { method: "PATCH" });
       },
 
+      alterarAgendamento(id, campos) {
+        return requestAuth(`/api/admin/agendamentos/${id}`, {
+          method: "PATCH", body: JSON.stringify(campos)
+        });
+      },
+
       /** PATCH .../:id/pagamento → registra forma de pagamento (cartao|pix|dinheiro|"") */
       registrarPagamento(id, forma) {
         return requestAuth(`/api/admin/agendamentos/${id}/pagamento`, {
@@ -226,11 +232,15 @@ const API = (() => {
       },
 
       /** PUT /api/admin/servicos/:id → edita preço e duração do serviço */
-      atualizarServico(id, preco, duracao_min) {
+      atualizarServico(id, preco, duracao_min, inicio_vigencia) {
         return requestAuth(`/api/admin/servicos/${id}`, {
           method: "PUT",
-          body: JSON.stringify({ preco, duracao_min })
+          body: JSON.stringify({ preco, duracao_min, inicio_vigencia })
         });
+      },
+
+      listarVigencias() {
+        return requestAuth("/api/admin/servicos-vigencias");
       },
 
       /** PUT /api/admin/barbeiros/:id/comissao → % que fica com o barbeiro */

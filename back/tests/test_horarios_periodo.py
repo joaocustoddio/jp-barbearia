@@ -53,8 +53,8 @@ class ConexaoAgenda:
         q = " ".join(sql.split()).lower()
         periodo = "between" in q
 
-        if "duracao_min from servicos" in q:
-            return _Cursor([{"duracao_min": self.duracao}])
+        if "from servicos s" in q:
+            return _Cursor([{"duracao_min": self.duracao, "inicio": None, "duracao_vigente": None}])
 
         if "from agendamentos" in q:
             return _Cursor(self._filtrar(self.agendamentos, params, periodo))

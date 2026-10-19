@@ -73,6 +73,7 @@ def enviar(mensagem, esperar=False, botoes=None):
     botoes: lista de (texto, link) que vira botão embaixo da mensagem.
 
     Devolve False se nem tentou (não configurado / sem destino).
+    Com esperar=True, devolve o sucesso do envio; sem esperar, a aceitação da tarefa.
     """
     if not configurado():
         return False
@@ -80,11 +81,13 @@ def enviar(mensagem, esperar=False, botoes=None):
     def tarefa():
         try:
             _enviar_agora(mensagem, botoes)
+            return True
         except Exception as erro:                      # nunca propaga
             logger.warning("Não consegui avisar no Telegram: %s", erro)
+            return False
 
     if esperar:
-        tarefa()
+        return tarefa()
     else:
         threading.Thread(target=tarefa, daemon=True).start()
     return True

@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlparse
 
 import app
 import emails
+import notificacoes
+import pytest
 
 
 # ------------------------------------------------------- comportamento seguro
@@ -23,6 +25,47 @@ def test_nao_envia_sem_destinatario(monkeypatch):
     monkeypatch.setattr(emails, "REMETENTE", "contato@teste.com")
     assert emails.configurado() is True
     assert emails.enviar("", "oi", "<p>oi</p>", "oi") is False       # sem e-mail, nem tenta
+
+
+@pytest.mark.parametrize("modulo,args", [
+    (emails, ("a@b.com", "oi", "<p>oi</p>", "oi")),
+    (notificacoes, ("oi",)),
+])
+@pytest.mark.parametrize("falha", [False, True])
+def test_envio_sincrono_informa_resultado(monkeypatch, modulo, args, falha):
+    monkeypatch.setattr(modulo, "configurado", lambda: True)
+    monkeypatch.setattr(emails, "_alertar_equipe", lambda *args: None)
+    tentativas = []
+
+    def enviar_agora(*args):
+        tentativas.append(args)
+        if falha:
+            raise OSError("provedor indisponível")
+
+    monkeypatch.setattr(modulo, "_enviar_agora", enviar_agora)
+    assert modulo.enviar(*args, esperar=True) is (not falha)
+    assert len(tentativas) == 1
+
+
+@pytest.mark.parametrize("modulo,args", [
+    (emails, ("a@b.com", "oi", "<p>oi</p>", "oi")),
+    (notificacoes, ("oi",)),
+])
+def test_envio_assincrono_informa_aceitacao(monkeypatch, modulo, args):
+    monkeypatch.setattr(modulo, "configurado", lambda: True)
+    tarefas = []
+
+    class ThreadFalsa:
+        def __init__(self, target, daemon):
+            self.target = target
+            assert daemon is True
+
+        def start(self):
+            tarefas.append(self.target)
+
+    monkeypatch.setattr(modulo.threading, "Thread", ThreadFalsa)
+    assert modulo.enviar(*args) is True
+    assert len(tarefas) == 1
 
 
 # --------------------------------------------------------- link do calendário
@@ -136,6 +179,26 @@ def test_nao_reenvia_para_quem_ja_foi_marcado(monkeypatch):
     enviados, conexao = _preparar(monkeypatch, [])
     assert app._enviar_lembretes_de_clientes()["enviados"] == 0
     assert enviados == [] and conexao.marcados == []
+
+
+def test_falha_no_envio_mantem_lembrete_pendente(monkeypatch):
+    _, conexao = _preparar(monkeypatch, [
+        _candidato(1, "14:30", "falha@teste.com"),
+        _candidato(2, "14:45", "sucesso@teste.com"),
+    ])
+    tentativas = []
+
+    def enviar(destino, assunto, html, texto, esperar=False):
+        assert esperar is True
+        tentativas.append(destino)
+        return destino != "falha@teste.com"
+
+    monkeypatch.setattr(app.emails, "enviar", enviar)
+    resultado = app._enviar_lembretes_de_clientes()
+    assert resultado["enviados"] == 1
+    assert conexao.marcados == [2]
+    assert tentativas == ["falha@teste.com", "sucesso@teste.com"]
+    assert conexao.commitou
 
 
 def test_hora_invalida_nao_derruba_a_tarefa(monkeypatch):

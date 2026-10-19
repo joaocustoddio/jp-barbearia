@@ -44,6 +44,7 @@ from extensoes import app, limiter, logger
 from horarios import hhmm_para_min, gerar_slots, filtrar_por_antecedencia
 from validacoes import dia_fechado, horario_efetivo, horario_efetivo_de, validar_data
 from agendamentos import janelas_ocupadas, montar_janelas, _data_br, _link_agenda
+from precos import servico_na_data, duracoes_no_periodo
 import notificacoes
 import emails
 
@@ -105,9 +106,11 @@ def horarios_disponiveis():
     # Duração do serviço escolhido = PASSO dos slots. Sem servico_id, usa o padrão.
     dur_serv = INTERVALO_MINUTOS
     if servico_id:
-        srow = conn.execute("SELECT duracao_min FROM servicos WHERE id = %s", (servico_id,)).fetchone()
-        if srow:
-            dur_serv = srow["duracao_min"]
+        srow = servico_na_data(conn, servico_id, data_str)
+        if not srow:
+            conn.close()
+            return jsonify({'erro':'Serviço indisponível.'}), 400
+        dur_serv = srow['duracao_min']
 
     # Horário efetivo do barbeiro no dia (expediente/piso/folga).
     abertura, fechamento = horario_efetivo(data_str, barbeiro_id, conn)
@@ -178,16 +181,17 @@ def horarios_disponiveis_periodo():
 
     conn = get_connection()
 
-    dur_serv = INTERVALO_MINUTOS
+    duracoes = {data: INTERVALO_MINUTOS for data in datas}
     if servico_id:
-        srow = conn.execute("SELECT duracao_min FROM servicos WHERE id = %s", (servico_id,)).fetchone()
-        if srow:
-            dur_serv = srow["duracao_min"]
+        duracoes = duracoes_no_periodo(conn, servico_id, datas)
+        if duracoes is None:
+            conn.close()
+            return jsonify({'erro':'Serviço indisponível.'}), 400
 
     # --- as 4 consultas em lote (uma por assunto, cobrindo o período inteiro) ---
     agendados_por_dia = {}
     for linha in conn.execute(
-        """SELECT agendamentos.data, agendamentos.hora, servicos.duracao_min
+        """SELECT agendamentos.data, agendamentos.hora, COALESCE(agendamentos.duracao_min, servicos.duracao_min) AS duracao_min
            FROM agendamentos
            JOIN servicos ON agendamentos.servico_id = servicos.id
            WHERE agendamentos.data BETWEEN %s AND %s
@@ -225,6 +229,7 @@ def horarios_disponiveis_periodo():
 
     resposta = {}
     for data_str in datas:
+        dur_serv = duracoes[data_str]
         fechado, _ = dia_fechado(data_str)
         if fechado:
             resposta[data_str] = {"horarios_disponiveis": [], "fechado": True}
@@ -342,7 +347,8 @@ def _enviar_lembretes_de_clientes():
             hora=linha["hora"][:5], endereco=ENDERECO_BARBEARIA,
         )
         # esperar=True: só marca como enviado depois de realmente tentar mandar.
-        emails.enviar(linha["email"], assunto, html, texto, esperar=True)
+        if not emails.enviar(linha["email"], assunto, html, texto, esperar=True):
+            continue
         conn.execute("UPDATE agendamentos SET lembrete_enviado_em = now() WHERE id = %s",
                      (linha["id"],))
         enviados += 1

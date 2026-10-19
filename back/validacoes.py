@@ -161,7 +161,7 @@ def validar_servico_id(servico_id, conn):
     except (TypeError, ValueError):
         return False, "ID de serviço inválido"
     existe = conn.execute(
-        "SELECT id FROM servicos WHERE id = %s", (servico_id,)
+        "SELECT id FROM servicos WHERE id = %s AND ativo = 1", (servico_id,)
     ).fetchone()
     if not existe:
         return False, "Serviço não encontrado"

@@ -33,10 +33,25 @@ jobs:
         working-directory: back
         run: pytest -q
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+
+      - name: Instalar testes de interface
+        working-directory: front
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Testar interface com API isolada
+        working-directory: front
+        run: npm test
+
       - name: Conferir que as 50 rotas continuam registradas
         # Trava contra o erro mais fácil de cometer mexendo nos módulos de rota:
-        # apagar ou renomear uma rota sem perceber. Os testes não pegam isso,
-        # porque quase nenhuma rota tem teste próprio (só 2 das 43).
+        # apagar ou renomear uma rota sem perceber. Complementa os testes de contrato.
         working-directory: back
         env:
           APP_SKIP_BOOT: "1"

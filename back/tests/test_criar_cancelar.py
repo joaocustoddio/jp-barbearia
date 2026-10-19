@@ -88,6 +88,15 @@ class ConexaoCriacao:
         consulta = " ".join(sql.split()).lower()
         self.executados.append((consulta, params))
 
+        if 'from servicos s where s.id' in consulta:
+            return _Cursor([{'id':1, 'nome':'Degradê', 'ativo':1, 'imagem':None,
+                             'valor_centavos':4500, 'duracao_min':self.duracao}]
+                           if self.servico_existe else [])
+        if 'comissao_pct from barbeiros' in consulta:
+            return _Cursor([{'comissao_pct':60}])
+        if 'from servicos where id' in consulta and 'ativo = 1' in consulta:
+            return _Cursor([{'id':1}] if self.servico_existe else [])
+
         if "from telefones_genericos" in consulta:
             return _Cursor([{"?column?": 1}] if self.telefone_generico else [])
         if "from clientes where regexp_replace" in consulta:
@@ -191,6 +200,21 @@ def test_agendamento_valido_cria_e_devolve_201(cliente, monkeypatch, avisos):
     assert resposta["agendamento_id"] == 555
     assert conn.commits == 1
     assert conn.inseriu_agendamento()
+
+
+def test_nova_reserva_grava_snapshot_e_comprovante(cliente, monkeypatch, avisos):
+    from comprovantes import validar_comprovante
+    status, resposta, conn = marcar(cliente, monkeypatch, duracao=20)
+    assert status == 201
+    assert validar_comprovante(resposta.get('comprovante')) == 555
+    sql, params = next((s,p) for s,p in conn.executados if s.startswith('insert into agendamentos'))
+    assert params[-3:] == (4500,20,60)
+
+
+def test_servico_inativo_nao_pode_ser_reservado(cliente, monkeypatch, avisos):
+    status, _, conn = marcar(cliente, monkeypatch, servico_existe=False)
+    assert status == 400
+    assert not conn.inseriu_agendamento()
 
 
 def test_agendamento_avisa_a_equipe_no_telegram(cliente, monkeypatch, avisos):
@@ -409,9 +433,9 @@ class ConexaoCancelamento:
         consulta = " ".join(sql.split()).lower()
         self.executados.append((consulta, params))
         if consulta.startswith("update agendamentos"):
-            return _Cursor([])
+            return _Cursor([{"id": 555}])
         linha = {"id": 555, "data": DATA, "hora": HORA, "cliente": "João Silva",
-                 "servico": "Degradê", "barbeiro": "Rian"}
+                 "servico": "Degradê", "barbeiro": "Rian", "status": "confirmado"}
         return _Cursor([linha] if self.achou else [])
 
     def commit(self):
@@ -425,6 +449,13 @@ class ConexaoCancelamento:
 
 
 def cancelar(cliente, monkeypatch, dados, achou=True):
+    from comprovantes import criar_comprovante
+    from config import FUSO_BR
+    from extensoes import limiter
+    monkeypatch.setattr(limiter, "enabled", False)
+    monkeypatch.setattr(rotas_publicas, "agora_br",
+                        lambda: datetime(2026, 8, 24, 9, 0, tzinfo=FUSO_BR))
+    dados = {**dados, "comprovante": criar_comprovante(555)}
     conn = ConexaoCancelamento(achou=achou)
     monkeypatch.setattr(rotas_publicas, "get_connection", lambda: conn)
     resposta = cliente.post("/api/agendamentos/cancelar", json=dados)

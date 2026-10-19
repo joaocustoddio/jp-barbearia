@@ -199,6 +199,7 @@ def enviar(destino, assunto, corpo_html, corpo_texto, esperar=False):
     """
     Manda um email. Por padrão não bloqueia a requisição.
     Devolve False se nem tentou (não configurado ou sem destinatário).
+    Com esperar=True, devolve o sucesso do envio; sem esperar, a aceitação da tarefa.
     """
     if not configurado() or not destino:
         return False
@@ -206,12 +207,14 @@ def enviar(destino, assunto, corpo_html, corpo_texto, esperar=False):
     def tarefa():
         try:
             _enviar_agora(destino, assunto, corpo_html, corpo_texto)
+            return True
         except Exception as erro:                          # nunca propaga
             logger.warning("Falha ao enviar email para %s: %s", destino, erro)
             _alertar_equipe(destino, erro)
+            return False
 
     if esperar:
-        tarefa()
+        return tarefa()
     else:
         threading.Thread(target=tarefa, daemon=True).start()
     return True

@@ -197,7 +197,7 @@ Se o e-mail parar de sair, existe um diagnóstico pronto — peça ao Claude:
 ```bash
 cd back
 pip install -r requirements.txt -r requirements-dev.txt
-pytest                      # 91 testes, rodam em ~1 segundo
+pytest
 ```
 
 Os testes cobrem o motor de horários (a parte mais delicada), o cálculo do
@@ -209,3 +209,52 @@ cliente é aceito no agendamento** — nada de "vejo na tela mas não consigo
 marcar".
 
 O arquivo `CLAUDE.md` traz as diretrizes de como escrever código aqui.
+
+### Edição de atendimento e reajustes
+
+- Na agenda, **⋮ → Alterar** permite mudar valor e duração de um atendimento.
+  Cada barbeiro edita os próprios; o master pode editar todos. O login do salão
+  não tem essa permissão. Atendimentos de dias passados e cancelados/concluídos
+  não podem ser editados por essa ação.
+- Um preço manual vale só para aquele corte e fica protegido contra reajustes.
+  Reduzir 50 para 20 minutos libera os 30 restantes para serviços que caibam,
+  respeitando a antecedência e os bloqueios. Aumentos não podem invadir outro
+  atendimento, almoço, bloqueio ou o expediente.
+- Em **Preços**, o master informa **Válido a partir de** e confirma o reajuste.
+  Vale pela data do atendimento, inclusive para reservas já feitas; preserva o
+  passado e preços manuais. Uma revisão na mesma data substitui a anterior.
+  A duração do catálogo vale para novas reservas; as já marcadas mantêm sua duração.
+- Preço, duração e comissão ficam registrados no atendimento. Faturamento,
+  fechamento e ficha usam esse preço; produtos continuam separados da comissão.
+  Alterações individuais e valores modificados por reajuste são auditados em
+  `agendamento_alteracoes` com autor, valores anteriores/novos e horário.
+
+### Consulta e cancelamento pelo site
+
+O cliente precisa do telefone e do **código do comprovante** mostrado ao confirmar.
+O código também acompanha o e-mail de confirmação quando informado. Sem o código
+(inclusive reservas antigas), deve contatar a barbearia; o painel segue podendo
+cancelar. O site não cancela atendimentos que já começaram ou foram concluídos.
+As antigas rotas públicas de listagem geral e faturamento foram removidas.
+
+### Testes da interface
+
+```bash
+cd front
+npm ci
+npx playwright install chromium
+npm test
+```
+
+Os testes usam um navegador isolado e interceptam toda a API. Não acessam o banco,
+credenciais ou serviços reais. Para usar um navegador já instalado, defina
+`TEST_BROWSER` com o caminho do executável. O CI executa backend e interface.
+
+### Implantação desta alteração
+
+Publique primeiro o backend e depois o frontend. O `init_db()` cria as novas
+tabelas/colunas de forma aditiva e preenche snapshots ausentes com os valores
+atualmente disponíveis. Reexecutar não sobrescreve snapshots. Antes da implantação,
+faça backup e valide a migração no ambiente de homologação. Não é possível recuperar
+preços históricos que já tenham sido perdidos em reajustes anteriores.
+O ambiente de produção não foi alterado durante esta implementação.

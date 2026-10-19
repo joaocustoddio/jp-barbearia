@@ -15,7 +15,8 @@ from agendamentos import so_digitos
 from auth import (
     barbeiro_do_escopo, pode_ver_valores, somente_master, token_requerido,
 )
-from config import data_hoje
+from config import data_hoje, agora_br
+from precos import em_centavos, duracao_valida, servico_na_data
 from database import get_connection
 from extensoes import app
 
@@ -168,31 +169,59 @@ def painel_barbeiros():
 @token_requerido
 @somente_master
 def atualizar_servico(servico_id):
-    """
-    Edita preço e duração de um serviço. É o dono quem manda no cardápio —
-    antes isso exigia mexer no código e fazer deploy.
-    Corpo: { preco, duracao_min }.
-    """
+    """Programa o catálogo pela data do atendimento; preserva descontos manuais."""
     dados = request.get_json(silent=True) or {}
+    if not isinstance(dados, dict):
+        return jsonify({'erro': 'Dados inválidos.'}), 400
     try:
-        preco = round(float(str(dados.get("preco")).replace(",", ".")), 2)
-        duracao = int(dados.get("duracao_min"))
-    except (TypeError, ValueError):
-        return jsonify({"erro": "Preço e duração precisam ser números"}), 400
-    if preco < 0:
-        return jsonify({"erro": "Preço não pode ser negativo"}), 400
-    if not (5 <= duracao <= 480):
-        return jsonify({"erro": "Duração deve ficar entre 5 e 480 minutos"}), 400
-
+        valor = em_centavos(dados.get('preco'))
+        duracao = duracao_valida(dados.get('duracao_min'))
+        inicio = date.fromisoformat(dados.get('inicio_vigencia', '')).isoformat()
+        if inicio < data_hoje().isoformat():
+            raise ValueError('A vigência não pode começar no passado.')
+    except (TypeError, ValueError) as exc:
+        return jsonify({'erro': str(exc) or 'Informe uma data de início válida.'}), 400
     conn = get_connection()
-    if not conn.execute("SELECT id FROM servicos WHERE id = %s", (servico_id,)).fetchone():
+    try:
+        # Reserva nova também trava o serviço antes de ler a vigência.
+        if not conn.execute('SELECT id FROM servicos WHERE id = %s AND ativo = 1 FOR UPDATE', (servico_id,)).fetchone():
+            return jsonify({'erro': 'Serviço não encontrado.'}), 404
+        conn.execute('''INSERT INTO servico_vigencias(servico_id,inicio,valor_centavos,duracao_min,admin_id)
+            VALUES(%s,%s,%s,%s,%s) ON CONFLICT(servico_id,inicio) DO UPDATE SET
+            valor_centavos=EXCLUDED.valor_centavos, duracao_min=EXCLUDED.duracao_min,
+            admin_id=EXCLUDED.admin_id''', (servico_id,inicio,valor,duracao,g.usuario['admin_id']))
+        agora = agora_br()
+        reservas = conn.execute('''SELECT id, data, valor_centavos, duracao_min FROM agendamentos
+            WHERE servico_id = %s AND status = 'confirmado' AND preco_personalizado = false
+              AND data >= %s AND (data > %s OR (data = %s AND hora > %s))
+            ORDER BY id FOR UPDATE''', (servico_id,inicio,agora.date().isoformat(),agora.date().isoformat(),agora.strftime('%H:%M'))).fetchall()
+        alterados = 0
+        for reserva in reservas:
+            novo = servico_na_data(conn, servico_id, reserva['data'])['valor_centavos']
+            if novo == reserva['valor_centavos']:
+                continue
+            conn.execute('UPDATE agendamentos SET valor_centavos = %s WHERE id = %s', (novo,reserva['id']))
+            conn.execute('''INSERT INTO agendamento_alteracoes
+                (agendamento_id,admin_id,valor_anterior_centavos,valor_novo_centavos,duracao_anterior_min,duracao_nova_min)
+                VALUES(%s,%s,%s,%s,%s,%s)''', (reserva['id'],g.usuario['admin_id'],reserva['valor_centavos'],novo,reserva['duracao_min'],reserva['duracao_min']))
+            alterados += 1
+        conn.commit()
+        return jsonify({'mensagem':'Reajuste programado.', 'inicio_vigencia':inicio,
+                        'preco':valor/100,'duracao_min':duracao,'agendamentos_atualizados':alterados})
+    finally:
         conn.close()
-        return jsonify({"erro": "Serviço não encontrado"}), 404
-    conn.execute("UPDATE servicos SET preco = %s, duracao_min = %s WHERE id = %s",
-                 (preco, duracao, servico_id))
-    conn.commit()
-    conn.close()
-    return jsonify({"mensagem": "Serviço atualizado.", "preco": preco, "duracao_min": duracao})
+
+
+@app.route('/api/admin/servicos-vigencias', methods=['GET'])
+@token_requerido
+@somente_master
+def listar_vigencias():
+    conn = get_connection()
+    try:
+        rows = conn.execute('SELECT servico_id, inicio, valor_centavos, duracao_min FROM servico_vigencias ORDER BY inicio, servico_id').fetchall()
+        return jsonify([dict(r) for r in rows])
+    finally:
+        conn.close()
 
 
 @app.route("/api/admin/barbeiros/<int:barbeiro_id>/comissao", methods=["PUT"])
@@ -419,7 +448,7 @@ def ficha_cliente(cliente_id):
     historico = conn.execute(
         """SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
                   agendamentos.status, agendamentos.forma_pagamento,
-                  servicos.nome AS servico, servicos.preco,
+                  servicos.nome AS servico, COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS preco,
                   barbeiros.nome AS barbeiro
              FROM agendamentos
              JOIN servicos  ON agendamentos.servico_id  = servicos.id

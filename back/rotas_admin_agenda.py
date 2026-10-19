@@ -7,20 +7,75 @@ cancelamento, pagamento e adicionais, bloqueios, almoço e expediente.
 
 from flask import request, jsonify, g
 
-from agendamentos import _data_br, _processar_novo_agendamento
+from agendamentos import _data_br, _processar_novo_agendamento, janelas_ocupadas
 from auth import (
     barbeiro_do_escopo, eh_master, pode_ver_valores, somente_master,
     token_requerido,
 )
 from config import (
     DURACAO_ALMOCO_MIN, HORA_FOLGA, INTERVALO_MINUTOS, expediente_e_folga,
+    data_hoje, tolerancia_para, MARGEM_ULTIMA_ENTRADA_MIN,
 )
 from database import get_connection
 from extensoes import app
-from horarios import hhmm_para_min
+from horarios import hhmm_para_min, cabe_no_expediente, primeiro_conflito, mensagem_de_conflito
+from precos import em_centavos, duracao_valida
 from rotas_admin_gestao import _produtos_ativos
-from validacoes import dia_fechado, horario_do_dia, validar_data, validar_hora
+from validacoes import dia_fechado, horario_do_dia, horario_efetivo, validar_data, validar_hora
 import notificacoes
+
+
+@app.route('/api/admin/agendamentos/<int:agendamento_id>', methods=['PATCH'])
+@token_requerido
+def alterar_agendamento(agendamento_id):
+    if not pode_ver_valores():
+        return jsonify({'erro': 'Sem permissão para alterar o atendimento.'}), 403
+    dados = request.get_json(silent=True)
+    if not isinstance(dados, dict) or not ({'preco', 'duracao_min'} & dados.keys()):
+        return jsonify({'erro': 'Informe o valor ou a duração.'}), 400
+    try:
+        valor = em_centavos(dados['preco']) if 'preco' in dados else None
+        duracao = duracao_valida(dados['duracao_min']) if 'duracao_min' in dados else None
+    except ValueError as exc:
+        return jsonify({'erro': str(exc)}), 400
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT barbeiro_id FROM agendamentos WHERE id = %s',
+                           (agendamento_id,)).fetchone()
+        escopo = barbeiro_do_escopo()
+        if not row or (escopo is not None and row['barbeiro_id'] != escopo):
+            return jsonify({'erro': 'Agendamento não encontrado.'}), 404
+        # Mesma ordem de locks da criação: barbeiro primeiro, atendimento depois.
+        conn.execute('SELECT id FROM barbeiros WHERE id = %s FOR UPDATE', (row['barbeiro_id'],))
+        row = conn.execute('SELECT * FROM agendamentos WHERE id = %s FOR UPDATE',
+                           (agendamento_id,)).fetchone()
+        if row['status'] != 'confirmado' or row['data'] < data_hoje().isoformat():
+            return jsonify({'erro': 'Só é possível alterar atendimentos ativos de hoje em diante.'}), 409
+        valor = row['valor_centavos'] if valor is None else valor
+        duracao = row['duracao_min'] if duracao is None else duracao
+        if duracao > row['duracao_min']:
+            inicio = hhmm_para_min(row['hora'])
+            abertura, fechamento = horario_efetivo(row['data'], row['barbeiro_id'], conn)
+            ocupadas, bloqueado = janelas_ocupadas(conn, row['data'], row['barbeiro_id'], duracao, agendamento_id)
+            conflito = primeiro_conflito(inicio, duracao, ocupadas)
+            if bloqueado or dia_fechado(row['data'])[0] or not cabe_no_expediente(
+                    inicio, duracao, abertura, fechamento, tolerancia_para(duracao), MARGEM_ULTIMA_ENTRADA_MIN):
+                return jsonify({'erro': 'A nova duração não cabe no expediente disponível.'}), 409
+            if conflito:
+                return jsonify({'erro': mensagem_de_conflito(conflito)}), 409
+        personalizado = bool(row['preco_personalizado']) or 'preco' in dados
+        conn.execute('''UPDATE agendamentos SET valor_centavos = %s, duracao_min = %s,
+                        preco_personalizado = %s WHERE id = %s''',
+                     (valor, duracao, personalizado, agendamento_id))
+        conn.execute('''INSERT INTO agendamento_alteracoes
+            (agendamento_id, admin_id, valor_anterior_centavos, valor_novo_centavos,
+             duracao_anterior_min, duracao_nova_min) VALUES (%s,%s,%s,%s,%s,%s)''',
+            (agendamento_id, g.usuario['admin_id'], row['valor_centavos'], valor, row['duracao_min'], duracao))
+        conn.commit()
+        return jsonify({'mensagem': 'Agendamento alterado.', 'servico_preco': valor / 100,
+                        'servico_duracao': duracao})
+    finally:
+        conn.close()
 
 
 @app.route("/api/admin/agendamentos", methods=["GET"])
@@ -48,8 +103,8 @@ def painel_agendamentos():
             clientes.nome       AS cliente_nome,
             clientes.telefone   AS cliente_telefone,
             servicos.nome       AS servico_nome,
-            servicos.preco      AS servico_preco,
-            servicos.duracao_min AS servico_duracao,
+            COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS servico_preco,
+            COALESCE(agendamentos.duracao_min, servicos.duracao_min) AS servico_duracao,
             barbeiros.nome      AS barbeiro_nome
         FROM agendamentos
         JOIN clientes  ON agendamentos.cliente_id  = clientes.id
