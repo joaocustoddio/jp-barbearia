@@ -15,7 +15,6 @@ from config import (
 )
 from database import get_connection
 from precos import servico_na_data
-from comprovantes import criar_comprovante
 from horarios import (
     Janela, hhmm_para_min, cabe_no_expediente, primeiro_conflito,
     mensagem_de_conflito,
@@ -334,7 +333,6 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     # Avisa a equipe no Telegram e manda a confirmação pro cliente. Só no fluxo
     # público — quando é o próprio barbeiro anotando no caderninho não faz sentido.
     resposta = {"mensagem": "Agendamento criado com sucesso!", "agendamento_id": agendamento_id,
-                'comprovante': criar_comprovante(agendamento_id),
                 'preco': servico['valor_centavos'] / 100, 'duracao_min': dur_novo}
     if avisar_equipe:
         detalhes = conn.execute(
@@ -365,11 +363,6 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
                     preco=servico['valor_centavos'] / 100, link_agenda=link_agenda,
                     endereco=ENDERECO_BARBEARIA,
                 )
-                # Comprovante opaco assinado: não contém nome nem telefone.
-                from html import escape
-                codigo = resposta['comprovante']
-                html += '<p>Guarde seu código para consultar ou cancelar: <code>%s</code></p>' % escape(codigo)
-                texto += '\n\nCódigo para consultar ou cancelar: ' + codigo
                 emails.enviar(email_cliente, assunto, html, texto)
     conn.close()
 

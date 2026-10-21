@@ -202,11 +202,11 @@ def test_agendamento_valido_cria_e_devolve_201(cliente, monkeypatch, avisos):
     assert conn.inseriu_agendamento()
 
 
-def test_nova_reserva_grava_snapshot_e_comprovante(cliente, monkeypatch, avisos):
-    from comprovantes import validar_comprovante
+def test_nova_reserva_grava_snapshot(cliente, monkeypatch, avisos):
+    """Preço, duração e comissão ficam gravados NO agendamento: mudar a tabela
+    de serviços depois não pode alterar um atendimento já marcado."""
     status, resposta, conn = marcar(cliente, monkeypatch, duracao=20)
     assert status == 201
-    assert validar_comprovante(resposta.get('comprovante')) == 555
     sql, params = next((s,p) for s,p in conn.executados if s.startswith('insert into agendamentos'))
     assert params[-3:] == (4500,20,60)
 
@@ -449,13 +449,11 @@ class ConexaoCancelamento:
 
 
 def cancelar(cliente, monkeypatch, dados, achou=True):
-    from comprovantes import criar_comprovante
     from config import FUSO_BR
     from extensoes import limiter
     monkeypatch.setattr(limiter, "enabled", False)
     monkeypatch.setattr(rotas_publicas, "agora_br",
                         lambda: datetime(2026, 8, 24, 9, 0, tzinfo=FUSO_BR))
-    dados = {**dados, "comprovante": criar_comprovante(555)}
     conn = ConexaoCancelamento(achou=achou)
     monkeypatch.setattr(rotas_publicas, "get_connection", lambda: conn)
     resposta = cliente.post("/api/agendamentos/cancelar", json=dados)

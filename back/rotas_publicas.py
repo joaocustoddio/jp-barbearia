@@ -16,7 +16,6 @@ from flask import request, jsonify
 from agendamentos import _data_br, _processar_novo_agendamento
 from config import agora_br, FUSO_BR, data_hoje
 from precos import catalogo_na_data
-from comprovantes import validar_comprovante
 from database import get_connection
 from extensoes import app, limiter
 from validacoes import validar_telefone
@@ -65,19 +64,19 @@ def criar_agendamento():
 @app.route("/api/agendamentos/consultar", methods=["GET"])
 @limiter.limit("10 per minute")
 def consultar_agendamentos_cliente():
-    """Consulta apenas o agendamento autorizado pelo comprovante e telefone."""
+    """Público: lista os agendamentos ainda por vir de um telefone, pro cliente
+    consultar e cancelar pelo site. ?telefone=...
+
+    Identifica pelo telefone, como sempre foi. Chegou a exigir um código
+    assinado, mas isso obrigava o cliente a guardar 150 caracteres pra cancelar
+    um corte — decisão do João em 21/10/2026 de voltar atrás. O limite de
+    tentativas por minuto continua, pra não virar ferramenta de varredura."""
     telefone = (request.args.get("telefone") or "").strip()
     if not telefone:
         return jsonify({"erro": "Informe o telefone"}), 400
     valido, erro = validar_telefone(telefone)
     if not valido:
         return jsonify({"erro": erro}), 400
-    token = request.args.get("comprovante")
-    if not token:
-        return jsonify({"erro": "Informe o comprovante. Sem ele, entre em contato com a barbearia."}), 400
-    agendamento_id = validar_comprovante(token)
-    if agendamento_id is None:
-        return jsonify({"erro": "Comprovante inválido"}), 403
     tel_num = re.sub(r"\D", "", telefone)
     agora = agora_br()
     conn = get_connection()
@@ -89,12 +88,11 @@ def consultar_agendamentos_cliente():
             JOIN clientes  ON agendamentos.cliente_id  = clientes.id
             JOIN servicos  ON agendamentos.servico_id  = servicos.id
             JOIN barbeiros ON agendamentos.barbeiro_id = barbeiros.id
-            WHERE agendamentos.id = %s
-              AND regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
+            WHERE regexp_replace(COALESCE(clientes.telefone, ''), '\D', '', 'g') = %s
               AND agendamentos.status NOT IN ('cancelado', 'concluido')
               AND (agendamentos.data::date + agendamentos.hora::time) > %s
             ORDER BY agendamentos.data, agendamentos.hora""",
-        (agendamento_id, tel_num, agora.replace(tzinfo=None))
+        (tel_num, agora.replace(tzinfo=None))
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
@@ -103,7 +101,12 @@ def consultar_agendamentos_cliente():
 @app.route("/api/agendamentos/cancelar", methods=["POST"])
 @limiter.limit("10 per minute")
 def cancelar_agendamento_cliente():
-    """Cancela com telefone e comprovante assinado do próprio agendamento."""
+    """Público: cliente cancela o próprio agendamento conferindo o telefone.
+    Corpo: { agendamento_id, telefone }.
+
+    Sem código assinado, por decisão do João em 21/10/2026: fazia o cliente
+    guardar um código enorme. Seguem de pé a trava da linha no banco, a recusa
+    de cancelar horário que já passou e o limite de tentativas."""
     dados = request.get_json(silent=True) or {}
     if not isinstance(dados, dict):
         return jsonify({"erro": "Corpo da requisição inválido"}), 400
@@ -114,11 +117,6 @@ def cancelar_agendamento_cliente():
     valido, erro = validar_telefone(telefone)
     if not valido:
         return jsonify({"erro": erro}), 400
-    token = dados.get("comprovante")
-    if not token:
-        return jsonify({"erro": "Informe o comprovante. Sem ele, entre em contato com a barbearia."}), 400
-    if validar_comprovante(token) != agendamento_id:
-        return jsonify({"erro": "Comprovante inválido"}), 403
     tel_num = re.sub(r"\D", "", telefone)
     conn = get_connection()
     row = conn.execute(

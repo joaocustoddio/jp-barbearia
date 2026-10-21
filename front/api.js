@@ -152,15 +152,15 @@ const API = (() => {
     },
 
     /** GET /api/agendamentos/consultar?telefone= → agendamentos futuros do cliente */
-    consultarAgendamentos(telefone, comprovante) {
-      return request(`/api/agendamentos/consultar?telefone=${encodeURIComponent(telefone)}&comprovante=${encodeURIComponent(comprovante)}`);
+    consultarAgendamentos(telefone) {
+      return request(`/api/agendamentos/consultar?telefone=${encodeURIComponent(telefone)}`);
     },
 
     /** POST /api/agendamentos/cancelar → cliente cancela o próprio (confere telefone) */
-    cancelarAgendamentoCliente(agendamento_id, telefone, comprovante) {
+    cancelarAgendamentoCliente(agendamento_id, telefone) {
       return request("/api/agendamentos/cancelar", {
         method: "POST",
-        body: JSON.stringify({ agendamento_id: Number(agendamento_id), telefone, comprovante })
+        body: JSON.stringify({ agendamento_id: Number(agendamento_id), telefone })
       });
     },
 

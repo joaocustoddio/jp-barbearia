@@ -27,7 +27,7 @@ async function pagina(t, arquivo='admin.html') {
       if(u.pathname === '/api/servicos') json=[{id:1,nome:'Corte',preco:u.searchParams.get('data')==='2099-11-03'?60:40,duracao_min:50}];
       if(u.pathname === '/api/barbeiros') json=[{id:2,nome:'Rian'}];
       if(u.pathname === '/api/horarios-disponiveis') json={horarios_disponiveis:['09:00','10:00']};
-      if(u.pathname === '/api/agendamentos' && req.method()==='POST') json={agendamento_id:1,comprovante:'codigo-seguro-teste',preco:60};
+      if(u.pathname === '/api/agendamentos' && req.method()==='POST') json={agendamento_id:1,preco:60};
       if(req.method()==='PATCH'||req.method()==='PUT') json={mensagem:'Salvo'};
       return route.fulfill({json});
     }
@@ -111,7 +111,7 @@ test('reajuste exige confirmação e envia vigência escolhida',async t=>{
   assert.deepEqual(requisicoes.find(r=>r.method==='PUT').body,{preco:60,duracao_min:50,inicio_vigencia:'2099-11-03'});
 });
 
-test('cliente vê preço da data antes de confirmar e recebe comprovante',async t=>{
+test('cliente vê preço da data antes de confirmar e recebe a confirmação',async t=>{
   const {page,requisicoes}=await pagina(t,'index.html');
   await page.evaluate(async()=>{state.servico={id:1,nome:'Corte',preco:40,duracao_min:50};state.barbeiro={id:2,nome:'Rian'};state.data='2099-11-03';await renderPassoHorario();});
   await page.getByRole('button',{name:'09:00',exact:true}).click();
@@ -119,7 +119,10 @@ test('cliente vê preço da data antes de confirmar e recebe comprovante',async 
   await page.locator('#input-nome').fill('Sérgio');
   await page.locator('#input-telefone').fill('11999999999');
   await page.getByRole('button',{name:'Confirmar agendamento'}).click();
-  await page.getByRole('button',{name:'Já salvei meu código'}).waitFor();
-  assert.equal(await page.locator('textarea').inputValue(),'codigo-seguro-teste');
+  // A tela de sucesso é só a confirmação: o código assinado saiu em 21/10/2026
+  // porque obrigava o cliente a guardar 150 caracteres pra cancelar um corte.
+  await page.getByRole('button',{name:'OK'}).waitFor();
+  assert.match(await page.locator('#step-content').textContent(),/Agendamento confirmado/);
+  assert.equal(await page.locator('textarea').count(),0);
   assert.ok(requisicoes.some(r=>r.method==='POST'));
 });
