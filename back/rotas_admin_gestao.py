@@ -448,7 +448,7 @@ def ficha_cliente(cliente_id):
     historico = conn.execute(
         """SELECT agendamentos.id, agendamentos.data, agendamentos.hora,
                   agendamentos.status, agendamentos.forma_pagamento,
-                  servicos.nome AS servico, COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS preco,
+                  servicos.nome AS servico, CAST(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS FLOAT8) AS preco,
                   barbeiros.nome AS barbeiro
              FROM agendamentos
              JOIN servicos  ON agendamentos.servico_id  = servicos.id

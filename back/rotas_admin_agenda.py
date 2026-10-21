@@ -103,7 +103,7 @@ def painel_agendamentos():
             clientes.nome       AS cliente_nome,
             clientes.telefone   AS cliente_telefone,
             servicos.nome       AS servico_nome,
-            COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS servico_preco,
+            CAST(COALESCE(agendamentos.valor_centavos / 100.0, CAST(servicos.preco AS NUMERIC)) AS FLOAT8) AS servico_preco,
             COALESCE(agendamentos.duracao_min, servicos.duracao_min) AS servico_duracao,
             barbeiros.nome      AS barbeiro_nome
         FROM agendamentos

@@ -21,7 +21,11 @@ const elConteudo  = document.getElementById("conteudo-painel");
 
 /* -------------------- Formatação -------------------- */
 function formatarMoeda(valor) {
-  return (valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  // Number() porque o Postgres devolve NUMERIC e o Flask serializa como TEXTO
+  // ("40.00000000000000000000"). Texto também tem toLocaleString, só que ela
+  // ignora as opções e devolve a string crua — foi assim que o card do
+  // atendimento apareceu com o valor cheio de zeros em vez de R$ 40,00.
+  return (Number(valor) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function formatarDataBR(dataISO) {
