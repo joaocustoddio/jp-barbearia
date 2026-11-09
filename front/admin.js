@@ -793,6 +793,7 @@ async function renderAgendaDia() {
         <button class="btn-mini nav-seta" id="ag-dia-prox" aria-label="Próximo dia">›</button>
         <button class="btn-mini nav-btn" id="ag-hoje">Hoje</button>
         <button class="btn-mini nav-btn" id="ag-amanha">Amanhã</button>
+        <button class="btn-mini nav-btn btn-story" id="ag-story">Imagem pro story</button>
       </div>
       <div class="agenda-status">
         <button class="chip-filtro${statusAgenda === "ativos" ? " ativo" : ""}" data-status="ativos">Agendamentos</button>
@@ -803,6 +804,25 @@ async function renderAgendaDia() {
   `;
 
   const inputDia = document.getElementById("ag-dia");
+  // Gera a imagem do dia que ESTÁ na tela — o seletor de data acima já serve
+  // de escolha, então dá pra postar hoje à noite o story de amanhã.
+  document.getElementById("ag-story").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    const rotulo = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Gerando...";
+    try {
+      const fim = await gerarStory(inputDia.value || hojeISO());
+      btn.textContent = fim === "baixado" ? "Imagem salva!" : rotulo;
+    } catch (e) {
+      const m = tratarErro(e); if (m !== null) alert(m);
+      btn.textContent = rotulo;
+    } finally {
+      btn.disabled = false;
+      setTimeout(() => { btn.textContent = rotulo; }, 2500);
+    }
+  });
+
   inputDia.addEventListener("change", () => { dataAgenda = inputDia.value; recarregarAgenda(); });
   document.getElementById("ag-dia-ant").addEventListener("click", () => {
     dataAgenda = addDiasISO(inputDia.value, -1); inputDia.value = dataAgenda; recarregarAgenda();

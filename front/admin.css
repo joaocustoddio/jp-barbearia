@@ -1900,3 +1900,12 @@ table.tabela .btn-mini {
 /* Barra de quem veio de anúncio: verde, pra separar do tráfego direto num
    olhar. É o número que justifica (ou não) a verba de tráfego pago. */
 .ranking-barra.de-anuncio { background: #4ade80; }
+
+/* Botão da imagem de story: destacado entre os de navegação, porque é ação,
+   não navegação — e é o que o dono vai procurar todo dia. */
+.btn-mini.btn-story {
+  background: var(--acento-fraco);
+  border-color: var(--acento);
+  color: var(--acento);
+  font-weight: 700;
+}
