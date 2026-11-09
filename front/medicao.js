@@ -13,7 +13,7 @@
    COMO LIGAR: ponha o ID do Pixel abaixo. Com o campo vazio, nada é
    carregado e o site funciona igual — então dá pra subir antes de ter conta.
    ===================================================== */
-const PIXEL_ID = "";
+const PIXEL_ID = "1132752796291662";
 
 /* Eventos: usamos os nomes PADRÃO do Meta sempre que existe um que descreve
    o passo. Evento padrão o gerenciador já entende e deixa escolher como
