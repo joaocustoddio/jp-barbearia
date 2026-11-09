@@ -2509,6 +2509,8 @@ async function abrirFichaCliente(id) {
    ===================================================== */
 // Imagem dos horários livres pro story. Fica aqui e não na Agenda do dia
 // porque aquela tela os barbeiros usam o tempo todo durante o atendimento.
+// Vale pro barbeiro também: a imagem só lê rotas públicas (serviços,
+// barbeiros e horários livres), nada que precise ser master.
 function ligarBotaoStory() {
   const dia = document.getElementById("story-dia");
   dia.min = hojeISO();
@@ -2575,7 +2577,6 @@ async function renderHorarios() {
       <p class="login-erro" id="bloq-erro" style="margin-top:8px;"></p>
     </div>
 
-    ${ehGestor ? `
     <div class="bloco">
       <h3 class="bloco-titulo">Imagem pro story</h3>
       <p class="secao-subtitulo" style="margin:0 0 12px;">
@@ -2588,7 +2589,7 @@ async function renderHorarios() {
         </div>
         <button class="btn-mini btn-story" id="ag-story">Gerar imagem</button>
       </div>
-    </div>` : ""}
+    </div>
 
     <div id="lista-bloqueios">${carregando()}</div>
   `;
@@ -2596,7 +2597,7 @@ async function renderHorarios() {
   document.getElementById("bloq-data").min = hojeISO();
   document.getElementById("bloq-data").value = hojeISO();
   document.getElementById("btn-add-bloqueio").addEventListener("click", adicionarBloqueio);
-  if (ehGestor) ligarBotaoStory();
+  ligarBotaoStory();
   // Mostra em texto o que vai acontecer ANTES de clicar — é o que evita o
   // "achei que era só uma hora" e o bloqueio errado.
   ["bloq-hora", "bloq-volta"].forEach((id) =>
