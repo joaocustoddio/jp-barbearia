@@ -28,6 +28,45 @@ const ICONES = {
   vazio: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`
 };
 
+/* =====================================================
+   DE ONDE VEIO O CLIENTE
+
+   O anúncio manda pra cá com ?utm_source=meta&utm_campaign=novembro.
+   A pessoa chega, navega, e só agenda minutos depois — às vezes no dia
+   seguinte. Por isso a origem é guardada no aparelho e enviada junto com o
+   agendamento, em vez de lida da URL na hora de confirmar (ali ela já se
+   perdeu, porque o site troca de passo sem recarregar).
+
+   Janela de 30 dias e sempre o ÚLTIMO clique: é o mesmo critério que as
+   plataformas de anúncio usam, então o número do painel conversa com o delas.
+   ===================================================== */
+const CHAVE_ORIGEM = "origem_visita";
+const DIAS_ORIGEM = 30;
+
+function guardarOrigem() {
+  try {
+    const url = new URLSearchParams(location.search);
+    const fonte = (url.get("utm_source") || "").trim().slice(0, 40);
+    if (!fonte) return;                       // visita direta não apaga a origem anterior
+    localStorage.setItem(CHAVE_ORIGEM, JSON.stringify({
+      origem: fonte,
+      campanha: (url.get("utm_campaign") || "").trim().slice(0, 60),
+      em: Date.now(),
+    }));
+  } catch (_) { /* navegador sem storage: segue sem medir */ }
+}
+
+function origemDaVisita() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_ORIGEM));
+    if (!salvo || !salvo.origem) return {};
+    if (Date.now() - salvo.em > DIAS_ORIGEM * 86400000) return {};
+    return { origem: salvo.origem, campanha: salvo.campanha || "" };
+  } catch (_) { return {}; }
+}
+
+guardarOrigem();
+
 /* -------------------- Descrições auxiliares (a API não guarda descrição) -------------------- */
 const DESCRICOES_SERVICO = {
   "Degradê": "Corte com transição gradual nas laterais",
@@ -697,7 +736,8 @@ async function finalizarAgendamento() {
       servico_id: state.servico.id,
       barbeiro_id: state.barbeiro.id,
       data: state.data,
-      hora: state.hora
+      hora: state.hora,
+      ...origemDaVisita()
     });
 
     // O back devolve o link do Google Agenda — o lembrete vira o alarme do

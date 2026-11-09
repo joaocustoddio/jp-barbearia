@@ -195,6 +195,22 @@ def relatorio_admin():
         ) classificados
     """, per).fetchone()
 
+    # De onde vieram os clientes do período. Sem origem = chegou direto no site
+    # ou foi anotado no caderninho — por isso vira "Direto", e não some da conta.
+    origens = conn.execute(f"""
+        SELECT COALESCE(NULLIF(agendamentos.origem, ''), 'Direto') AS origem,
+               COALESCE(NULLIF(agendamentos.campanha, ''), '') AS campanha,
+               COUNT(*) AS quantidade,
+               COALESCE(SUM(CAST(COALESCE(agendamentos.valor_centavos / 100.0,
+                        CAST(servicos.preco AS NUMERIC)) AS FLOAT8)), 0) AS valor
+        FROM agendamentos
+        JOIN servicos ON agendamentos.servico_id = servicos.id
+        WHERE agendamentos.status != 'cancelado'
+          AND agendamentos.data BETWEEN %s AND %s{filtro_barb}
+        GROUP BY 1, 2
+        ORDER BY quantidade DESC
+    """, per).fetchall()
+
     # Ranking dos serviços mais realizados no período (pro dashboard)
     servicos_mais_realizados = conn.execute(f"""
         SELECT servicos.nome,
@@ -234,6 +250,7 @@ def relatorio_admin():
         "cancelados_perda_valor": round(float(perda_real["perda_valor"] or 0), 2),
         "cancelados_remarcou": int(perda_real["remarcou"] or 0),
         "por_dia": [dict(d) for d in por_dia],
+        "origens": [dict(o) for o in origens],
         "servicos_mais_realizados": [dict(s) for s in servicos_mais_realizados]
     })
 

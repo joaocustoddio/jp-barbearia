@@ -1896,3 +1896,7 @@ table.tabela .btn-mini {
 }
 
 .preco-programados { flex-basis: 100%; }
+
+/* Barra de quem veio de anúncio: verde, pra separar do tráfego direto num
+   olhar. É o número que justifica (ou não) a verba de tráfego pago. */
+.ranking-barra.de-anuncio { background: #4ade80; }

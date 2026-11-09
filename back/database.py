@@ -294,6 +294,12 @@ def init_db():
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS duracao_min INTEGER")
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS comissao_pct INTEGER")
     cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS preco_personalizado BOOLEAN NOT NULL DEFAULT false")
+
+    # De onde o cliente veio, pra medir anúncio. Preenchido a partir da utm da
+    # URL (?utm_source=meta&utm_campaign=novembro); fica NULO quando a pessoa
+    # chegou direto ou quando o corte foi anotado no caderninho pelo barbeiro.
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS origem TEXT")
+    cur.execute("ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS campanha TEXT")
     cur.execute('''UPDATE agendamentos a SET
         valor_centavos = COALESCE(a.valor_centavos, CAST(ROUND(CAST(s.preco AS NUMERIC) * 100) AS INTEGER)),
         duracao_min = COALESCE(a.duracao_min, s.duracao_min),

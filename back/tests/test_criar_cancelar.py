@@ -208,7 +208,15 @@ def test_nova_reserva_grava_snapshot(cliente, monkeypatch, avisos):
     status, resposta, conn = marcar(cliente, monkeypatch, duracao=20)
     assert status == 201
     sql, params = next((s,p) for s,p in conn.executados if s.startswith('insert into agendamentos'))
-    assert params[-3:] == (4500,20,60)
+    assert params[-5:-2] == (4500, 20, 60)
+
+
+def test_reserva_sem_utm_fica_sem_origem(cliente, monkeypatch, avisos):
+    """Quem chegou direto no site (ou foi anotado no caderninho) não vira
+    agendamento 'de anúncio' — fica nulo, e o painel conta como direto."""
+    _, _, conn = marcar(cliente, monkeypatch)
+    _, params = next((s, p) for s, p in conn.executados if s.startswith('insert into agendamentos'))
+    assert params[-2:] == (None, None)
 
 
 def test_servico_inativo_nao_pode_ser_reservado(cliente, monkeypatch, avisos):
@@ -582,3 +590,28 @@ def test_painel_nao_avisa_se_o_agendamento_ja_estava_cancelado(cliente, monkeypa
     assert resposta.status_code == 400
     assert conn.commits == 0
     assert avisos["telegram"] == []
+
+
+# ------------------------------------------------------ de onde veio o cliente
+
+def test_reserva_grava_a_origem_do_anuncio(cliente, monkeypatch, avisos):
+    """É o que responde 'o anúncio trouxe cliente?' com dado do próprio banco,
+    sem depender do relatório da plataforma."""
+    _, _, conn = marcar(cliente, monkeypatch,
+                        dados={"origem": "meta", "campanha": "novembro"})
+    _, params = next((s, p) for s, p in conn.executados if s.startswith('insert into agendamentos'))
+    assert params[-2:] == ("meta", "novembro")
+
+
+def test_origem_gigante_e_cortada(cliente, monkeypatch, avisos):
+    """O valor vem da URL, então qualquer um digita o que quiser ali."""
+    _, _, conn = marcar(cliente, monkeypatch,
+                        dados={"origem": "x" * 500, "campanha": "y" * 500})
+    _, params = next((s, p) for s, p in conn.executados if s.startswith('insert into agendamentos'))
+    assert len(params[-2]) == 40 and len(params[-1]) == 60
+
+
+def test_origem_em_branco_vira_nulo(cliente, monkeypatch, avisos):
+    _, _, conn = marcar(cliente, monkeypatch, dados={"origem": "   ", "campanha": ""})
+    _, params = next((s, p) for s, p in conn.executados if s.startswith('insert into agendamentos'))
+    assert params[-2:] == (None, None)

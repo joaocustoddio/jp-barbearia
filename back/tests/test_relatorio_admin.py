@@ -37,7 +37,7 @@ class ConexaoRelatorio:
                  produtos_centavos=0, produtos_qtd=0, servicos=(),
                  comissoes=0, cancelados_qtd=0, cancelados_valor=0,
                  cancelados_perda=0, cancelados_perda_valor=0,
-                 cancelados_remarcou=0):
+                 cancelados_remarcou=0, origens=()):
         self.faturamento = faturamento
         self.total = total
         self.por_dia = por_dia
@@ -50,6 +50,7 @@ class ConexaoRelatorio:
         self.cancelados_perda = cancelados_perda
         self.cancelados_perda_valor = cancelados_perda_valor
         self.cancelados_remarcou = cancelados_remarcou
+        self.origens = origens
         self.executados = []
 
     def execute(self, sql, params=None):
@@ -69,6 +70,8 @@ class ConexaoRelatorio:
                              "valor": self.cancelados_valor}])
         if "group by agendamentos.data" in consulta:
             return _Cursor(self.por_dia)
+        if "as origem" in consulta:
+            return _Cursor(self.origens)
         if "group by servicos.id" in consulta:
             return _Cursor(self.servicos)
         if "count(*) as total" in consulta:
@@ -396,3 +399,36 @@ def test_master_ve_de_todos(cliente, monkeypatch):
 
 def test_relatorio_sem_token_bloqueia(cliente):
     assert cliente.get("/api/admin/relatorio").status_code == 401
+
+
+# ------------------------------------------------------ de onde veio o cliente
+
+def test_origens_vem_no_relatorio(cliente, monkeypatch):
+    """É o número que responde se o anúncio encheu a agenda."""
+    _, corpo, _ = pedir(cliente, monkeypatch, origens=[
+        {"origem": "Direto", "campanha": "", "quantidade": 70, "valor": 2800.0},
+        {"origem": "meta", "campanha": "novembro", "quantidade": 23, "valor": 920.0},
+    ])
+    assert corpo["origens"][1] == {"origem": "meta", "campanha": "novembro",
+                                   "quantidade": 23, "valor": 920.0}
+
+
+def test_quem_chegou_direto_nao_some_da_conta(cliente, monkeypatch):
+    """Agendamento sem utm vira 'Direto' na consulta, e não uma linha vazia —
+    senão o total por origem não bate com o total de agendamentos."""
+    _, _, conn = pedir(cliente, monkeypatch)
+    sql = next(s for s, _ in conn.executados if "as origem" in s)
+    assert "nullif(agendamentos.origem, '')" in sql and "'direto'" in sql
+
+
+def test_origem_ignora_cancelado(cliente, monkeypatch):
+    _, _, conn = pedir(cliente, monkeypatch)
+    sql = next(s for s, _ in conn.executados if "as origem" in s)
+    assert "status != 'cancelado'" in sql
+
+
+def test_barbeiro_so_ve_a_origem_dos_proprios_atendimentos(cliente, monkeypatch):
+    _, _, conn = pedir(cliente, monkeypatch, papel="barbeiro", barbeiro_id=3)
+    sql, params = next((s, p) for s, p in conn.executados if "as origem" in s)
+    assert "agendamentos.barbeiro_id = %s" in sql
+    assert params[-1] == 3

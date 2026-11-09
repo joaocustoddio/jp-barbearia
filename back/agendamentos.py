@@ -152,6 +152,16 @@ def buscar_ou_criar_cliente(conn, nome, telefone, email):
     return cursor.fetchone()["id"]
 
 
+def _texto_curto(valor, limite):
+    """Aceita só texto curto da utm e devolve None quando não veio nada.
+
+    O valor chega da URL, então qualquer um pode digitar o que quiser ali —
+    o corte de tamanho evita encher a coluna com lixo de link malformado.
+    """
+    texto = (valor or "").strip()[:limite] if isinstance(valor, str) else ""
+    return texto or None
+
+
 def so_digitos(telefone):
     """'(11) 98888-7777' -> '11988887777'. Como o telefone é comparado no banco."""
     return re.sub(r"\D", "", telefone or "")
@@ -322,10 +332,11 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO agendamentos (cliente_id, servico_id, barbeiro_id, data, hora, status, encaixe,
-                                      valor_centavos, duracao_min, comissao_pct)
-           VALUES (%s, %s, %s, %s, %s, 'confirmado', %s, %s, %s, %s) RETURNING id""",
+                                      valor_centavos, duracao_min, comissao_pct, origem, campanha)
+           VALUES (%s, %s, %s, %s, %s, 'confirmado', %s, %s, %s, %s, %s, %s) RETURNING id""",
         (cliente_id, int(dados["servico_id"]), int(barbeiro_id), dados["data"], dados["hora"],
-         bool(dados.get("encaixe")), servico['valor_centavos'], dur_novo, comissao)
+         bool(dados.get("encaixe")), servico['valor_centavos'], dur_novo, comissao,
+         _texto_curto(dados.get("origem"), 40), _texto_curto(dados.get("campanha"), 60))
     )
     agendamento_id = cursor.fetchone()["id"]
     conn.commit()

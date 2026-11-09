@@ -502,6 +502,11 @@ async function renderDashboard() {
       </div>
 
       <div class="bloco">
+        <h3 class="bloco-titulo">De onde vieram os clientes</h3>
+        <div id="origens-clientes"></div>
+      </div>
+
+      <div class="bloco">
         <h3 class="bloco-titulo">Serviços mais realizados</h3>
         <div id="ranking-servicos"></div>
       </div>
@@ -513,6 +518,7 @@ async function renderDashboard() {
     `;
 
     aplicarFiltroKpis();
+    renderOrigens(document.getElementById("origens-clientes"), relatorio.origens || []);
     renderRanking(document.getElementById("ranking-servicos"), relatorio.servicos_mais_realizados || []);
     renderAgendaHoje(document.getElementById("agenda-hoje"), confirmadosHoje);
 
@@ -520,6 +526,31 @@ async function renderDashboard() {
     const msg = tratarErro(erro);
     if (msg !== null) corpo.innerHTML = `<div class="painel-erro">${escapeHTML(msg)}</div>`;
   }
+}
+
+/* De onde vieram os agendamentos do período. "Direto" é quem chegou ao site
+   sem link de anúncio ou foi anotado no caderninho — aparece junto de
+   propósito, pra a soma bater com o total de agendamentos. */
+function renderOrigens(container, itens) {
+  if (!container) return;
+  if (!itens.length) {
+    container.innerHTML = vazio("Nenhum agendamento no período.");
+    return;
+  }
+  const total = itens.reduce((s, i) => s + i.quantidade, 0);
+  container.innerHTML = itens.map((i) => {
+    const fatia = total ? Math.round((i.quantidade / total) * 100) : 0;
+    const anuncio = i.origem !== "Direto";
+    const nome = i.campanha ? `${i.origem} · ${i.campanha}` : i.origem;
+    return `
+      <div class="ranking-item">
+        <span class="ranking-nome">${escapeHTML(nome)}</span>
+        <span class="ranking-num">${i.quantidade} &middot; ${formatarMoeda(i.valor)}</span>
+        <div class="ranking-barra-fundo">
+          <div class="ranking-barra${anuncio ? " de-anuncio" : ""}" style="width:${fatia}%"></div>
+        </div>
+      </div>`;
+  }).join("");
 }
 
 function renderRanking(container, itens) {
