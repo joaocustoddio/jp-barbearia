@@ -96,24 +96,19 @@ function desenharStory(ctx, data, barbeiros) {
   // inteiro é centralizado — com 1 ou 3 barbeiros a imagem não fica torta.
   const margem = 70, larguraCard = L - margem * 2, porLinha = 4;
 
-  // Quantos horários cabem em cada card. Em dia vazio um barbeiro pode ter 16
-  // vagas; sem limite o card cresce, a imagem estoura os 1920px e o rodapé
-  // some — justo no dia em que mais interessa postar. O que não couber vira
-  // "+N horários", que ainda passa a mensagem de que tem bastante vaga.
+  // Quantos horários cabem em cada card. Em dia vazio um barbeiro pode ter 17
+  // vagas; sem limite o card cresce e a imagem estoura os 1920px — justo no
+  // dia em que mais interessa postar. O que não couber simplesmente não
+  // aparece: quem abrir o site vai ver o resto.
   const alturaUtil = A - 420 - 230;                       // tira cabeçalho e rodapé
   const porCard = (alturaUtil - 34 * (barbeiros.length - 1)) / barbeiros.length;
   const maxLinhas = Math.max(1, Math.floor((porCard - 170) / 82));
   const maxChips = maxLinhas * porLinha;
 
-  const visiveis = barbeiros.map((b) => ({
-    ...b,
-    mostrar: b.horarios.slice(0, maxChips),
-    extras: Math.max(0, b.horarios.length - maxChips),
-  }));
-  barbeiros = visiveis;
+  barbeiros = barbeiros.map((b) => ({ ...b, mostrar: b.horarios.slice(0, maxChips) }));
 
   const alturas = barbeiros.map((b) =>
-    170 + Math.ceil(Math.max(b.mostrar.length, 1) / porLinha) * 82 + (b.extras ? 46 : 0));
+    170 + Math.ceil(Math.max(b.mostrar.length, 1) / porLinha) * 82);
   const total = alturas.reduce((s, h) => s + h + 34, -34);
   let y = Math.max(420, (A - total) / 2 + 60);
 
@@ -172,20 +167,10 @@ function desenharStory(ctx, data, barbeiros) {
         ctx.fillText(hora.slice(0, 5), cx + chipL / 2, cy + 41);
         ctx.textAlign = "left";
       });
-      if (b.extras) {
-        ctx.fillStyle = STORY.suave;
-        ctx.font = "500 32px Inter, Arial, sans-serif";
-        ctx.fillText(`+${b.extras} horário${b.extras > 1 ? "s" : ""}`,
-                     margem + 44, y + h - 26);
-      }
     }
     y += h + 34;
   });
 
-  ctx.textAlign = "center";
-  ctx.fillStyle = STORY.suave;
-  ctx.font = "500 36px Inter, Arial, sans-serif";
-  ctx.fillText("Agende pelo link da bio", STORY.largura / 2, A - 150);
 }
 
 /** Gera a imagem do dia e abre o compartilhamento (ou baixa, no computador). */

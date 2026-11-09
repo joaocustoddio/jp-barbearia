@@ -793,7 +793,6 @@ async function renderAgendaDia() {
         <button class="btn-mini nav-seta" id="ag-dia-prox" aria-label="Próximo dia">›</button>
         <button class="btn-mini nav-btn" id="ag-hoje">Hoje</button>
         <button class="btn-mini nav-btn" id="ag-amanha">Amanhã</button>
-        <button class="btn-mini nav-btn btn-story" id="ag-story">Imagem pro story</button>
       </div>
       <div class="agenda-status">
         <button class="chip-filtro${statusAgenda === "ativos" ? " ativo" : ""}" data-status="ativos">Agendamentos</button>
@@ -804,25 +803,6 @@ async function renderAgendaDia() {
   `;
 
   const inputDia = document.getElementById("ag-dia");
-  // Gera a imagem do dia que ESTÁ na tela — o seletor de data acima já serve
-  // de escolha, então dá pra postar hoje à noite o story de amanhã.
-  document.getElementById("ag-story").addEventListener("click", async (ev) => {
-    const btn = ev.currentTarget;
-    const rotulo = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Gerando...";
-    try {
-      const fim = await gerarStory(inputDia.value || hojeISO());
-      btn.textContent = fim === "baixado" ? "Imagem salva!" : rotulo;
-    } catch (e) {
-      const m = tratarErro(e); if (m !== null) alert(m);
-      btn.textContent = rotulo;
-    } finally {
-      btn.disabled = false;
-      setTimeout(() => { btn.textContent = rotulo; }, 2500);
-    }
-  });
-
   inputDia.addEventListener("change", () => { dataAgenda = inputDia.value; recarregarAgenda(); });
   document.getElementById("ag-dia-ant").addEventListener("click", () => {
     dataAgenda = addDiasISO(inputDia.value, -1); inputDia.value = dataAgenda; recarregarAgenda();
@@ -2527,6 +2507,30 @@ async function abrirFichaCliente(id) {
    O barbeiro mexe só na agenda dele; o master pode escolher outro
    barbeiro ou fechar a barbearia inteira (dia todo).
    ===================================================== */
+// Imagem dos horários livres pro story. Fica aqui e não na Agenda do dia
+// porque aquela tela os barbeiros usam o tempo todo durante o atendimento.
+function ligarBotaoStory() {
+  const dia = document.getElementById("story-dia");
+  dia.min = hojeISO();
+  dia.value = hojeISO();
+  document.getElementById("ag-story").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    const rotulo = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Gerando...";
+    try {
+      const fim = await gerarStory(dia.value || hojeISO());
+      btn.textContent = fim === "baixado" ? "Imagem salva!" : rotulo;
+    } catch (e) {
+      const m = tratarErro(e); if (m !== null) alert(m);
+      btn.textContent = rotulo;
+    } finally {
+      btn.disabled = false;
+      setTimeout(() => { btn.textContent = rotulo; }, 2500);
+    }
+  });
+}
+
 async function renderHorarios() {
   const ehGestor = API.admin.ehMaster();
 
@@ -2571,12 +2575,28 @@ async function renderHorarios() {
       <p class="login-erro" id="bloq-erro" style="margin-top:8px;"></p>
     </div>
 
+    ${ehGestor ? `
+    <div class="bloco">
+      <h3 class="bloco-titulo">Imagem pro story</h3>
+      <p class="secao-subtitulo" style="margin:0 0 12px;">
+        Gera a imagem com os horários livres de cada barbeiro, no tamanho de story.
+      </p>
+      <div class="form-linha" style="align-items:flex-end;">
+        <div class="form-grupo">
+          <label class="campo-label" for="story-dia">Dia</label>
+          <input type="date" id="story-dia" class="campo-input" />
+        </div>
+        <button class="btn-mini btn-story" id="ag-story">Gerar imagem</button>
+      </div>
+    </div>` : ""}
+
     <div id="lista-bloqueios">${carregando()}</div>
   `;
 
   document.getElementById("bloq-data").min = hojeISO();
   document.getElementById("bloq-data").value = hojeISO();
   document.getElementById("btn-add-bloqueio").addEventListener("click", adicionarBloqueio);
+  if (ehGestor) ligarBotaoStory();
   // Mostra em texto o que vai acontecer ANTES de clicar — é o que evita o
   // "achei que era só uma hora" e o bloqueio errado.
   ["bloq-hora", "bloq-volta"].forEach((id) =>
