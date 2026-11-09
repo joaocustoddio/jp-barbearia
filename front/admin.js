@@ -541,11 +541,11 @@ function renderOrigens(container, itens) {
   container.innerHTML = itens.map((i) => {
     const fatia = total ? Math.round((i.quantidade / total) * 100) : 0;
     const anuncio = i.origem !== "Direto";
-    const nome = i.campanha ? `${i.origem} · ${i.campanha}` : i.origem;
     return `
       <div class="ranking-item">
-        <span class="ranking-nome">${escapeHTML(nome)}</span>
-        <span class="ranking-num">${i.quantidade} &middot; ${formatarMoeda(i.valor)}</span>
+        <span class="ranking-nome">${escapeHTML(i.origem)}${
+          i.campanha ? `<span class="retorno-visitas">${escapeHTML(i.campanha)}</span>` : ""}</span>
+        <span class="ranking-num">${i.quantidade} agendamentos (${formatarMoeda(i.valor)})</span>
         <div class="ranking-barra-fundo">
           <div class="ranking-barra${anuncio ? " de-anuncio" : ""}" style="width:${fatia}%"></div>
         </div>

@@ -242,6 +242,10 @@ async function renderPassoServico() {
       `;
       card.addEventListener("click", () => {
         state.servico = s;
+        pixel("ViewContent", {
+          content_name: s.nome, content_type: "product",
+          value: Number(s.preco) || 0, currency: "BRL",
+        });
         avancarPara(1);
       });
       lista.appendChild(card);
@@ -619,6 +623,11 @@ async function renderPassoHorario() {
       chip.textContent = h;
       chip.addEventListener("click", () => {
         state.hora = h;
+        pixel("InitiateCheckout", {
+          content_name: state.servico ? state.servico.nome : "",
+          value: state.servico ? Number(state.servico.preco) || 0 : 0,
+          currency: "BRL",
+        });
         avancarPara(4);
       });
       grid.appendChild(chip);
@@ -743,7 +752,15 @@ async function finalizarAgendamento() {
     // O back devolve o link do Google Agenda — o lembrete vira o alarme do
     // próprio celular do cliente.
     state.linkAgenda = (criado && criado.link_agenda) || "";
-    
+
+    // Conversão. Só aqui, depois do backend confirmar que gravou — disparar
+    // no clique contaria horário tomado e erro de rede como agendamento.
+    pixel("Schedule", {
+      content_name: state.servico.nome,
+      value: Number(state.servico.preco) || 0,
+      currency: "BRL",
+    });
+
     concluido = true;
     renderStepper();
     renderSucesso();
