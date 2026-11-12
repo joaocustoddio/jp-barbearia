@@ -1908,4 +1908,7 @@ table.tabela .btn-mini {
   border-color: var(--acento);
   color: var(--acento);
   font-weight: 700;
+  /* O texto troca pra "Gerando..." e "Imagem salva!" enquanto gera; sem largura
+     fixa o botão encolhe e cresce, e a linha inteira dança. */
+  min-width: 170px;
 }

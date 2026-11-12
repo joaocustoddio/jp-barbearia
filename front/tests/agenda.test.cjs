@@ -126,3 +126,30 @@ test('cliente vê preço da data antes de confirmar e recebe a confirmação',as
   assert.equal(await page.locator('textarea').count(),0);
   assert.ok(requisicoes.some(r=>r.method==='POST'));
 });
+
+// A imagem do story leva alguns segundos pra buscar os horários de todos os
+// barbeiros. Quando passa dos ~5s o navegador recusa abrir o menu de
+// compartilhar ("gesto expirado") — e o clique não pode terminar em nada.
+async function clicarGerarStory(page, erroDoShare) {
+  await page.evaluate(e => {
+    navigator.canShare = () => true;
+    navigator.share = () => Promise.reject(Object.assign(new Error('x'), {name: e}));
+  }, erroDoShare);
+  const baixou = page.waitForEvent('download', {timeout: 2500}).then(d => d.suggestedFilename(), () => null);
+  const fim = await page.evaluate(() => gerarStory('2099-11-03'));
+  return {fim, baixou: await baixou};
+}
+
+test('share recusado pelo navegador cai no download', async t => {
+  const {page} = await pagina(t);
+  const {fim, baixou} = await clicarGerarStory(page, 'NotAllowedError');
+  assert.equal(fim, 'baixado');
+  assert.equal(baixou, 'horarios-2099-11-03.png');
+});
+
+test('share fechado pelo usuário não baixa por cima', async t => {
+  const {page} = await pagina(t);
+  const {fim, baixou} = await clicarGerarStory(page, 'AbortError');
+  assert.equal(fim, 'cancelado');
+  assert.equal(baixou, null);
+});

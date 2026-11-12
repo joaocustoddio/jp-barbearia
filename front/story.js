@@ -190,7 +190,14 @@ async function gerarStory(data) {
     try {
       await navigator.share({ files: [arquivo] });
       return "compartilhado";
-    } catch (_) { return "cancelado"; }
+    } catch (e) {
+      // Fechou o menu de propósito: não baixa nada por cima.
+      if (e && e.name === "AbortError") return "cancelado";
+      // Qualquer outro motivo cai no download. O comum é o navegador recusar
+      // por "gesto expirado": ele só abre o menu de compartilhar até ~5s depois
+      // do clique, e buscar os horarios de todos os barbeiros leva mais que
+      // isso. Antes esse caso virava um clique que não entregava nada.
+    }
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
