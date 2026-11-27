@@ -55,6 +55,22 @@ def dias_de_fila(conn, inicio, fim):
     return dias
 
 
+def proximo_dia_de_fila(conn, desde):
+    """Primeira data >= desde dentro de um período e com a barbearia aberta (ou None)."""
+    from datetime import date, timedelta
+    from validacoes import dia_fechado
+    periodos = conn.execute(
+        "SELECT inicio, fim FROM periodos_fila WHERE fim >= %s ORDER BY inicio", (desde,)
+    ).fetchall()
+    for p in periodos:
+        dia = max(date.fromisoformat(p["inicio"]), date.fromisoformat(desde))
+        while dia <= date.fromisoformat(p["fim"]):
+            if not dia_fechado(dia.isoformat())[0]:
+                return dia.isoformat()
+            dia += timedelta(days=1)
+    return None
+
+
 def listar_periodos(conn):
     linhas = conn.execute(
         "SELECT id, inicio, fim FROM periodos_fila ORDER BY inicio"

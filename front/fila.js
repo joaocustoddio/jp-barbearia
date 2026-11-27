@@ -19,6 +19,7 @@ let audio = null;
 let bipe = null;                // setInterval do som do "É sua vez"
 let parouSom = false;           // o cliente tocou em "Estou indo"
 let escolhido = null;           // barbeiro escolhido no cartão (null = qualquer um)
+let filaHoje = null;            // última resposta de /api/fila/hoje
 
 /* ---------------- utilidades ---------------- */
 
@@ -59,6 +60,11 @@ function guardarToken(token) {
 function esquecerToken() {
   try { localStorage.removeItem(CHAVE_TOKEN); } catch (_) {}
   if (new URLSearchParams(location.search).has("t")) mostrarNoEndereco(null);
+}
+
+function dataCurta(iso) {
+  const [, m, d] = String(iso).split("-");
+  return `${d}/${m}`;
 }
 
 function textoEspera(min) {
@@ -116,13 +122,23 @@ async function mostrarEscolha() {
   }
 
   if (!hoje || !hoje.dia_de_fila) {
+    const proximo = hoje && hoje.proximo_dia_de_fila ? dataCurta(hoje.proximo_dia_de_fila) : null;
+    let texto = "Hoje o atendimento é com horário marcado. A fila online funciona nos dias de fim de ano.";
+    let agendar = true;
+    if (hoje && hoje.fechado_hoje) {
+      texto = proximo ? `Hoje a barbearia está fechada. A fila volta em ${proximo}.` : "Hoje a barbearia está fechada.";
+      agendar = false;   // nos dias de fila o site não marca horário
+    } else if (proximo) {
+      texto = `A fila online começa em ${proximo}. Até lá, marque seu horário pelo site.`;
+    }
     app.innerHTML = `
       <p class="fila-olho">Fila de chegada</p>
       <h1 class="fila-titulo">Fila agora</h1>
-      <p class="fila-texto">Hoje o atendimento é com horário marcado. A fila online funciona nos dias de fim de ano.</p>
-      <a class="fila-btn" style="display:block;text-align:center;text-decoration:none;" href="index.html">Agendar horário</a>`;
+      <p class="fila-texto">${esc(texto)}</p>
+      ${agendar ? `<a class="fila-btn" style="display:block;text-align:center;text-decoration:none;" href="index.html">Agendar horário</a>` : ""}`;
     return;
   }
+  filaHoje = hoje;
 
   const qualquer = hoje.qualquer_um || {};
   const cartoes = (hoje.barbeiros || []).map((b) => `
@@ -138,11 +154,12 @@ async function mostrarEscolha() {
     <p class="fila-olho">Fila de chegada</p>
     <h1 class="fila-titulo">Fila agora</h1>
     <p class="fila-texto">Atendimento por ordem de chegada. Entre na fila pelo celular e chegue perto da sua vez.</p>
+    ${hoje.abre_as ? `<p class="fila-aviso">A fila abre às ${esc(hoje.abre_as)}.</p>` : ""}
     <div class="fila-cartoes" role="group" aria-label="Escolha o barbeiro">
       <button type="button" class="cartao-barbeiro" data-id="" ${qualquer.aberta ? "" : "disabled"} aria-pressed="false">
         <span class="cartao-avatar">★</span>
         <span class="cartao-info"><b>Qualquer um</b>
-          <span>${qualquer.aberta ? `O primeiro que liberar · ${textoEspera(qualquer.espera_min)}` : "Fila fechada"}</span>
+          <span>${qualquer.aberta ? `O primeiro que liberar · ${textoEspera(qualquer.espera_min)}` : esc(qualquer.motivo || "Fila fechada")}</span>
         </span>
       </button>
       ${cartoes}
@@ -184,7 +201,8 @@ async function entrar(ev) {
   const telefone = document.getElementById("fila-telefone").value.trim();
   erro.textContent = "";
   if (!app.querySelector('.cartao-barbeiro[aria-pressed="true"]')) {
-    erro.textContent = "A fila de hoje já fechou.";
+    const naoAbriu = filaHoje && filaHoje.qualquer_um && filaHoje.qualquer_um.motivo === "Ainda não abriu";
+    erro.textContent = naoAbriu ? "A fila de hoje ainda não abriu." : "A fila de hoje já fechou.";
     return;
   }
   if (nome.length < 2) { erro.textContent = "Diga seu nome."; return; }

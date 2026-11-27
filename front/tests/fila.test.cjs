@@ -244,6 +244,38 @@ test('fila: fora do dia', async t => {
   assert.equal(await page.locator('#fila-nome').count(), 0);
 });
 
+test('fila: antes de abrir diz quando abre', async t => {
+  const fechadaAinda = {dia_de_fila:true, abre_as:'09:00',
+    barbeiros:[{id:2, nome:'Rian', foto:null, aberta:false, motivo:'Ainda não abriu', esperando:0, espera_min:null}],
+    qualquer_um:{aberta:false, motivo:'Ainda não abriu', esperando:0, espera_min:null}};
+  const {page} = await pagina(t, 'fila.html', {'GET /api/fila/hoje': fechadaAinda, 'GET /api/servicos': servicos});
+  await page.getByText('A fila abre às 09:00').waitFor();
+  assert.equal(await page.getByText('Fila fechada').count(), 0);
+  await page.locator('#fila-nome').fill('Ana');
+  await page.locator('#fila-telefone').fill('11988887777');
+  await page.getByRole('button', {name:'Entrar na fila'}).click();
+  await page.getByText('A fila de hoje ainda não abriu.').waitFor();
+});
+
+test('fila: fora do dia mostra o próximo dia de fila', async t => {
+  const {page} = await pagina(t, 'fila.html', {
+    'GET /api/fila/hoje': {dia_de_fila:false, fechado_hoje:false, proximo_dia_de_fila:'2026-12-21',
+      barbeiros:[], qualquer_um:{aberta:false}},
+    'GET /api/servicos': servicos,
+  });
+  await page.getByText('A fila online começa em 21/12').waitFor();
+});
+
+test('fila: domingo no meio do período', async t => {
+  const {page} = await pagina(t, 'fila.html', {
+    'GET /api/fila/hoje': {dia_de_fila:false, fechado_hoje:true, proximo_dia_de_fila:'2026-12-28',
+      barbeiros:[], qualquer_um:{aberta:false}},
+    'GET /api/servicos': servicos,
+  });
+  await page.getByText('Hoje a barbearia está fechada. A fila volta em 28/12').waitFor();
+  assert.equal(await page.getByText('Agendar horário').count(), 0);
+});
+
 test('site: cartão da fila no topo', async t => {
   const {page} = await pagina(t, 'index.html', {
     'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos, 'GET /api/barbeiros': [],

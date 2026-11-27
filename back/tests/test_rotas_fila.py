@@ -128,6 +128,34 @@ def test_hoje_lista_espera_por_barbeiro(cliente, ambiente):
     assert corpo["qualquer_um"]["aberta"] is True
 
 
+def test_hoje_antes_de_abrir(cliente, ambiente):
+    ambiente["dia"] = dia(barbeiros=[barbeiro(1, abertura=540), barbeiro(2, abertura=600)],
+                          abertos=[], agora=480)
+    corpo = json.loads(cliente.get("/api/fila/hoje").data)
+    assert corpo["qualquer_um"]["aberta"] is False
+    assert corpo["qualquer_um"]["motivo"] == "Ainda não abriu"
+    assert corpo["abre_as"] == "09:00"
+    assert next(b for b in corpo["barbeiros"] if b["id"] == 1)["motivo"] == "Ainda não abriu"
+
+
+def test_hoje_fora_do_periodo_mostra_o_proximo_dia(cliente, ambiente, monkeypatch):
+    monkeypatch.setattr(fila_dados, "dia_de_fila", lambda c, d: False)
+    monkeypatch.setattr(fila_dados, "proximo_dia_de_fila", lambda c, desde: "2026-12-22")
+    corpo = json.loads(cliente.get("/api/fila/hoje").data)
+    assert corpo["dia_de_fila"] is False
+    assert corpo["fechado_hoje"] is False
+    assert corpo["proximo_dia_de_fila"] == "2026-12-22"
+
+
+def test_hoje_domingo_dentro_do_periodo(cliente, ambiente, monkeypatch):
+    monkeypatch.setattr(rotas_fila, "data_hoje", lambda: date(2026, 12, 27))   # domingo
+    monkeypatch.setattr(fila_dados, "proximo_dia_de_fila", lambda c, desde: "2026-12-28")
+    corpo = json.loads(cliente.get("/api/fila/hoje").data)
+    assert corpo["dia_de_fila"] is False
+    assert corpo["fechado_hoje"] is True
+    assert corpo["proximo_dia_de_fila"] == "2026-12-28"
+
+
 def test_hoje_barbeiro_de_folga(cliente, ambiente):
     ambiente["dia"] = dia(barbeiros=[barbeiro(1)])
     corpo = json.loads(cliente.get("/api/fila/hoje").data)

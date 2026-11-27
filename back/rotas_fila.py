@@ -8,7 +8,7 @@ Regras em fila.py; banco em fila_dados.py.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import psycopg2.errors
 from flask import g, jsonify, request
@@ -96,10 +96,17 @@ def fila_de_hoje():
     """Como está a fila agora: por barbeiro e "qualquer um". Sem nomes de clientes."""
     hoje = data_hoje().isoformat()
     conn = get_connection()
-    if not fila_dados.dia_de_fila(conn, hoje) or dia_fechado(hoje)[0]:
+    em_fila = fila_dados.dia_de_fila(conn, hoje)
+    fechado = dia_fechado(hoje)[0]
+    if not em_fila or fechado:
+        # Fora do dia (ou loja fechada): diz quando a fila volta a funcionar.
+        amanha = (data_hoje() + timedelta(days=1)).isoformat()
+        proximo = fila_dados.proximo_dia_de_fila(conn, amanha)
         conn.close()
-        return jsonify({"dia_de_fila": False, "barbeiros": [],
-                        "qualquer_um": {"aberta": False, "esperando": 0, "espera_min": None}})
+        return jsonify({"dia_de_fila": False, "fechado_hoje": bool(em_fila and fechado),
+                        "proximo_dia_de_fila": proximo, "barbeiros": [],
+                        "qualquer_um": {"aberta": False, "motivo": "Fila fechada",
+                                        "esperando": 0, "espera_min": None}})
     dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
     conn.close()
 
@@ -123,12 +130,18 @@ def fila_de_hoje():
                              if l.status == "aguardando" and l.barbeiro_id == bid),
             "espera_min": _espera_para_novo(dia, bid, INTERVALO_MINUTOS) if aberta else None,
         })
-    qualquer_aberta = _motivo_fechada(dia, None, INTERVALO_MINUTOS) is None
+    fechada_qualquer = _motivo_fechada(dia, None, INTERVALO_MINUTOS)
+    qualquer_aberta = fechada_qualquer is None
+    ainda_vai_abrir = [b.abertura for b in dia.barbeiros if dia.agora_min < b.abertura]
     return jsonify({
         "dia_de_fila": True,
         "barbeiros": barbeiros,
+        "abre_as": (min_para_hhmm(min(ainda_vai_abrir))
+                    if ainda_vai_abrir and not dia.abertos_agora else None),
         "qualquer_um": {
             "aberta": qualquer_aberta,
+            "motivo": (None if qualquer_aberta else
+                       "Ainda não abriu" if fechada_qualquer == MSG_NAO_ABRIU else "Fila fechada"),
             "esperando": sum(1 for l in dia.lugares
                              if l.status == "aguardando" and l.barbeiro_id is None),
             "espera_min": _espera_para_novo(dia, None, INTERVALO_MINUTOS) if qualquer_aberta else None,
