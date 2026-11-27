@@ -301,9 +301,17 @@ def painel_fila():
     dia_de_fila = fila_dados.dia_de_fila(conn, hoje)
     conn.close()
     est = fila.estimar_fila(dia.agora_min, dia.barbeiros, dia.lugares)
+    lugares = []
+    for r in regs:
+        if not _pode_mexer(r, escopo):
+            continue
+        item = _serializar(r, est)
+        item["whatsapp"] = (_whatsapp(r, dia.nomes.get(r["atendido_por"], ""))
+                            if r["status"] == "chamado" else None)
+        lugares.append(item)
     return jsonify({
         "dia_de_fila": dia_de_fila,
-        "lugares": [_serializar(r, est) for r in regs if _pode_mexer(r, escopo)],
+        "lugares": lugares,
         "barbeiros": [{"id": b.id, "nome": dia.nomes.get(b.id)} for b in dia.barbeiros
                       if escopo is None or b.id == escopo],
         "indisponiveis": sorted(dia.indisponiveis),

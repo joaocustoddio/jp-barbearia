@@ -387,6 +387,15 @@ def test_master_ve_tudo_com_estimativa(cliente, painel):
     assert corpo["tolerancia_min"] == 10
 
 
+def test_listagem_traz_whatsapp_do_chamado(cliente, painel):
+    painel["adicionar"](1, status="chamado", atendido_por=2, nome="Ana Paula")
+    painel["adicionar"](2)
+    lugares = json.loads(cliente.get("/api/admin/fila", headers=cabecalho()).data)["lugares"]
+    assert "wa.me" in lugares[0]["whatsapp"]
+    assert "Rian" in lugares[0]["whatsapp"]
+    assert lugares[1]["whatsapp"] is None
+
+
 def test_chamar_proximo_ordem(cliente, painel):
     painel["adicionar"](1, barbeiro_id=2)
     painel["adicionar"](2, barbeiro_id=None)
