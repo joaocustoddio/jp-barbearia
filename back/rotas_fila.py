@@ -1,17 +1,245 @@
 """
 rotas_fila.py
 -------------
-Rotas da fila online de fim de ano: períodos de fila (só o dono).
+Rotas da fila online de fim de ano:
+- públicas: ver a fila de hoje, entrar, acompanhar a vez e sair (pelo token);
+- painel: períodos de fila (só o dono).
+Regras em fila.py; banco em fila_dados.py.
 """
 
+import re
 from datetime import datetime
 
+import psycopg2.errors
 from flask import g, jsonify, request
 
+from agendamentos import (
+    MENSAGEM_CLIENTE_BLOQUEADO, buscar_ou_criar_cliente, cliente_esta_bloqueado,
+)
 from auth import somente_master, token_requerido
+from config import INTERVALO_MINUTOS, TOLERANCIA_FILA_MIN, agora_br, data_hoje
 from database import get_connection
-from extensoes import app
+from extensoes import app, limiter
+from precos import servico_na_data
+from validacoes import dia_fechado, validar_nome, validar_telefone
+import fila
 import fila_dados
+
+MSG_REPETIDO = ("Esse telefone já está na fila. Abra o link que você recebeu "
+                "ou saia da fila antes de entrar de novo.")
+MSG_FECHOU_BARBEIRO = "A fila de hoje já fechou para esse barbeiro."
+MSG_FECHOU = "A fila de hoje já fechou."
+MSG_NAO_ABRIU = "A fila de hoje ainda não abriu."
+MSG_SEM_FILA = "Hoje o atendimento é com horário marcado. Agende pelo site."
+MSG_LINK = "Esse link não vale mais."
+
+
+def _agora_min():
+    agora = agora_br()
+    return agora.hour * 60 + agora.minute
+
+
+def _abertos(dia):
+    """Barbeiros que trabalham hoje e estão dentro do expediente agora."""
+    return [b for b in dia.barbeiros if b.id in dia.abertos_agora]
+
+
+def _espera_para_novo(dia, barbeiro_id, duracao):
+    """Minutos de espera de quem entrar agora (None se ninguém atende)."""
+    novo = fila.Lugar(id=10 ** 9, barbeiro_id=barbeiro_id, atendido_por=None,
+                      status="aguardando", duracao_min=duracao)
+    est = fila.estimar_fila(dia.agora_min, _abertos(dia), dia.lugares + [novo])
+    if novo.id not in est:
+        return None
+    return fila.arredondar_espera(est[novo.id][1] - dia.agora_min)
+
+
+def _motivo_fechada(dia, barbeiro_id, duracao):
+    """None se dá pra entrar na fila de `barbeiro_id` (None = qualquer um); senão a mensagem."""
+    trabalhando = {b.id: b for b in dia.barbeiros}
+    if barbeiro_id is not None:
+        if barbeiro_id not in trabalhando:
+            return MSG_FECHOU_BARBEIRO
+        if barbeiro_id not in dia.abertos_agora:
+            return MSG_NAO_ABRIU if dia.agora_min < trabalhando[barbeiro_id].abertura else MSG_FECHOU_BARBEIRO
+    elif not dia.abertos_agora:
+        ainda_vai_abrir = any(dia.agora_min < b.abertura for b in dia.barbeiros)
+        return MSG_NAO_ABRIU if ainda_vai_abrir else MSG_FECHOU
+    if not fila.cabe_mais_um(dia.agora_min, _abertos(dia), dia.lugares, barbeiro_id, duracao):
+        return MSG_FECHOU_BARBEIRO if barbeiro_id is not None else MSG_FECHOU
+    return None
+
+
+# -------------------------------------------------------
+# PÚBLICAS
+# -------------------------------------------------------
+
+@app.route("/api/fila/hoje", methods=["GET"])
+def fila_de_hoje():
+    """Como está a fila agora: por barbeiro e "qualquer um". Sem nomes de clientes."""
+    hoje = data_hoje().isoformat()
+    conn = get_connection()
+    if not fila_dados.dia_de_fila(conn, hoje) or dia_fechado(hoje)[0]:
+        conn.close()
+        return jsonify({"dia_de_fila": False, "barbeiros": [],
+                        "qualquer_um": {"aberta": False, "esperando": 0, "espera_min": None}})
+    dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
+    conn.close()
+
+    trabalhando = {b.id for b in dia.barbeiros}
+    barbeiros = []
+    for bid, nome in sorted(dia.nomes.items()):
+        motivo = None
+        if bid not in trabalhando:
+            motivo = "De folga hoje"
+        else:
+            fechada = _motivo_fechada(dia, bid, INTERVALO_MINUTOS)
+            if fechada == MSG_NAO_ABRIU:
+                motivo = "Ainda não abriu"
+            elif fechada:
+                motivo = "Fila fechada"
+        aberta = motivo is None
+        barbeiros.append({
+            "id": bid, "nome": nome, "foto": dia.fotos.get(bid),
+            "aberta": aberta, "motivo": motivo,
+            "esperando": sum(1 for l in dia.lugares
+                             if l.status == "aguardando" and l.barbeiro_id == bid),
+            "espera_min": _espera_para_novo(dia, bid, INTERVALO_MINUTOS) if aberta else None,
+        })
+    qualquer_aberta = _motivo_fechada(dia, None, INTERVALO_MINUTOS) is None
+    return jsonify({
+        "dia_de_fila": True,
+        "barbeiros": barbeiros,
+        "qualquer_um": {
+            "aberta": qualquer_aberta,
+            "esperando": sum(1 for l in dia.lugares
+                             if l.status == "aguardando" and l.barbeiro_id is None),
+            "espera_min": _espera_para_novo(dia, None, INTERVALO_MINUTOS) if qualquer_aberta else None,
+        },
+    })
+
+
+@app.route("/api/fila", methods=["POST"])
+@limiter.limit("5 per minute")
+def entrar_na_fila():
+    dados = request.get_json(silent=True)
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Dados inválidos."}), 400
+    nome = dados.get("nome")
+    telefone = dados.get("telefone") or ""
+    for valido, erro in (validar_nome(nome), validar_telefone(telefone)):
+        if not valido:
+            return jsonify({"erro": erro}), 400
+    if not telefone.strip():
+        return jsonify({"erro": "Telefone é obrigatório"}), 400
+    numero = re.sub(r"\D", "", telefone)
+    barbeiro_id = dados.get("barbeiro_id")
+    if barbeiro_id is not None and (type(barbeiro_id) is not int or barbeiro_id <= 0):
+        return jsonify({"erro": "Barbeiro inválido."}), 400
+
+    hoje = data_hoje().isoformat()
+    conn = get_connection()
+    try:
+        if cliente_esta_bloqueado(conn, numero):
+            return jsonify({"erro": MENSAGEM_CLIENTE_BLOQUEADO}), 403
+        if not fila_dados.dia_de_fila(conn, hoje) or dia_fechado(hoje)[0]:
+            return jsonify({"erro": MSG_SEM_FILA}), 409
+        servico = servico_na_data(conn, dados.get("servico_id"), hoje)
+        if not servico:
+            return jsonify({"erro": "Serviço indisponível."}), 400
+
+        # Trava a fila do dia: duas entradas ao mesmo tempo esperam uma a outra.
+        conn.execute("SELECT id FROM barbeiros WHERE ativo = 1 FOR UPDATE")
+        dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
+        if barbeiro_id is not None and barbeiro_id not in dia.nomes:
+            return jsonify({"erro": "Barbeiro não encontrado."}), 400
+
+        generico = fila_dados.eh_telefone_generico(conn, numero)
+        if not generico and fila_dados.telefone_na_fila(conn, hoje, numero):
+            return jsonify({"erro": MSG_REPETIDO}), 409
+
+        duracao = servico["duracao_min"]
+        fechada = _motivo_fechada(dia, barbeiro_id, duracao)
+        if fechada:
+            return jsonify({"erro": fechada}), 409
+
+        cliente_id = buscar_ou_criar_cliente(conn, nome.strip(), numero, None)
+        try:
+            lugar_id, token = fila_dados.inserir_lugar(
+                conn, data=hoje, nome=nome.strip(), telefone=None if generico else numero,
+                servico_id=dados.get("servico_id"), duracao_min=duracao,
+                barbeiro_id=barbeiro_id, origem="site", cliente_id=cliente_id,
+            )
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            return jsonify({"erro": MSG_REPETIDO}), 409
+        conn.commit()
+    finally:
+        conn.close()
+
+    novo = fila.Lugar(id=lugar_id, barbeiro_id=barbeiro_id, atendido_por=None,
+                      status="aguardando", duracao_min=duracao)
+    lugares = dia.lugares + [novo]
+    est = fila.estimar_fila(dia.agora_min, _abertos(dia), lugares)
+    espera = fila.arredondar_espera(est[lugar_id][1] - dia.agora_min) if lugar_id in est else None
+    return jsonify({"token": token, "posicao": fila.posicao(lugar_id, lugares),
+                    "espera_min": espera}), 201
+
+
+def _iso(valor):
+    return valor.isoformat() if hasattr(valor, "isoformat") else valor
+
+
+@app.route("/api/fila/<token>", methods=["GET"])
+@limiter.limit("30 per minute")
+def situacao_na_fila(token):
+    hoje = data_hoje().isoformat()
+    conn = get_connection()
+    reg = fila_dados.buscar_por_token(conn, token)
+    if not reg or reg["data"] != hoje:
+        conn.close()
+        return jsonify({"erro": MSG_LINK}), 404
+
+    barbeiro = reg.get("atendido_por_nome") or reg.get("barbeiro_nome") or "Qualquer um"
+    corpo = {"status": reg["status"], "posicao": None, "a_frente": None, "espera_min": None,
+             "barbeiro": barbeiro, "servico": reg["servico"],
+             "chamado_em": _iso(reg.get("chamado_em")), "tolerancia_min": TOLERANCIA_FILA_MIN}
+    if reg["status"] not in fila.ATIVOS:
+        conn.close()
+        return jsonify(corpo)
+
+    dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
+    conn.close()
+    if reg["id"] in {l.id for l in dia.lugares}:
+        corpo["posicao"] = fila.posicao(reg["id"], dia.lugares)
+        corpo["a_frente"] = corpo["posicao"] - 1
+        est = fila.estimar_fila(dia.agora_min, dia.barbeiros, dia.lugares)
+        if reg["id"] in est:
+            corpo["espera_min"] = fila.arredondar_espera(est[reg["id"]][1] - dia.agora_min)
+    return jsonify(corpo)
+
+
+@app.route("/api/fila/<token>/sair", methods=["POST"])
+@limiter.limit("10 per minute")
+def sair_da_fila(token):
+    conn = get_connection()
+    try:
+        reg = fila_dados.buscar_por_token(conn, token)
+        if not reg:
+            return jsonify({"erro": MSG_LINK}), 404
+        try:
+            fila_dados.mudar_status(conn, reg["id"], "sair")
+        except fila.TransicaoInvalida as e:
+            conn.rollback()
+            return jsonify({"erro": str(e)}), 409
+    finally:
+        conn.close()
+    return jsonify({"mensagem": "Você saiu da fila."})
+
+
+# -------------------------------------------------------
+# PAINEL — PERÍODOS DE FILA (só o dono)
+# -------------------------------------------------------
 
 
 def _data_valida(valor):

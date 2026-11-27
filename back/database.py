@@ -431,6 +431,40 @@ def init_db():
     """)
 
     # ---------------------------------------------------------
+    # FILA — um lugar por cliente por dia de fila. barbeiro_id NULO = "qualquer
+    # um"; atendido_por = quem chamou/atendeu. Ao começar, vira um agendamento
+    # normal (agendamento_id), pra caixa, comissão e relatórios seguirem iguais.
+    # status: aguardando | chamado | atendendo | concluido | nao_veio | saiu | removido
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS fila (
+            id SERIAL PRIMARY KEY,
+            data TEXT NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            cliente_id INTEGER REFERENCES clientes (id),
+            nome TEXT NOT NULL,
+            telefone TEXT,
+            servico_id INTEGER NOT NULL REFERENCES servicos (id),
+            duracao_min INTEGER NOT NULL,
+            barbeiro_id INTEGER REFERENCES barbeiros (id),
+            atendido_por INTEGER REFERENCES barbeiros (id),
+            status TEXT NOT NULL DEFAULT 'aguardando',
+            origem TEXT NOT NULL DEFAULT 'site',
+            entrou_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+            chamado_em TIMESTAMPTZ,
+            finalizado_em TIMESTAMPTZ,
+            agendamento_id INTEGER REFERENCES agendamentos (id)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_fila_data_status ON fila (data, status)")
+    # Um lugar ativo por telefone por dia: a última defesa contra o clique duplo.
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_fila_telefone_ativo
+        ON fila (data, telefone)
+        WHERE status IN ('aguardando', 'chamado') AND telefone IS NOT NULL
+    """)
+
+    # ---------------------------------------------------------
     # CONSUMOS — produtos consumidos no atendimento (ex: refrigerante, salgado).
     # Não é serviço: entra no faturamento numa linha à parte e NÃO comissiona.
     # valor_centavos guarda o preço em centavos (evita float). Free-form por
