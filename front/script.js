@@ -402,6 +402,18 @@ function renderPassoData() {
     aplicarEstadoDoBotao(horarios ? horarios.length : 0);
   }
 
+  // Dias de fila (fim de ano): o site não marca horário, o cliente entra na
+  // fila no próprio dia. Preenchido pela varredura do período.
+  const diasFila = new Set();
+
+  function mostrarDiaDeFila() {
+    btnContinuar.disabled = true;
+    btnContinuar.className = "btn btn-secundario";
+    btnContinuar.textContent = "Dia de fila";
+    avisoChecagem.innerHTML = 'Nesse dia o atendimento é por ordem de chegada. '
+      + 'Entre na fila pelo site no dia. <a href="fila.html">Entrar na fila</a>';
+  }
+
   // Marca visualmente o dia/atalho escolhido. Quando a varredura já sabe quantas
   // vagas aquele dia tem, passa o número e economiza uma ida ao servidor.
   function selecionarData(dataISO, vagasConhecidas) {
@@ -413,6 +425,11 @@ function renderPassoData() {
     chips.querySelectorAll(".chip-rapido").forEach((c) => {
       c.classList.toggle("selecionado", c.dataset.data === dataISO);
     });
+    if (diasFila.has(dataISO)) {
+      ++tokenChecagem;          // descarta checagem antiga que ainda esteja voltando
+      mostrarDiaDeFila();
+      return;
+    }
     if (typeof vagasConhecidas === "number") {
       avisoChecagem.textContent = "";
       aplicarEstadoDoBotao(vagasConhecidas);
@@ -482,6 +499,13 @@ function renderPassoData() {
     const dias = pills.map((pill) => {
       const info = porDia && porDia[pill.dataset.data];
       const vagas = info && info.horarios_disponiveis;
+      if (info && info.modo_fila) {
+        diasFila.add(pill.dataset.data);
+        pill.classList.add("dia-fila");
+        pill.title = "Dia de fila: atendimento por ordem de chegada";
+        const topo = pill.querySelector(".dia-pill-topo");
+        if (topo) topo.textContent = "Fila";
+      }
       return { pill, data: pill.dataset.data, vagas: Array.isArray(vagas) ? vagas.length : null };
     });
 
@@ -492,7 +516,7 @@ function renderPassoData() {
     dias.forEach((d) => {
       // O dia que fica selecionado nunca é desabilitado — travar o que está
       // embaixo do dedo da pessoa seria pior do que deixar clicável.
-      if (d.vagas === 0 && d !== escolhida) {
+      if (d.vagas === 0 && d !== escolhida && !diasFila.has(d.data)) {
         d.pill.classList.add("sem-vaga");
         d.pill.title = `${state.barbeiro.nome} não tem horário nesse dia`;
         d.pill.disabled = true;
@@ -1106,3 +1130,14 @@ document.getElementById("link-cancelar").addEventListener("click", (e) => {
   abrirCancelamento();
 });
 renderTudo();
+
+// Dia de fila (fim de ano): avisa no topo e leva pra fila. Se a consulta
+// falhar, o site segue como sempre — o aviso é um atalho, não uma trava.
+API.fila.hoje().then((r) => {
+  if (!r || !r.dia_de_fila) return;
+  const topo = document.querySelector(".topbar");
+  if (!topo) return;
+  topo.insertAdjacentHTML("afterend",
+    '<a class="banner-fila" href="fila.html">Hoje é por ordem de chegada. '
+    + '<strong>Entrar na fila</strong></a>');
+}).catch(() => {});

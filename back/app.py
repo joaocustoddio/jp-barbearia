@@ -47,6 +47,7 @@ from agendamentos import janelas_ocupadas, montar_janelas, _data_br, _link_agend
 from precos import servico_na_data, duracoes_no_periodo
 import notificacoes
 import emails
+import fila_dados
 
 # Importa os módulos de rota pelo efeito colateral: cada um registra as próprias
 # rotas no mesmo objeto `app` (mesmos caminhos e mesmos nomes de endpoint).
@@ -55,6 +56,7 @@ import rotas_publicas        # noqa: F401
 import rotas_admin_agenda    # noqa: F401
 import rotas_admin_gestao    # noqa: F401
 import relatorios            # noqa: F401
+import rotas_fila            # noqa: F401
 
 
 @app.route("/", methods=["GET"])
@@ -102,6 +104,12 @@ def horarios_disponiveis():
                         "horarios_disponiveis": [], "fechado": True})
 
     conn = get_connection()
+
+    # Dia de fila: o atendimento é por ordem de chegada, o site não marca horário.
+    if fila_dados.dia_de_fila(conn, data_str):
+        conn.close()
+        return jsonify({"data": data_str, "barbeiro_id": barbeiro_id,
+                        "horarios_disponiveis": [], "modo_fila": True})
 
     # Duração do serviço escolhido = PASSO dos slots. Sem servico_id, usa o padrão.
     dur_serv = INTERVALO_MINUTOS
@@ -221,6 +229,7 @@ def horarios_disponiveis_periodo():
         "SELECT almoco_fixo FROM barbeiros WHERE id = %s", (barbeiro_id,)
     ).fetchone()
     almoco_fixo = linha_barbeiro["almoco_fixo"] if linha_barbeiro else None
+    dias_fila = fila_dados.dias_de_fila(conn, datas[0], ultimo)
     conn.close()
 
     hoje = data_hoje().isoformat()
@@ -233,6 +242,9 @@ def horarios_disponiveis_periodo():
         fechado, _ = dia_fechado(data_str)
         if fechado:
             resposta[data_str] = {"horarios_disponiveis": [], "fechado": True}
+            continue
+        if data_str in dias_fila:
+            resposta[data_str] = {"horarios_disponiveis": [], "modo_fila": True}
             continue
 
         ocupadas, dia_bloqueado = montar_janelas(

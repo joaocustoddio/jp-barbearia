@@ -57,7 +57,8 @@ const API = (() => {
    */
   async function request(path, options = {}) {
     const metodo = (options.method || "GET").toUpperCase();
-    const podeRepetir = metodo === "GET";
+    // repetir:false = quem chama já tenta de novo sozinho (ex.: a fila consulta a cada 15 s).
+    const podeRepetir = metodo === "GET" && options.repetir !== false;
     let resposta;
 
     for (let tentativa = 0; ; tentativa++) {
@@ -97,7 +98,9 @@ const API = (() => {
       }
       // O backend manda { erro: "mensagem" } nos casos de erro (ver app.py)
       const mensagem = dados?.erro || "Ocorreu um erro inesperado.";
-      throw new Error(mensagem);
+      const erro = new Error(mensagem);
+      erro.status = resposta.status;
+      throw erro;
     }
 
     return dados;
@@ -149,6 +152,23 @@ const API = (() => {
         method: "POST",
         body: JSON.stringify(dadosAgendamento)
       });
+    },
+
+    /* Fila online (dias de fim de ano, por ordem de chegada). */
+    fila: {
+      /** GET /api/fila/hoje → por barbeiro e "qualquer um": aberta, quantos esperam, espera */
+      hoje() { return request("/api/fila/hoje"); },
+      /** POST /api/fila { nome, telefone, servico_id, barbeiro_id|null } → { token, posicao, espera_min } */
+      entrar(dados) {
+        return request("/api/fila", { method: "POST", body: JSON.stringify(dados) });
+      },
+      /** GET /api/fila/<token> → status, posição, espera. Sem repetir: a página já consulta de novo. */
+      situacao(token) {
+        return request(`/api/fila/${encodeURIComponent(token)}`, { repetir: false });
+      },
+      sair(token) {
+        return request(`/api/fila/${encodeURIComponent(token)}/sair`, { method: "POST" });
+      }
     },
 
     /** GET /api/agendamentos/consultar?telefone= → agendamentos futuros do cliente */
@@ -423,6 +443,38 @@ const API = (() => {
       /** GET /api/admin/bloqueios-dia?data= → travas de horário pra desenhar na agenda */
       bloqueiosDoDia(data) {
         return requestAuth(`/api/admin/bloqueios-dia?data=${encodeURIComponent(data)}`);
+      },
+
+      /** A fila de hoje no painel: chamar, começar, concluir, não veio, remover. */
+      fila: {
+        listar() { return requestAuth("/api/admin/fila", { repetir: false }); },
+        porNaFila(dados) {
+          return requestAuth("/api/admin/fila", { method: "POST", body: JSON.stringify(dados) });
+        },
+        chamarProximo(barbeiroId) {
+          return requestAuth("/api/admin/fila/chamar-proximo", {
+            method: "POST", body: JSON.stringify({ barbeiro_id: barbeiroId })
+          });
+        },
+        /** acao: chamar | comecar | concluir | nao-veio | remover */
+        acao(id, acao, barbeiroId) {
+          return requestAuth(`/api/admin/fila/${encodeURIComponent(id)}/${acao}`, {
+            method: "POST", body: JSON.stringify(barbeiroId ? { barbeiro_id: barbeiroId } : {})
+          });
+        }
+      },
+
+      /** Dias de fila (só o dono): nesses dias o site não marca horário. */
+      periodosFila: {
+        listar() { return requestAuth("/api/admin/periodos-fila"); },
+        criar(inicio, fim) {
+          return requestAuth("/api/admin/periodos-fila", {
+            method: "POST", body: JSON.stringify({ inicio, fim })
+          });
+        },
+        apagar(id) {
+          return requestAuth(`/api/admin/periodos-fila/${encodeURIComponent(id)}`, { method: "DELETE" });
+        }
       },
 
       /** GET /api/admin/expedientes?data= → jornada de cada barbeiro no dia (master) */

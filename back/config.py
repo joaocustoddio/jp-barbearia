@@ -97,6 +97,11 @@ MARGEM_ULTIMA_ENTRADA_MIN = int(os.getenv("MARGEM_ULTIMA_ENTRADA_MINUTOS", "10")
 TOLERANCIA_DURACAO_MINIMA_MIN = int(os.getenv("TOLERANCIA_DURACAO_MINIMA_MINUTOS", "30"))
 
 
+# Fila online (fim de ano): quanto tempo o cliente tem pra chegar depois de
+# chamado. Passado isso o barbeiro pode marcar "Não veio" (não sai sozinho).
+TOLERANCIA_FILA_MIN = int(os.getenv("TOLERANCIA_FILA_MINUTOS", "10"))
+
+
 def tolerancia_para(duracao):
     """Quantos minutos ESTE serviço pode passar do fechamento (0 pros curtos)."""
     return TOLERANCIA_FECHAMENTO_MIN if (duracao or 0) >= TOLERANCIA_DURACAO_MINIMA_MIN else 0

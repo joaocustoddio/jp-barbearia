@@ -49,7 +49,7 @@ jobs:
         working-directory: front
         run: npm test
 
-      - name: Conferir que as 50 rotas continuam registradas
+      - name: Conferir que as 61 rotas continuam registradas
         # Trava contra o erro mais fácil de cometer mexendo nos módulos de rota:
         # apagar ou renomear uma rota sem perceber. Complementa os testes de contrato.
         working-directory: back
@@ -65,9 +65,9 @@ jobs:
           import app
           total = len(list(app.app.url_map.iter_rules()))
           print("rotas registradas:", total)
-          if total != 50:
+          if total != 61:
               raise SystemExit(
-                  "esperado 50 rotas, encontrado %d - se a mudanca for "
+                  "esperado 61 rotas, encontrado %d - se a mudanca for "
                   "proposital, atualize esse numero no workflow." % total
               )
           PY
