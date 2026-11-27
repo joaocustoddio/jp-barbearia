@@ -33,21 +33,32 @@ function hojeLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// O lugar fica no endereço da página (fila.html?t=...) e no aparelho. O
+// endereço é o "link próprio": abre o lugar em outro navegador — quem entrou
+// pelo navegador do Instagram e depois abriu no Chrome não perde a vez.
 function lerToken() {
+  const doLink = new URLSearchParams(location.search).get("t");
+  if (doLink) { guardarToken(doLink); return doLink; }
   try {
     const salvo = JSON.parse(localStorage.getItem(CHAVE_TOKEN));
-    if (salvo && salvo.token && salvo.data === hojeLocal()) return salvo.token;
+    if (salvo && salvo.token && salvo.data === hojeLocal()) { mostrarNoEndereco(salvo.token); return salvo.token; }
   } catch (_) { /* sem armazenamento: segue sem lugar salvo */ }
   esquecerToken();
   return null;
 }
 
+function mostrarNoEndereco(token) {
+  try { history.replaceState(null, "", token ? `fila.html?t=${encodeURIComponent(token)}` : "fila.html"); } catch (_) {}
+}
+
 function guardarToken(token) {
   try { localStorage.setItem(CHAVE_TOKEN, JSON.stringify({ token, data: hojeLocal() })); } catch (_) {}
+  mostrarNoEndereco(token);
 }
 
 function esquecerToken() {
   try { localStorage.removeItem(CHAVE_TOKEN); } catch (_) {}
+  if (new URLSearchParams(location.search).has("t")) mostrarNoEndereco(null);
 }
 
 function textoEspera(min) {
@@ -292,8 +303,20 @@ function mostrarSituacao(token, s) {
       Se não estiver aqui quando chamar, passa para o próximo.</p>
     <div class="fila-acoes">
       ${somLigado ? "" : `<button class="fila-btn secundario" id="fila-som">Ativar aviso sonoro</button>`}
+      <button class="fila-btn secundario" id="fila-copiar">Copiar meu link</button>
       <button class="fila-btn secundario" id="fila-sair">Sair da fila</button>
     </div>`;
+
+  // Guardar o link: abre o mesmo lugar em outro navegador ou aparelho.
+  const copiar = document.getElementById("fila-copiar");
+  copiar.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copiar.textContent = "Link copiado. Guarde para voltar à fila.";
+    } catch (_) {
+      copiar.textContent = location.href;
+    }
+  });
 
   const som = document.getElementById("fila-som");
   if (som) som.addEventListener("click", () => { ligarSom(); tocarBipe(); som.remove(); });

@@ -159,6 +159,26 @@ test('fila: escolher barbeiro e entrar', async t => {
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('fila_token'))).token, 'tok');
 });
 
+test('fila: quem entra ganha um link próprio', async t => {
+  const {page} = await pagina(t, 'fila.html', {
+    'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos,
+    'POST /api/fila': {token:'tok', posicao:1, espera_min:0},
+    'GET /api/fila/tok': situacao({posicao:1, a_frente:0, espera_min:0}),
+  });
+  await page.locator('#fila-nome').fill('Ana');
+  await page.locator('#fila-telefone').fill('11988887777');
+  await page.getByRole('button', {name:'Entrar na fila'}).click();
+  await page.getByText('1º').waitFor();
+  assert.match(page.url(), /fila\.html\?t=tok$/);
+  await page.getByRole('button', {name:'Copiar meu link'}).waitFor();
+});
+
+test('fila: link próprio abre o lugar em outro navegador', async t => {
+  const {page} = await pagina(t, 'fila.html?t=tok', {'GET /api/fila/tok': situacao()});
+  await page.getByText('4º').waitFor();
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('fila_token'))).token, 'tok');
+});
+
 test('fila: barbeiro de folga aparece apagado', async t => {
   const {page} = await pagina(t, 'fila.html', {'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos});
   const jp = page.locator('.cartao-barbeiro', {hasText:'JP'});
