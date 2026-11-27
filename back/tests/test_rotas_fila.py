@@ -308,3 +308,219 @@ def test_sair_duas_vezes(cliente, ambiente, monkeypatch):
 def test_sair_token_inexistente(cliente, ambiente, monkeypatch):
     monkeypatch.setattr(fila_dados, "buscar_por_token", lambda c, t: None)
     assert cliente.post("/api/fila/abc/sair").status_code == 404
+
+
+# ================================================================ PAINEL
+
+def cabecalho(papel="master", barbeiro_id=None):
+    token = jwt.encode(
+        {"admin_id": 1, "papel": papel, "barbeiro_id": barbeiro_id,
+         "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+        app.app.config["SECRET_KEY"], algorithm="HS256")
+    return {"Authorization": "Bearer %s" % token}
+
+
+@pytest.fixture
+def painel(ambiente, monkeypatch):
+    """Fila em memória: registros por id, e o dia montado a partir deles."""
+    regs = {}
+
+    def remontar():
+        ambiente["dia"] = dia(
+            barbeiros=[barbeiro(1), barbeiro(2)],
+            lugares=[lugar(r["id"], r["barbeiro_id"], status=r["status"],
+                           atendido_por=r["atendido_por"])
+                     for r in regs.values() if r["status"] in ("aguardando", "chamado")])
+
+    def adicionar(id, barbeiro_id=1, status="aguardando", atendido_por=None, telefone=TEL,
+                  nome="Ana"):
+        regs[id] = {"id": id, "data": HOJE.isoformat(), "status": status,
+                    "barbeiro_id": barbeiro_id, "atendido_por": atendido_por,
+                    "chamado_em": None, "duracao_min": 30, "nome": nome, "telefone": telefone,
+                    "servico_id": 1, "entrou_em": None, "agendamento_id": None,
+                    "origem": "site", "servico": "Corte",
+                    "barbeiro_nome": {1: "JP", 2: "Rian"}.get(barbeiro_id),
+                    "atendido_por_nome": None}
+        remontar()
+
+    def mudar(c, lugar_id, acao, barbeiro_id=None, agendamento_id=None):
+        from fila import proximo_status
+        r = regs.get(lugar_id)
+        if not r:
+            return None
+        r["status"] = proximo_status(r["status"], acao)
+        if acao == "chamar":
+            r["atendido_por"] = barbeiro_id
+        if acao == "comecar":
+            r["atendido_por"] = r["atendido_por"] or barbeiro_id
+            r["agendamento_id"] = agendamento_id
+        remontar()
+        return dict(r)
+
+    monkeypatch.setattr(fila_dados, "lugares_do_dia", lambda c, d: [dict(r) for r in regs.values()])
+    monkeypatch.setattr(fila_dados, "buscar_por_id", lambda c, i: dict(regs[i]) if i in regs else None)
+    monkeypatch.setattr(fila_dados, "mudar_status", mudar)
+    ambiente["regs"] = regs
+    ambiente["adicionar"] = adicionar
+    return ambiente
+
+
+def post(cliente, url, corpo=None, papel="master", barbeiro_id=None):
+    r = cliente.post(url, json=corpo or {}, headers=cabecalho(papel, barbeiro_id))
+    return r.status_code, json.loads(r.data)
+
+
+def test_barbeiro_ve_so_o_dele_e_qualquer_um(cliente, painel):
+    painel["adicionar"](1, barbeiro_id=1)
+    painel["adicionar"](2, barbeiro_id=2)
+    painel["adicionar"](3, barbeiro_id=None)
+    r = cliente.get("/api/admin/fila", headers=cabecalho("barbeiro", 1))
+    ids = [l["id"] for l in json.loads(r.data)["lugares"]]
+    assert ids == [1, 3]
+
+
+def test_master_ve_tudo_com_estimativa(cliente, painel):
+    painel["adicionar"](1, barbeiro_id=1)
+    painel["adicionar"](2, barbeiro_id=1)
+    corpo = json.loads(cliente.get("/api/admin/fila", headers=cabecalho()).data)
+    assert [l["inicio_estimado"] for l in corpo["lugares"]] == ["10:00", "10:30"]
+    assert corpo["tolerancia_min"] == 10
+
+
+def test_chamar_proximo_ordem(cliente, painel):
+    painel["adicionar"](1, barbeiro_id=2)
+    painel["adicionar"](2, barbeiro_id=None)
+    painel["adicionar"](3, barbeiro_id=1)
+    status, corpo = post(cliente, "/api/admin/fila/chamar-proximo", papel="barbeiro", barbeiro_id=1)
+    assert status == 200
+    assert corpo["lugar"]["id"] == 2
+    assert painel["regs"][2]["status"] == "chamado"
+    assert painel["regs"][2]["atendido_por"] == 1
+
+
+def test_chamar_proximo_com_chamado_pendente(cliente, painel):
+    painel["adicionar"](1, status="chamado", atendido_por=1)
+    painel["adicionar"](2)
+    status, corpo = post(cliente, "/api/admin/fila/chamar-proximo", papel="barbeiro", barbeiro_id=1)
+    assert status == 409
+    assert corpo["erro"] == "Resolva o cliente chamado antes de chamar outro."
+
+
+def test_chamar_proximo_sem_ninguem(cliente, painel):
+    status, corpo = post(cliente, "/api/admin/fila/chamar-proximo", papel="barbeiro", barbeiro_id=1)
+    assert status == 404
+    assert corpo["erro"] == "Ninguém esperando."
+
+
+def test_chamar_devolve_whatsapp(cliente, painel):
+    from urllib.parse import unquote
+    painel["adicionar"](1, nome="Ana Paula")
+    painel["adicionar"](2, telefone=None)
+    _, corpo = post(cliente, "/api/admin/fila/chamar-proximo", {"barbeiro_id": 1})
+    assert "wa.me" in corpo["whatsapp"]
+    texto = unquote(corpo["whatsapp"])
+    assert "Fala, Ana! Chegou sua vez na JP Barbearia com o JP." in texto
+    assert "Você tem 10 min pra chegar." in texto
+    post(cliente, "/api/admin/fila/1/nao-veio")
+    _, corpo = post(cliente, "/api/admin/fila/chamar-proximo", {"barbeiro_id": 1})
+    assert corpo["lugar"]["id"] == 2
+    assert corpo["whatsapp"] is None
+
+
+def test_barbeiro_nao_mexe_na_fila_de_outro(cliente, painel):
+    painel["adicionar"](1, barbeiro_id=2)
+    status, _ = post(cliente, "/api/admin/fila/1/chamar", papel="barbeiro", barbeiro_id=1)
+    assert status == 403
+    status, _ = post(cliente, "/api/admin/fila/1/remover", papel="barbeiro", barbeiro_id=1)
+    assert status == 403
+    assert painel["regs"][1]["status"] == "aguardando"
+
+
+def test_comecar_cria_agendamento_da_fila(cliente, painel, monkeypatch):
+    chamadas = []
+
+    def criar(dados, **kw):
+        chamadas.append((dados, kw))
+        return {"agendamento_id": 555}, 201
+    monkeypatch.setattr(rotas_fila, "_processar_novo_agendamento", criar)
+    painel["adicionar"](1, status="chamado", atendido_por=2, barbeiro_id=None)
+    status, corpo = post(cliente, "/api/admin/fila/1/comecar")
+    assert status == 200
+    assert corpo["agendamento_id"] == 555
+    dados, kw = chamadas[0]
+    assert kw == {"exigir_antecedencia": False, "permitir_conflito": True}
+    assert dados["origem"] == "fila"
+    assert dados["data"] == HOJE.isoformat()
+    assert dados["hora"] == "10:00"
+    assert dados["barbeiro_id"] == 2
+    assert dados["servico_id"] == 1
+    assert dados["nome_cliente"] == "Ana"
+    assert painel["regs"][1]["status"] == "atendendo"
+
+
+def test_comecar_trava_o_lugar_antes_de_criar_o_agendamento(cliente, painel, monkeypatch):
+    """Dois toques em Começar: o segundo espera o primeiro e não duplica o caixa."""
+    conn = painel["conn"]
+    vistos = []
+
+    def criar(dados, **kw):
+        vistos.append(any("from fila" in s and "for update" in s for s in conn.executados))
+        return {"agendamento_id": 1}, 201
+    monkeypatch.setattr(rotas_fila, "_processar_novo_agendamento", criar)
+    painel["adicionar"](1, status="chamado", atendido_por=1)
+    post(cliente, "/api/admin/fila/1/comecar")
+    assert vistos == [True]
+
+
+def test_comecar_direto_de_aguardando(cliente, painel, monkeypatch):
+    monkeypatch.setattr(rotas_fila, "_processar_novo_agendamento",
+                        lambda dados, **kw: ({"agendamento_id": 9}, 201))
+    painel["adicionar"](1, barbeiro_id=None)
+    status, _ = post(cliente, "/api/admin/fila/1/comecar", papel="barbeiro", barbeiro_id=2)
+    assert status == 200
+    assert painel["regs"][1]["atendido_por"] == 2
+
+
+def test_comecar_com_erro_no_agendamento_nao_muda_o_lugar(cliente, painel, monkeypatch):
+    monkeypatch.setattr(rotas_fila, "_processar_novo_agendamento",
+                        lambda dados, **kw: ({"erro": "Serviço indisponível."}, 400))
+    painel["adicionar"](1, status="chamado", atendido_por=1)
+    status, _ = post(cliente, "/api/admin/fila/1/comecar")
+    assert status == 400
+    assert painel["regs"][1]["status"] == "chamado"
+
+
+def test_comecar_de_quem_saiu_nao_cria_agendamento(cliente, painel, monkeypatch):
+    def nao_pode(dados, **kw):
+        raise AssertionError("não deveria criar agendamento")
+    monkeypatch.setattr(rotas_fila, "_processar_novo_agendamento", nao_pode)
+    painel["adicionar"](1, status="saiu")
+    status, _ = post(cliente, "/api/admin/fila/1/comecar")
+    assert status == 409
+
+
+def test_concluir_sem_comecar(cliente, painel):
+    painel["adicionar"](1)
+    status, corpo = post(cliente, "/api/admin/fila/1/concluir")
+    assert status == 409
+    assert "concluir" in corpo["erro"]
+
+
+def test_salao_chama_por_qualquer_barbeiro(cliente, painel):
+    painel["adicionar"](1, barbeiro_id=2)
+    status, corpo = post(cliente, "/api/admin/fila/chamar-proximo", {"barbeiro_id": 2}, papel="salao")
+    assert status == 200
+    assert corpo["lugar"]["id"] == 1
+
+
+def test_por_na_fila_sem_telefone(cliente, painel):
+    status, _ = post(cliente, "/api/admin/fila",
+                     {"nome": "Seu Zé", "servico_id": 1, "barbeiro_id": None})
+    assert status == 201
+    assert painel["inseridos"][0]["telefone"] is None
+    assert painel["inseridos"][0]["origem"] == "painel"
+
+
+def test_lugar_inexistente(cliente, painel):
+    status, _ = post(cliente, "/api/admin/fila/42/remover")
+    assert status == 404

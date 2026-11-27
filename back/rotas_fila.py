@@ -14,9 +14,12 @@ import psycopg2.errors
 from flask import g, jsonify, request
 
 from agendamentos import (
-    MENSAGEM_CLIENTE_BLOQUEADO, buscar_ou_criar_cliente, cliente_esta_bloqueado,
+    MENSAGEM_CLIENTE_BLOQUEADO, _processar_novo_agendamento, buscar_ou_criar_cliente,
+    cliente_esta_bloqueado,
 )
-from auth import somente_master, token_requerido
+from auth import barbeiro_do_escopo, somente_master, token_requerido
+from horarios import min_para_hhmm
+import notificacoes
 from config import INTERVALO_MINUTOS, TOLERANCIA_FILA_MIN, agora_br, data_hoje
 from database import get_connection
 from extensoes import app, limiter
@@ -235,6 +238,209 @@ def sair_da_fila(token):
     finally:
         conn.close()
     return jsonify({"mensagem": "Você saiu da fila."})
+
+
+# -------------------------------------------------------
+# PAINEL — A FILA DO DIA
+# -------------------------------------------------------
+
+MSG_CHAMADO_PENDENTE = "Resolva o cliente chamado antes de chamar outro."
+MSG_NINGUEM = "Ninguém esperando."
+MSG_ESCOPO = "Esse cliente está na fila de outro barbeiro."
+
+
+def _pode_mexer(reg, escopo):
+    """Barbeiro mexe só na própria fila e na de qualquer um; dono e salão em todas."""
+    if escopo is None:
+        return True
+    return reg["barbeiro_id"] in (None, escopo) or reg["atendido_por"] == escopo
+
+
+def _barbeiro_da_acao(dados, escopo):
+    """Barbeiro que está agindo: o próprio (papel barbeiro) ou o escolhido no corpo."""
+    if escopo is not None:
+        return escopo
+    bid = dados.get("barbeiro_id")
+    return bid if type(bid) is int and bid > 0 else None
+
+
+def _whatsapp(reg, nome_barbeiro):
+    telefone = reg.get("telefone")
+    if not telefone:
+        return None
+    primeiro = (reg.get("nome") or "").strip().split(" ")[0] or "tudo bem"
+    mensagem = (f"Fala, {primeiro}! Chegou sua vez na JP Barbearia com o {nome_barbeiro}. "
+                f"Você tem {TOLERANCIA_FILA_MIN} min pra chegar.")
+    return notificacoes.link_whatsapp(telefone, mensagem)
+
+
+def _serializar(reg, estimativa=None):
+    inicio = estimativa.get(reg["id"]) if estimativa else None
+    return {
+        "id": reg["id"], "nome": reg["nome"], "telefone": reg.get("telefone"),
+        "servico": reg.get("servico"), "barbeiro_id": reg["barbeiro_id"],
+        "atendido_por": reg["atendido_por"], "status": reg["status"],
+        "entrou_em": _iso(reg.get("entrou_em")), "chamado_em": _iso(reg.get("chamado_em")),
+        "inicio_estimado": min_para_hhmm(inicio[1]) if inicio else None,
+        "agendamento_id": reg.get("agendamento_id"), "origem": reg.get("origem"),
+    }
+
+
+def _chamado_pendente(dia, barbeiro_id):
+    return any(l.status == "chamado" and l.atendido_por == barbeiro_id for l in dia.lugares)
+
+
+@app.route("/api/admin/fila", methods=["GET"])
+@token_requerido
+def painel_fila():
+    hoje = data_hoje().isoformat()
+    escopo = barbeiro_do_escopo()
+    conn = get_connection()
+    regs = fila_dados.lugares_do_dia(conn, hoje)
+    dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
+    dia_de_fila = fila_dados.dia_de_fila(conn, hoje)
+    conn.close()
+    est = fila.estimar_fila(dia.agora_min, dia.barbeiros, dia.lugares)
+    return jsonify({
+        "dia_de_fila": dia_de_fila,
+        "lugares": [_serializar(r, est) for r in regs if _pode_mexer(r, escopo)],
+        "barbeiros": [{"id": b.id, "nome": dia.nomes.get(b.id)} for b in dia.barbeiros
+                      if escopo is None or b.id == escopo],
+        "indisponiveis": sorted(dia.indisponiveis),
+        "tolerancia_min": TOLERANCIA_FILA_MIN,
+    })
+
+
+@app.route("/api/admin/fila", methods=["POST"])
+@token_requerido
+def por_na_fila():
+    """Quem chegou na porta. Telefone opcional; vale mesmo com a fila "fechada"."""
+    dados = request.get_json(silent=True)
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Dados inválidos."}), 400
+    nome = dados.get("nome")
+    telefone = dados.get("telefone") or ""
+    for valido, erro in (validar_nome(nome), validar_telefone(telefone)):
+        if not valido:
+            return jsonify({"erro": erro}), 400
+    numero = re.sub(r"\D", "", telefone) or None
+    escopo = barbeiro_do_escopo()
+    barbeiro_id = dados.get("barbeiro_id")
+    if barbeiro_id is not None and (type(barbeiro_id) is not int or barbeiro_id <= 0):
+        return jsonify({"erro": "Barbeiro inválido."}), 400
+    if escopo is not None and barbeiro_id not in (None, escopo):
+        return jsonify({"erro": MSG_ESCOPO}), 403
+
+    hoje = data_hoje().isoformat()
+    conn = get_connection()
+    try:
+        servico = servico_na_data(conn, dados.get("servico_id"), hoje)
+        if not servico:
+            return jsonify({"erro": "Serviço indisponível."}), 400
+        if numero and fila_dados.eh_telefone_generico(conn, numero):
+            numero = None
+        if numero and fila_dados.telefone_na_fila(conn, hoje, numero):
+            return jsonify({"erro": MSG_REPETIDO}), 409
+        cliente_id = buscar_ou_criar_cliente(conn, nome.strip(), numero, None)
+        try:
+            lugar_id, _ = fila_dados.inserir_lugar(
+                conn, data=hoje, nome=nome.strip(), telefone=numero,
+                servico_id=dados.get("servico_id"), duracao_min=servico["duracao_min"],
+                barbeiro_id=barbeiro_id, origem="painel", cliente_id=cliente_id,
+            )
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            return jsonify({"erro": MSG_REPETIDO}), 409
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"id": lugar_id}), 201
+
+
+@app.route("/api/admin/fila/chamar-proximo", methods=["POST"])
+@token_requerido
+def chamar_proximo():
+    dados = request.get_json(silent=True) or {}
+    barbeiro_id = _barbeiro_da_acao(dados, barbeiro_do_escopo())
+    if barbeiro_id is None:
+        return jsonify({"erro": "Escolha o barbeiro."}), 400
+    hoje = data_hoje().isoformat()
+    conn = get_connection()
+    try:
+        # Trava a fila: dois barbeiros apertando juntos não chamam a mesma pessoa.
+        conn.execute("SELECT id FROM barbeiros WHERE ativo = 1 FOR UPDATE")
+        dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
+        if _chamado_pendente(dia, barbeiro_id):
+            conn.rollback()
+            return jsonify({"erro": MSG_CHAMADO_PENDENTE}), 409
+        proximo = fila.escolher_proximo(dia.lugares, barbeiro_id)
+        if not proximo:
+            conn.rollback()
+            return jsonify({"erro": MSG_NINGUEM}), 404
+        reg = fila_dados.mudar_status(conn, proximo.id, "chamar", barbeiro_id=barbeiro_id)
+    finally:
+        conn.close()
+    return jsonify({"lugar": _serializar(reg),
+                    "whatsapp": _whatsapp(reg, dia.nomes.get(barbeiro_id, ""))})
+
+
+@app.route("/api/admin/fila/<int:lugar_id>/<acao>", methods=["POST"])
+@token_requerido
+def acao_na_fila(lugar_id, acao):
+    acoes = {"chamar": "chamar", "comecar": "comecar", "concluir": "concluir",
+             "nao-veio": "nao_veio", "remover": "remover"}
+    if acao not in acoes:
+        return jsonify({"erro": "Ação desconhecida."}), 404
+    acao = acoes[acao]
+    dados = request.get_json(silent=True) or {}
+    escopo = barbeiro_do_escopo()
+    hoje = data_hoje().isoformat()
+    conn = get_connection()
+    try:
+        # Trava o lugar até o fim: dois toques em "Começar" não criam dois
+        # atendimentos — o segundo espera e já encontra o lugar em atendimento.
+        conn.execute("SELECT id FROM fila WHERE id = %s FOR UPDATE", (lugar_id,))
+        reg = fila_dados.buscar_por_id(conn, lugar_id)
+        if not reg or reg["data"] != hoje:
+            return jsonify({"erro": "Cliente não encontrado na fila de hoje."}), 404
+        if not _pode_mexer(reg, escopo):
+            return jsonify({"erro": MSG_ESCOPO}), 403
+        barbeiro_id = (_barbeiro_da_acao(dados, escopo) or reg["atendido_por"]
+                       or reg["barbeiro_id"])
+        try:
+            fila.proximo_status(reg["status"], acao)   # recusa antes de qualquer efeito
+            if acao == "chamar":
+                if barbeiro_id is None:
+                    return jsonify({"erro": "Escolha o barbeiro."}), 400
+                dia = fila_dados.carregar_dia(conn, hoje, _agora_min())
+                if _chamado_pendente(dia, barbeiro_id):
+                    return jsonify({"erro": MSG_CHAMADO_PENDENTE}), 409
+                novo = fila_dados.mudar_status(conn, lugar_id, "chamar", barbeiro_id=barbeiro_id)
+                nome_barbeiro = dia.nomes.get(barbeiro_id, "")
+                return jsonify({"lugar": _serializar(novo),
+                                "whatsapp": _whatsapp(novo, nome_barbeiro)})
+            if acao == "comecar":
+                if barbeiro_id is None:
+                    return jsonify({"erro": "Escolha o barbeiro."}), 400
+                agora = agora_br()
+                corpo, status = _processar_novo_agendamento({
+                    "nome_cliente": reg["nome"], "telefone": reg.get("telefone") or "",
+                    "servico_id": reg["servico_id"], "barbeiro_id": barbeiro_id,
+                    "data": hoje, "hora": agora.strftime("%H:%M"), "origem": "fila",
+                }, exigir_antecedencia=False, permitir_conflito=True)
+                if status != 201:
+                    return jsonify(corpo), status
+                novo = fila_dados.mudar_status(conn, lugar_id, "comecar", barbeiro_id=barbeiro_id,
+                                               agendamento_id=corpo["agendamento_id"])
+                return jsonify({"lugar": _serializar(novo),
+                                "agendamento_id": corpo["agendamento_id"]})
+            novo = fila_dados.mudar_status(conn, lugar_id, acao)
+        except fila.TransicaoInvalida as e:
+            conn.rollback()
+            return jsonify({"erro": str(e)}), 409
+    finally:
+        conn.close()
+    return jsonify({"lugar": _serializar(novo)})
 
 
 # -------------------------------------------------------
