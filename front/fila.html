@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Fila — JP Barbearia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="tema.css?v=1" />
+  <link rel="icon" type="image/png" href="img/favicon.PNG">
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0C0C0E" />
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png" />
+</head>
+<body class="tema-novo">
+  <div class="fila-wrap">
+    <a class="fila-topo" href="index.html" aria-label="JP Barbearia, início">
+      <span class="fila-marca">JP</span>
+      <span><b>JP Barbearia</b><small>Padrão JP</small></span>
+    </a>
+    <main id="fila-app" aria-live="polite"></main>
+  </div>
+  <div class="fila-reconectando" id="fila-reconectando" hidden>Reconectando…</div>
+
+  <script src="api.js?v=37"></script>
+  <script src="fila.js?v=1"></script>
+</body>
+</html>

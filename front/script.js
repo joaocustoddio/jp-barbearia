@@ -1130,3 +1130,14 @@ document.getElementById("link-cancelar").addEventListener("click", (e) => {
   abrirCancelamento();
 });
 renderTudo();
+
+// Dia de fila (fim de ano): avisa no topo e leva pra fila. Se a consulta
+// falhar, o site segue como sempre — o aviso é um atalho, não uma trava.
+API.fila.hoje().then((r) => {
+  if (!r || !r.dia_de_fila) return;
+  const topo = document.querySelector(".topbar");
+  if (!topo) return;
+  topo.insertAdjacentHTML("afterend",
+    '<a class="banner-fila" href="fila.html">Hoje é por ordem de chegada. '
+    + '<strong>Entrar na fila</strong></a>');
+}).catch(() => {});

@@ -507,6 +507,19 @@ a { color: inherit; }
 .dia-pill.dia-fila .dia-pill-topo { color: var(--acento); }
 .aviso-checagem-data a { color: var(--acento); font-weight: 600; }
 
+/* Faixa no topo nos dias de fila: leva pra fila.html. */
+.banner-fila {
+  display: block;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: var(--raio-md);
+  background: var(--acento);
+  color: var(--acento-texto);
+  text-decoration: none;
+  font-weight: 600;
+}
+.banner-fila strong { text-decoration: underline; }
+
 input[type="date"],
 input[type="text"],
 input[type="tel"],

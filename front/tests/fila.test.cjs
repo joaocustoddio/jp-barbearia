@@ -15,7 +15,8 @@ after(async () => { if(browser) await browser.close(); });
 
 // respostas: { 'GET /api/x': json | (req,url)=>json | {status, json} }
 async function pagina(t, arquivo, respostas = {}, antes) {
-  const context = await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'});
+  const context = await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block',
+    timezoneId:'America/Sao_Paulo'});
   t.after(() => context.close());
   if (antes) await context.addInitScript(antes);
   const page = await context.newPage();
@@ -118,5 +119,116 @@ test('site: dia de fila mostra o caminho da fila', async t => {
   await page.locator('.card-opcao', {hasText:'Rian'}).first().click();
   await page.getByText('Nesse dia o atendimento é por ordem de chegada').waitFor();
   const link = page.getByRole('link', {name:'Entrar na fila'});
+  assert.equal(await link.getAttribute('href'), 'fila.html');
+});
+
+// ---------------------------------------------------------------- página da fila
+
+const HOJE_LOCAL = `(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})()`;
+const comToken = (token='tok') =>
+  `localStorage.setItem('fila_token', JSON.stringify({token:'${token}', data:${HOJE_LOCAL}}));`;
+
+const filaHoje = {
+  dia_de_fila: true,
+  barbeiros: [
+    {id:1, nome:'JP', foto:null, aberta:false, motivo:'De folga hoje', esperando:0, espera_min:null},
+    {id:2, nome:'Rian', foto:null, aberta:true, motivo:null, esperando:2, espera_min:60},
+  ],
+  qualquer_um: {aberta:true, esperando:1, espera_min:30},
+};
+const servicos = [{id:1, nome:'Corte', preco:40, duracao_min:30}];
+const situacao = (extra) => ({status:'aguardando', posicao:4, a_frente:3, espera_min:35,
+  barbeiro:'Rian', servico:'Corte', chamado_em:null, tolerancia_min:10, ...extra});
+
+test('fila: escolher barbeiro e entrar', async t => {
+  const {page, requisicoes} = await pagina(t, 'fila.html', {
+    'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos,
+    'POST /api/fila': {token:'tok', posicao:3, espera_min:60},
+    'GET /api/fila/tok': situacao({posicao:3, a_frente:2, espera_min:60}),
+  });
+  await page.getByText('Rian').first().waitFor();
+  await page.getByText('2 esperando · uns 60 min').waitFor();
+  await page.getByText('Qualquer um').first().waitFor();
+  await page.locator('.cartao-barbeiro', {hasText:'Rian'}).click();
+  await page.locator('#fila-nome').fill('Ana');
+  await page.locator('#fila-telefone').fill('11988887777');
+  await page.getByRole('button', {name:'Entrar na fila'}).click();
+  await page.getByText('3º').waitFor();
+  const post = requisicoes.find(r => r.method === 'POST' && r.url.pathname === '/api/fila');
+  assert.deepEqual(post.body, {nome:'Ana', telefone:'11988887777', servico_id:1, barbeiro_id:2});
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('fila_token'))).token, 'tok');
+});
+
+test('fila: barbeiro de folga aparece apagado', async t => {
+  const {page} = await pagina(t, 'fila.html', {'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos});
+  const jp = page.locator('.cartao-barbeiro', {hasText:'JP'});
+  await jp.waitFor();
+  assert.equal(await jp.isDisabled(), true);
+  await page.getByText('De folga hoje').waitFor();
+});
+
+test('fila: posição e espera de quem já está na fila', async t => {
+  const {page} = await pagina(t, 'fila.html', {'GET /api/fila/tok': situacao()}, comToken());
+  await page.getByText('4º').waitFor();
+  await page.getByText('3 na sua frente · uns 35 min').waitFor();
+  assert.equal(await page.getByText('Já vem vindo').count(), 0);
+});
+
+test('fila: perto mostra "Já vem vindo"', async t => {
+  const {page} = await pagina(t, 'fila.html',
+    {'GET /api/fila/tok': situacao({posicao:3, a_frente:2, espera_min:20})}, comToken());
+  await page.getByText('Já vem vindo').waitFor();
+});
+
+test('fila: chamado mostra "É sua vez!"', async t => {
+  const {page} = await pagina(t, 'fila.html', {'GET /api/fila/tok': situacao({
+    status:'chamado', posicao:1, a_frente:0, chamado_em:'2099-01-01T10:00:00-03:00'})}, comToken());
+  await page.getByText('É sua vez!').waitFor();
+  await page.getByText('Você tem até 10:10 para chegar').waitFor();
+});
+
+test('fila: sair pede confirmação na página', async t => {
+  const {page, requisicoes} = await pagina(t, 'fila.html', {
+    'GET /api/fila/tok': situacao(), 'POST /api/fila/tok/sair': {mensagem:'ok'},
+    'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos,
+  }, comToken());
+  await page.getByRole('button', {name:'Sair da fila'}).click();
+  assert.equal(requisicoes.filter(r => r.method === 'POST').length, 0);
+  await page.getByRole('button', {name:'Sim, sair da fila'}).click();
+  await page.getByText('Você saiu da fila').waitFor();
+  assert.equal(requisicoes.filter(r => r.url.pathname === '/api/fila/tok/sair').length, 1);
+});
+
+test('fila: link velho', async t => {
+  const {page} = await pagina(t, 'fila.html', {
+    'GET /api/fila/velho': {__status:404, json:{erro:'Esse link não vale mais.'}},
+  }, comToken('velho'));
+  await page.getByText('Esse link não vale mais').waitFor();
+  await page.getByRole('button', {name:'Entrar de novo'}).waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('fila_token')), null);
+});
+
+test('fila: sem conexão mostra reconectando', async t => {
+  const {page} = await pagina(t, 'fila.html', {
+    'GET /api/fila/tok': {__status:503, json:{}},
+  }, comToken());
+  await page.getByText('Reconectando…').waitFor();
+});
+
+test('fila: fora do dia', async t => {
+  const {page} = await pagina(t, 'fila.html', {
+    'GET /api/fila/hoje': {dia_de_fila:false, barbeiros:[], qualquer_um:{aberta:false}},
+    'GET /api/servicos': servicos,
+  });
+  await page.getByText('Hoje o atendimento é com horário marcado').waitFor();
+  assert.equal(await page.locator('#fila-nome').count(), 0);
+});
+
+test('site: cartão da fila no topo', async t => {
+  const {page} = await pagina(t, 'index.html', {
+    'GET /api/fila/hoje': filaHoje, 'GET /api/servicos': servicos, 'GET /api/barbeiros': [],
+  });
+  const link = page.getByRole('link', {name:'Entrar na fila'});
+  await link.waitFor();
   assert.equal(await link.getAttribute('href'), 'fila.html');
 });

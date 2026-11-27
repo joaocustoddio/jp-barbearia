@@ -1,0 +1,123 @@
+/* =====================================================
+   tema.css — visual novo da JP Barbearia (protótipo de nov/2026):
+   fachada de barbearia à noite, letreiro dourado.
+   Começa pela fila; o resto do site migra depois.
+   ===================================================== */
+:root {
+  --bg: #0C0C0E;
+  --surface: #151518;
+  --surface-2: #1C1C21;
+  --line: #2A2A31;
+  --ink: #F3F2EF;
+  --muted: #9B9AA3;
+  --gold: #F5B21B;
+  --gold-ink: #1A1300;
+  --good: #3FD08F;
+  --warn: #FFB347;
+  --bad: #FF6363;
+  --wa: #25D366;
+  --f-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --raio: 14px;
+  color-scheme: dark;
+}
+
+/* ---------- página da fila (fila.html) ---------- */
+.tema-novo {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 var(--f-body);
+  -webkit-font-smoothing: antialiased;
+}
+.tema-novo * { box-sizing: border-box; }
+.tema-novo button, .tema-novo input, .tema-novo select { font: inherit; color: inherit; }
+.tema-novo :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.fila-wrap {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-right, 0px));
+}
+.fila-topo {
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 0 12px;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none; color: inherit;
+}
+.fila-marca {
+  width: 38px; height: 38px; border-radius: 10px; flex: none;
+  display: grid; place-items: center;
+  background: var(--gold); color: var(--gold-ink);
+  font: 900 20px/1 var(--f-display);
+}
+.fila-topo b { font: 800 20px/1 var(--f-display); letter-spacing: .04em; text-transform: uppercase; }
+.fila-topo small { display: block; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+
+.fila-olho { margin: 22px 0 4px; color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.fila-titulo { margin: 0 0 6px; font: 800 40px/1 var(--f-display); text-transform: uppercase; text-wrap: balance; }
+.fila-texto { margin: 0 0 18px; color: var(--muted); }
+
+.fila-cartoes { display: grid; gap: 10px; margin-bottom: 18px; }
+.cartao-barbeiro {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--raio);
+}
+.cartao-barbeiro[aria-pressed="true"] { border-color: var(--gold); background: var(--surface-2); }
+.cartao-barbeiro:disabled { opacity: .45; cursor: not-allowed; }
+.cartao-avatar {
+  width: 42px; height: 42px; border-radius: 50%; flex: none; overflow: hidden;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--gold);
+  font: 800 18px/1 var(--f-display);
+}
+.cartao-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.cartao-info { min-width: 0; display: flex; flex-direction: column; }
+.cartao-info b { font-weight: 600; }
+.cartao-info span { color: var(--muted); font-size: 13px; }
+
+.fila-form { display: grid; gap: 12px; }
+.fila-campo { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.fila-campo input, .fila-campo select {
+  width: 100%; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+}
+.fila-btn {
+  width: 100%; padding: 14px; border: 0; border-radius: 12px; cursor: pointer;
+  font-weight: 700; background: var(--gold); color: var(--gold-ink);
+}
+.fila-btn:disabled { opacity: .6; cursor: progress; }
+.fila-btn.secundario { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }
+.fila-btn.perigo { background: var(--bad); color: #1a0505; }
+.fila-erro { margin: 0; color: var(--bad); font-size: 14px; }
+.fila-erro:empty { display: none; }
+
+.fila-posicao {
+  margin: 8px 0 14px; padding: 22px 16px; text-align: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--raio);
+}
+.fila-posicao small { color: var(--muted); }
+.fila-numero { display: block; font: 900 96px/1 var(--f-display); color: var(--gold); font-variant-numeric: tabular-nums; }
+.fila-detalhe { margin: 6px 0 0; color: var(--muted); }
+.fila-detalhe b { color: var(--ink); }
+.fila-faixa {
+  margin: 0 0 14px; padding: 12px 14px; border-radius: 12px;
+  background: var(--gold); color: var(--gold-ink); font-weight: 700;
+}
+.fila-aviso { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); color: var(--muted); }
+.fila-acoes { display: grid; gap: 10px; }
+.fila-reconectando { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 14px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--warn); font-size: 13px; }
+
+.fila-chamado {
+  margin-top: 18px; padding: 28px 18px; text-align: center;
+  border-radius: var(--raio); background: var(--gold); color: var(--gold-ink);
+}
+.fila-chamado h2 { margin: 0 0 8px; font: 900 54px/1 var(--f-display); text-transform: uppercase; }
+.fila-chamado p { margin: 0 0 18px; font-weight: 600; }
+.fila-chamado .fila-btn { background: var(--gold-ink); color: var(--gold); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fila-chamado { animation: pulsar 1.2s ease-in-out infinite alternate; }
+  @keyframes pulsar { from { box-shadow: 0 0 0 0 rgba(245,178,27,.5); } to { box-shadow: 0 0 0 14px rgba(245,178,27,0); } }
+}
