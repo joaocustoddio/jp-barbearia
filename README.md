@@ -173,6 +173,18 @@ Coisas que o sistema faz de propósito e podem parecer bug:
 - **Produtos não entram na comissão** de ninguém; vão direto pro caixa.
 - **Preço gravado no consumo é uma "foto"**: mudar o preço hoje não altera o fechamento de ontem.
 
+### Fila online (fim de ano)
+
+- **Dias de fila** são cadastrados pelo dono em **Gerenciar → Expediente → Dias de fila**. Nesses dias o site **não marca horário**: o cliente entra na fila em `fila.html`, por barbeiro ou "qualquer um".
+- **Só no dia e com a barbearia aberta.** A fila de um barbeiro fecha sozinha quando o próximo corte não cabe mais no expediente dele.
+- **Um lugar por telefone por dia.** O número da barbearia (lista de telefones genéricos) não conta.
+- O cliente acompanha a vez pelo **link próprio** (`fila.html?t=...`), que também fica salvo no aparelho.
+- No painel, aba **Fila**: Chamar próximo (abre o WhatsApp com a mensagem pronta), Começar, Concluir, Não veio e Remover.
+- **Começar cria um atendimento normal**, então caixa, comissão e relatórios seguem iguais.
+- Depois de chamado, o cliente tem **10 min** (`TOLERANCIA_FILA_MINUTOS`). Ninguém sai sozinho: o barbeiro marca "Não veio".
+- **Deu problema num dia de fila?** Apague o período em Dias de fila: a agenda normal volta na hora.
+- Detalhes em `docs/superpowers/specs/2026-11-27-fila-online-design.md`.
+
 Quase tudo isso é ajustável por variável de ambiente — veja `back/.env.example`.
 
 ---
