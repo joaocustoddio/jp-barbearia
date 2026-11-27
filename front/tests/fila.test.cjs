@@ -232,3 +232,85 @@ test('site: cartão da fila no topo', async t => {
   await link.waitFor();
   assert.equal(await link.getAttribute('href'), 'fila.html');
 });
+
+// ---------------------------------------------------------------- aba Fila no painel
+
+const agoraISO = (minAtras=0) => new Date(Date.now() - minAtras*60000).toISOString();
+const lugarFila = (extra) => ({id:5, nome:'Ana', telefone:'11988887777', servico:'Corte', barbeiro_id:2,
+  atendido_por:null, status:'aguardando', entrou_em:agoraISO(12), chamado_em:null,
+  inicio_estimado:'10:30', agendamento_id:null, origem:'site', whatsapp:null, ...extra});
+const listagem = (lugares, barbeiros=[{id:2, nome:'Rian'}]) => ({dia_de_fila:true, lugares,
+  barbeiros, indisponiveis:[], tolerancia_min:10});
+
+test('painel fila: chamar próximo abre o WhatsApp', async t => {
+  const estado = {chamado:false};
+  const wa = 'https://wa.me/5511988887777?text=Fala';
+  const {page, requisicoes} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': () => listagem([estado.chamado
+      ? lugarFila({status:'chamado', atendido_por:2, chamado_em:agoraISO(1), whatsapp:wa})
+      : lugarFila()]),
+    'POST /api/admin/fila/chamar-proximo': () => { estado.chamado = true;
+      return {lugar: lugarFila({status:'chamado', atendido_por:2}), whatsapp: wa}; },
+  }, comoAdmin('barbeiro'));
+  await page.evaluate(() => renderFila());
+  await page.getByRole('button', {name:'Chamar próximo'}).click();
+  const link = page.getByRole('link', {name:'WhatsApp'});
+  await link.waitFor();
+  assert.equal(await link.getAttribute('href'), wa);
+  const post = requisicoes.find(r => r.url.pathname === '/api/admin/fila/chamar-proximo');
+  assert.deepEqual(post.body, {barbeiro_id:2});
+});
+
+test('painel fila: começar e concluir', async t => {
+  const estado = {status:'chamado'};
+  const {page, requisicoes} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': () => listagem([lugarFila({status:estado.status, atendido_por:2,
+      chamado_em:agoraISO(2)})]),
+    'POST /api/admin/fila/5/comecar': () => { estado.status = 'atendendo'; return {agendamento_id:9}; },
+    'POST /api/admin/fila/5/concluir': () => { estado.status = 'concluido'; return {}; },
+  }, comoAdmin('barbeiro'));
+  await page.evaluate(() => renderFila());
+  await page.getByRole('button', {name:'Começar'}).click();
+  await page.getByRole('button', {name:'Concluir'}).click();
+  await page.getByText('Concluído').first().waitFor();
+  const caminhos = requisicoes.filter(r => r.method === 'POST').map(r => r.url.pathname);
+  assert.deepEqual(caminhos, ['/api/admin/fila/5/comecar', '/api/admin/fila/5/concluir']);
+});
+
+test('painel fila: passou da tolerância', async t => {
+  const {page} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': listagem([lugarFila({status:'chamado', atendido_por:2, chamado_em:agoraISO(11)})]),
+  }, comoAdmin('barbeiro'));
+  await page.evaluate(() => renderFila());
+  await page.getByText('Passou da tolerância').waitFor();
+});
+
+test('painel fila: salão chama pelo barbeiro escolhido', async t => {
+  const {page, requisicoes} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': listagem([lugarFila()], [{id:1, nome:'JP'}, {id:2, nome:'Rian'}]),
+    'POST /api/admin/fila/chamar-proximo': {lugar: lugarFila({status:'chamado', atendido_por:2}), whatsapp:null},
+  }, comoAdmin('salao'));
+  await page.evaluate(() => renderFila());
+  const botoes = page.getByRole('button', {name:'Chamar próximo'});
+  await botoes.first().waitFor();
+  assert.equal(await botoes.count(), 2);
+  await page.locator('.fila-bloco', {hasText:'Rian'}).getByRole('button', {name:'Chamar próximo'}).click();
+  await new Promise(r => setTimeout(r, 300));
+  const post = requisicoes.find(r => r.url.pathname === '/api/admin/fila/chamar-proximo');
+  assert.deepEqual(post.body, {barbeiro_id:2});
+});
+
+test('painel fila: pôr na fila sem telefone', async t => {
+  const {page, requisicoes} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': listagem([]),
+    'GET /api/servicos': [{id:1, nome:'Corte', preco:40, duracao_min:30}],
+    'POST /api/admin/fila': {id:7},
+  }, comoAdmin('master'));
+  await page.evaluate(() => renderFila());
+  await page.getByRole('button', {name:'+ Pôr na fila'}).click();
+  await page.locator('#pf-nome').fill('Seu Zé');
+  await page.getByRole('button', {name:'Pôr na fila', exact:true}).click();
+  await new Promise(r => setTimeout(r, 300));
+  const post = requisicoes.find(r => r.method === 'POST' && r.url.pathname === '/api/admin/fila');
+  assert.deepEqual(post.body, {nome:'Seu Zé', servico_id:1, barbeiro_id:null});
+});

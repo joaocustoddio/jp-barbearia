@@ -95,6 +95,7 @@ function mostrarPainel() {
 
   const primeira = montarAbas();   // abas conforme o papel (master vê todas)
   trocarSecao(primeira);
+  promoverAbaFila();               // dia de fila: a aba Fila abre primeiro
 }
 
 async function fazerLogin() {
@@ -170,6 +171,7 @@ const ABAS_POR_PAPEL = {
     { chave: "caderninho", rotulo: "Caderninho" },
     { chave: "almoco",     rotulo: "Almoço" },
     { chave: "contagem",   rotulo: "Contagem" },
+    { chave: "fila",       rotulo: "Fila" },
     { chave: "expediente", rotulo: "Expediente", gestao: true },
     { chave: "dashboard",  rotulo: "Dashboard",  gestao: true },
     { chave: "barbeiros",  rotulo: "Barbeiros",  gestao: true },
@@ -182,12 +184,14 @@ const ABAS_POR_PAPEL = {
     { chave: "caderninho", rotulo: "Caderninho" },
     { chave: "almoco",     rotulo: "Almoço" },
     { chave: "contagem",   rotulo: "Contagem" },
+    { chave: "fila",       rotulo: "Fila" },
     { chave: "horarios",   rotulo: "Ausência" }
   ],
   salao: [
     { chave: "agenda_dia", rotulo: "Agenda" },
     { chave: "caderninho", rotulo: "Caderninho" },
-    { chave: "contagem",   rotulo: "Cortes" }
+    { chave: "contagem",   rotulo: "Cortes" },
+    { chave: "fila",       rotulo: "Fila" }
   ]
 };
 
@@ -201,7 +205,8 @@ const SECOES = {
   barbeiros:  renderBarbeiros,
   clientes:   renderClientesBloqueados,
   precos:     renderPrecos,
-  horarios:   renderHorarios
+  horarios:   renderHorarios,
+  fila:       renderFila
 };
 
 // Monta os botões das abas conforme o papel; devolve a chave da 1ª aba.

@@ -91,3 +91,204 @@ async function renderDiasDeFila(container) {
 
   carregar();
 }
+
+
+/* =====================================================
+   ABA "FILA" — a fila de hoje no painel.
+   Um bloco por barbeiro com "Chamar próximo", quem foi chamado (com a
+   tolerância) e quem está na cadeira; depois a lista de quem aguarda e os
+   finalizados. Atualiza a cada 10 s enquanto a aba estiver aberta.
+   ===================================================== */
+
+const FILA_ATUALIZA_MS = 10000;
+let filaTimer = null;
+let filaUltima = null;   // última listagem (barbeiros pro formulário)
+
+const ROTULO_STATUS = {
+  concluido: "Concluído", nao_veio: "Não veio", saiu: "Saiu", removido: "Removido",
+};
+
+function minutosDesde(iso) {
+  return iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 60000) : 0;
+}
+
+function nomeDoBarbeiro(r, id) {
+  if (id == null) return "Qualquer um";
+  const b = (r.barbeiros || []).find((x) => x.id === id);
+  return b ? b.nome : "Outro barbeiro";
+}
+
+function cartaoChamado(l, r) {
+  const resta = r.tolerancia_min - minutosDesde(l.chamado_em);
+  return `
+    <div class="pf-card pf-chamado">
+      <div class="pf-card-info"><b>${escapeHTML(l.nome)}</b><span>${escapeHTML(l.servico || "")} · chamado</span>
+        ${resta > 0
+          ? `<span class="pf-tolerancia">Tolerância: ${resta} min</span>`
+          : `<span class="pf-atrasado">Passou da tolerância</span>`}
+      </div>
+      <div class="pf-acoes">
+        ${l.whatsapp ? `<a class="btn-mini nav-btn pf-wa" href="${escapeHTML(l.whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+        <button class="btn-mini nav-btn pf-principal" data-acao="comecar" data-id="${l.id}">Começar</button>
+        <button class="btn-mini nav-btn" data-acao="nao-veio" data-id="${l.id}">Não veio</button>
+      </div>
+    </div>`;
+}
+
+function cartaoAtendendo(l) {
+  return `
+    <div class="pf-card">
+      <div class="pf-card-info"><b>${escapeHTML(l.nome)}</b><span>${escapeHTML(l.servico || "")} · na cadeira</span></div>
+      <div class="pf-acoes"><button class="btn-mini nav-btn pf-principal" data-acao="concluir" data-id="${l.id}">Concluir</button></div>
+    </div>`;
+}
+
+function cartaoAguardando(l, r) {
+  // Começar direto só quando dá pra saber o barbeiro (o da fila, ou o único do login).
+  const barbeiro = l.barbeiro_id || ((r.barbeiros || []).length === 1 ? r.barbeiros[0].id : null);
+  const indisponivel = (r.indisponiveis || []).includes(l.barbeiro_id);
+  return `
+    <div class="pf-card">
+      <div class="pf-card-info"><b>${escapeHTML(l.nome)}</b>
+        <span>${escapeHTML(l.servico || "")} · ${escapeHTML(nomeDoBarbeiro(r, l.barbeiro_id))} · há ${minutosDesde(l.entrou_em)} min</span>
+        ${indisponivel ? `<span class="pf-atrasado">Barbeiro indisponível hoje</span>`
+          : (l.inicio_estimado ? `<span>Previsto ${escapeHTML(l.inicio_estimado)}</span>` : "")}
+      </div>
+      <div class="pf-acoes">
+        ${barbeiro ? `<button class="btn-mini nav-btn" data-acao="comecar" data-id="${l.id}" data-barbeiro="${barbeiro}">Começar</button>` : ""}
+        <button class="btn-mini nav-btn" data-acao="remover" data-id="${l.id}">Remover</button>
+      </div>
+    </div>`;
+}
+
+function desenharFila(r) {
+  const corpo = document.getElementById("pf-corpo");
+  if (!corpo) return;
+  const lugares = r.lugares || [];
+  const blocos = (r.barbeiros || []).map((b) => {
+    const chamado = lugares.find((l) => l.status === "chamado" && l.atendido_por === b.id);
+    const cadeira = lugares.filter((l) => l.status === "atendendo" && l.atendido_por === b.id);
+    return `
+      <section class="fila-bloco" data-barbeiro="${b.id}">
+        <div class="pf-bloco-topo"><h3>${escapeHTML(b.nome)}</h3>
+          <button class="btn pf-chamar" data-chamar="${b.id}">Chamar próximo</button></div>
+        ${chamado ? cartaoChamado(chamado, r) : ""}
+        ${cadeira.map(cartaoAtendendo).join("")}
+      </section>`;
+  }).join("");
+  const aguardando = lugares.filter((l) => l.status === "aguardando");
+  const finalizados = lugares.filter((l) => ROTULO_STATUS[l.status]);
+  corpo.innerHTML = `
+    ${r.dia_de_fila ? "" : `<p class="secao-subtitulo">Hoje não é dia de fila.</p>`}
+    ${blocos || vazio("Nenhum barbeiro trabalhando hoje.")}
+    <h3 class="pf-subtitulo">Aguardando (${aguardando.length})</h3>
+    ${aguardando.length ? aguardando.map((l) => cartaoAguardando(l, r)).join("") : `<p class="secao-subtitulo">Ninguém esperando.</p>`}
+    ${finalizados.length ? `
+      <details class="pf-finalizados" open><summary>Finalizados hoje (${finalizados.length})</summary>
+        ${finalizados.map((l) => `<div class="pf-final"><span>${escapeHTML(l.nome)}</span><span>${ROTULO_STATUS[l.status]}</span></div>`).join("")}
+      </details>` : ""}`;
+}
+
+async function atualizarFila() {
+  const erro = document.querySelector("#painel-fila .pf-erro");
+  try {
+    filaUltima = await API.admin.fila.listar();
+    if (erro) erro.textContent = "";
+    desenharFila(filaUltima);
+  } catch (e) {
+    if (erro) erro.textContent = e.message || "Não foi possível carregar a fila.";
+  }
+}
+
+async function abrirFormularioFila(form) {
+  form.hidden = !form.hidden;
+  if (form.hidden) return;
+  const servicos = await API.listarServicos(hojeISO()).catch(() => []);
+  const barbeiros = (filaUltima && filaUltima.barbeiros) || [];
+  form.innerHTML = `
+    <label>Nome<input id="pf-nome" class="campo-input" required></label>
+    <label>WhatsApp (opcional)<input id="pf-tel" class="campo-input" type="tel" inputmode="numeric"></label>
+    <label>Serviço<select id="pf-servico" class="campo-input">
+      ${servicos.map((s) => `<option value="${s.id}">${escapeHTML(s.nome)}</option>`).join("")}</select></label>
+    <label>Barbeiro<select id="pf-barbeiro" class="campo-input">
+      <option value="">Qualquer um</option>
+      ${barbeiros.map((b) => `<option value="${b.id}">${escapeHTML(b.nome)}</option>`).join("")}</select></label>
+    <button class="btn" type="submit">Pôr na fila</button>`;
+}
+
+async function renderFila() {
+  elConteudo.innerHTML = `
+    <div id="painel-fila" class="painel-fila">
+      <div class="pf-topo">
+        <h2 class="secao-titulo">Fila de hoje</h2>
+        <button class="btn-mini nav-btn" id="pf-abrir">+ Pôr na fila</button>
+      </div>
+      <form id="pf-form" class="pf-form" hidden></form>
+      <p class="pf-erro" role="alert"></p>
+      <div id="pf-corpo">${carregando()}</div>
+    </div>`;
+  const painel = document.getElementById("painel-fila");
+  const form = document.getElementById("pf-form");
+  const erro = painel.querySelector(".pf-erro");
+
+  document.getElementById("pf-abrir").addEventListener("click", () => abrirFormularioFila(form));
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const escolha = document.getElementById("pf-barbeiro").value;
+    const dados = {
+      nome: document.getElementById("pf-nome").value.trim(),
+      servico_id: Number(document.getElementById("pf-servico").value),
+      barbeiro_id: escolha ? Number(escolha) : null,
+    };
+    const tel = document.getElementById("pf-tel").value.trim();
+    if (tel) dados.telefone = tel;
+    try {
+      await API.admin.fila.porNaFila(dados);
+      form.hidden = true;
+      atualizarFila();
+    } catch (e) { erro.textContent = e.message; }
+  });
+
+  painel.addEventListener("click", async (ev) => {
+    const chamar = ev.target.closest("[data-chamar]");
+    const acao = ev.target.closest("[data-acao]");
+    if (!chamar && !acao) return;
+    const botao = chamar || acao;
+    // Remover e Não veio pedem um segundo toque, no próprio botão.
+    if (acao && ["remover", "nao-veio"].includes(acao.dataset.acao) && acao.dataset.confirmar !== "1") {
+      acao.dataset.confirmar = "1";
+      acao.textContent = "Confirmar";
+      return;
+    }
+    botao.disabled = true;
+    erro.textContent = "";
+    try {
+      if (chamar) await API.admin.fila.chamarProximo(Number(chamar.dataset.chamar));
+      else await API.admin.fila.acao(acao.dataset.id, acao.dataset.acao,
+                                     acao.dataset.barbeiro ? Number(acao.dataset.barbeiro) : null);
+      await atualizarFila();
+    } catch (e) {
+      erro.textContent = e.message;
+      botao.disabled = false;
+    }
+  });
+
+  await atualizarFila();
+  clearInterval(filaTimer);
+  filaTimer = setInterval(() => {
+    if (!document.getElementById("painel-fila")) { clearInterval(filaTimer); return; }
+    if (!document.hidden) atualizarFila();
+  }, FILA_ATUALIZA_MS);
+}
+
+/** Nos dias de fila a aba Fila vai pra frente e abre primeiro. */
+function promoverAbaFila() {
+  API.fila.hoje().then((r) => {
+    if (!r || !r.dia_de_fila) return;
+    const linha = document.querySelector(".abas-linha");
+    const aba = linha && linha.querySelector('[data-secao="fila"]');
+    if (!aba) return;
+    linha.prepend(aba);
+    trocarSecao("fila");
+  }).catch(() => {});
+}

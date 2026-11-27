@@ -445,6 +445,25 @@ const API = (() => {
         return requestAuth(`/api/admin/bloqueios-dia?data=${encodeURIComponent(data)}`);
       },
 
+      /** A fila de hoje no painel: chamar, começar, concluir, não veio, remover. */
+      fila: {
+        listar() { return requestAuth("/api/admin/fila", { repetir: false }); },
+        porNaFila(dados) {
+          return requestAuth("/api/admin/fila", { method: "POST", body: JSON.stringify(dados) });
+        },
+        chamarProximo(barbeiroId) {
+          return requestAuth("/api/admin/fila/chamar-proximo", {
+            method: "POST", body: JSON.stringify({ barbeiro_id: barbeiroId })
+          });
+        },
+        /** acao: chamar | comecar | concluir | nao-veio | remover */
+        acao(id, acao, barbeiroId) {
+          return requestAuth(`/api/admin/fila/${encodeURIComponent(id)}/${acao}`, {
+            method: "POST", body: JSON.stringify(barbeiroId ? { barbeiro_id: barbeiroId } : {})
+          });
+        }
+      },
+
       /** Dias de fila (só o dono): nesses dias o site não marca horário. */
       periodosFila: {
         listar() { return requestAuth("/api/admin/periodos-fila"); },

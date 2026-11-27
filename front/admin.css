@@ -1912,3 +1912,29 @@ table.tabela .btn-mini {
      fixa o botão encolhe e cresce, e a linha inteira dança. */
   min-width: 170px;
 }
+
+/* ======================================================
+   ABA FILA (fila online de fim de ano)
+   Usa as cores do painel; o visual novo completo chega com o redesign.
+   ====================================================== */
+.painel-fila .pf-topo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.painel-fila .pf-form { display: grid; gap: 10px; margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--borda); border-radius: var(--raio-md); }
+.painel-fila .pf-form label { display: grid; gap: 4px; font-size: 13px; color: var(--texto-suave); }
+.painel-fila .pf-erro { color: var(--erro); margin: 8px 0; }
+.painel-fila .pf-erro:empty { display: none; }
+.painel-fila .fila-bloco { margin: 14px 0; padding: 14px; background: var(--card); border: 1px solid var(--borda); border-radius: var(--raio-md); display: grid; gap: 10px; }
+.painel-fila .pf-bloco-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.painel-fila .pf-bloco-topo h3 { margin: 0; font-size: 1.05rem; }
+.painel-fila .pf-chamar { min-height: 44px; }
+.painel-fila .pf-subtitulo { margin: 20px 0 8px; font-size: 1rem; }
+.painel-fila .pf-card { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px; margin-bottom: 8px; background: var(--bg-elevada); border: 1px solid var(--borda); border-radius: var(--raio-sm); }
+.painel-fila .pf-chamado { border-color: var(--acento); background: var(--acento-fraco); }
+.painel-fila .pf-card-info { display: grid; gap: 2px; min-width: 0; }
+.painel-fila .pf-card-info span { color: var(--texto-suave); font-size: 13px; }
+.painel-fila .pf-tolerancia { color: var(--acento) !important; font-weight: 600; }
+.painel-fila .pf-atrasado { color: var(--erro) !important; font-weight: 700; }
+.painel-fila .pf-acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.painel-fila .pf-principal { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+.painel-fila .pf-wa { background: #25D366; color: #06210f; border-color: #25D366; text-decoration: none; }
+.painel-fila .pf-finalizados { margin-top: 16px; color: var(--texto-suave); }
+.painel-fila .pf-final { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--borda); }
