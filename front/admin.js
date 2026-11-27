@@ -1871,7 +1871,9 @@ async function renderExpediente() {
       </div>
       <div id="exp-corpo">${carregando()}</div>
     </div>
+    <div id="exp-dias-fila"></div>
   `;
+  if (API.admin.ehMaster()) renderDiasDeFila(document.getElementById("exp-dias-fila"));
   const input = document.getElementById("exp-data");
   input.addEventListener("change", () => { dataExpediente = input.value; renderExpediente(); });
   document.getElementById("exp-ant").addEventListener("click", () => { dataExpediente = addDiasISO(input.value, -1); renderExpediente(); });

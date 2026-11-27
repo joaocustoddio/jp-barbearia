@@ -502,6 +502,11 @@ a { color: inherit; }
   text-decoration-thickness: 1.5px;
 }
 
+/* Dia de fila (fim de ano): sem horário marcado, atendimento por ordem de chegada. */
+.dia-pill.dia-fila { border-style: dashed; }
+.dia-pill.dia-fila .dia-pill-topo { color: var(--acento); }
+.aviso-checagem-data a { color: var(--acento); font-weight: 600; }
+
 input[type="date"],
 input[type="text"],
 input[type="tel"],

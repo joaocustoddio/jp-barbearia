@@ -425,6 +425,19 @@ const API = (() => {
         return requestAuth(`/api/admin/bloqueios-dia?data=${encodeURIComponent(data)}`);
       },
 
+      /** Dias de fila (só o dono): nesses dias o site não marca horário. */
+      periodosFila: {
+        listar() { return requestAuth("/api/admin/periodos-fila"); },
+        criar(inicio, fim) {
+          return requestAuth("/api/admin/periodos-fila", {
+            method: "POST", body: JSON.stringify({ inicio, fim })
+          });
+        },
+        apagar(id) {
+          return requestAuth(`/api/admin/periodos-fila/${encodeURIComponent(id)}`, { method: "DELETE" });
+        }
+      },
+
       /** GET /api/admin/expedientes?data= → jornada de cada barbeiro no dia (master) */
       listarExpedientes(data) {
         return requestAuth(`/api/admin/expedientes?data=${encodeURIComponent(data)}`);
