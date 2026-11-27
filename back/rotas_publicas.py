@@ -56,7 +56,7 @@ def criar_agendamento():
         return jsonify({"erro": "Corpo da requisição inválido ou ausente"}), 400
     corpo, status = _processar_novo_agendamento(
         dados, exigir_antecedencia=True, exigir_telefone=True, avisar_equipe=True,
-        checar_bloqueio=True
+        checar_bloqueio=True, recusar_dia_de_fila=True
     )
     return jsonify(corpo), status
 

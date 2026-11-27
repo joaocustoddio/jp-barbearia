@@ -415,6 +415,22 @@ def init_db():
     """)
 
     # ---------------------------------------------------------
+    # PERÍODOS DE FILA — dias em que o site não marca horário e o atendimento é
+    # por ordem de chegada (fila online). Datas inclusivas. Ver
+    # docs/superpowers/specs/2026-11-27-fila-online-design.md.
+    # ---------------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS periodos_fila (
+            id SERIAL PRIMARY KEY,
+            inicio TEXT NOT NULL,
+            fim    TEXT NOT NULL,
+            criado_por INTEGER,
+            criado_em TIMESTAMPTZ DEFAULT now(),
+            CHECK (fim >= inicio)
+        )
+    """)
+
+    # ---------------------------------------------------------
     # CONSUMOS — produtos consumidos no atendimento (ex: refrigerante, salgado).
     # Não é serviço: entra no faturamento numa linha à parte e NÃO comissiona.
     # valor_centavos guarda o preço em centavos (evita float). Free-form por

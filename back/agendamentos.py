@@ -25,6 +25,7 @@ from validacoes import (
 )
 import notificacoes
 import emails
+import fila_dados
 
 
 def janelas_ocupadas(conn, data_str, barbeiro_id, duracao_padrao, excluir_id=None):
@@ -207,9 +208,13 @@ def _link_agenda(servico, barbeiro, data_iso, hora, duracao_min):
     )
 
 
+MENSAGEM_DIA_DE_FILA = ("Nesse dia o atendimento é por ordem de chegada. "
+                        "Entre na fila pelo site no dia.")
+
+
 def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=False,
                                 permitir_conflito=False, avisar_equipe=False,
-                                checar_bloqueio=False):
+                                checar_bloqueio=False, recusar_dia_de_fila=False):
     """
     Valida e insere um novo agendamento. Compartilhado entre duas rotas:
     - PÚBLICA (cliente pelo site): exigir_antecedencia=True, exigir_telefone=True
@@ -275,6 +280,12 @@ def _processar_novo_agendamento(dados, exigir_antecedencia, exigir_telefone=Fals
         if not valido:
             conn.close()
             return {"erro": erro}, 400
+
+    # Dia de fila (só no fluxo público): atendimento por ordem de chegada, o site
+    # não marca horário — nem pra quem deixou a tela de horários aberta.
+    if recusar_dia_de_fila and fila_dados.dia_de_fila(conn, dados["data"]):
+        conn.close()
+        return {"erro": MENSAGEM_DIA_DE_FILA}, 400
 
     # Bloqueia dias sem atendimento (ex: domingo)
     fechado, nome_dia = dia_fechado(dados.get("data"))
