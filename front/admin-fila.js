@@ -114,8 +114,32 @@ function minutosDesde(iso) {
 
 function nomeDoBarbeiro(r, id) {
   if (id == null) return "Qualquer um";
+  const nome = (r.nomes || {})[String(id)];
+  if (nome) return nome;
   const b = (r.barbeiros || []).find((x) => x.id === id);
   return b ? b.nome : "Outro barbeiro";
+}
+
+function trabalhandoHoje(r) {
+  return (r.barbeiros || []).map((b) => b.id);
+}
+
+// Botões que mandam o cliente pra um barbeiro. Dono e salão escolhem quem atende
+// (é assim que se redistribui a fila de um barbeiro que ficou indisponível); o
+// barbeiro, logado, atende ele mesmo. Nunca oferece um barbeiro fora do dia.
+function acoesComBarbeiro(l, r, acoes, preferido) {
+  const ids = trabalhandoHoje(r);
+  if (!ids.length) return "";
+  const padrao = ids.includes(preferido) ? preferido : ids[0];
+  if (API.admin.papel() === "barbeiro") {
+    return acoes.map(([acao, rotulo]) =>
+      `<button class="btn-mini nav-btn" data-acao="${acao}" data-id="${l.id}" data-barbeiro="${padrao}">${rotulo}</button>`).join("");
+  }
+  const opcoes = ids.map((id) =>
+    `<option value="${id}"${id === padrao ? " selected" : ""}>${escapeHTML(nomeDoBarbeiro(r, id))}</option>`).join("");
+  return `<select class="campo-input pf-quem" aria-label="Quem atende">${opcoes}</select>`
+    + acoes.map(([acao, rotulo]) =>
+      `<button class="btn-mini nav-btn" data-acao="${acao}" data-id="${l.id}" data-escolhe="1">${rotulo}</button>`).join("");
 }
 
 function cartaoChamado(l, r) {
@@ -129,7 +153,9 @@ function cartaoChamado(l, r) {
       </div>
       <div class="pf-acoes">
         ${l.whatsapp ? `<a class="btn-mini nav-btn pf-wa" href="${escapeHTML(l.whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
-        <button class="btn-mini nav-btn pf-principal" data-acao="comecar" data-id="${l.id}">Começar</button>
+        ${trabalhandoHoje(r).includes(l.atendido_por)
+          ? `<button class="btn-mini nav-btn pf-principal" data-acao="comecar" data-id="${l.id}">Começar</button>`
+          : acoesComBarbeiro(l, r, [["comecar", "Começar"]], null)}
         <button class="btn-mini nav-btn" data-acao="nao-veio" data-id="${l.id}">Não veio</button>
       </div>
     </div>`;
@@ -144,8 +170,6 @@ function cartaoAtendendo(l) {
 }
 
 function cartaoAguardando(l, r) {
-  // Começar direto só quando dá pra saber o barbeiro (o da fila, ou o único do login).
-  const barbeiro = l.barbeiro_id || ((r.barbeiros || []).length === 1 ? r.barbeiros[0].id : null);
   const indisponivel = (r.indisponiveis || []).includes(l.barbeiro_id);
   return `
     <div class="pf-card">
@@ -155,7 +179,7 @@ function cartaoAguardando(l, r) {
           : (l.inicio_estimado ? `<span>Previsto ${escapeHTML(l.inicio_estimado)}</span>` : "")}
       </div>
       <div class="pf-acoes">
-        ${barbeiro ? `<button class="btn-mini nav-btn" data-acao="comecar" data-id="${l.id}" data-barbeiro="${barbeiro}">Começar</button>` : ""}
+        ${acoesComBarbeiro(l, r, [["chamar", "Chamar"], ["comecar", "Começar"]], l.barbeiro_id)}
         <button class="btn-mini nav-btn" data-acao="remover" data-id="${l.id}">Remover</button>
       </div>
     </div>`;
@@ -165,13 +189,21 @@ function desenharFila(r) {
   const corpo = document.getElementById("pf-corpo");
   if (!corpo) return;
   const lugares = r.lugares || [];
-  const blocos = (r.barbeiros || []).map((b) => {
-    const chamado = lugares.find((l) => l.status === "chamado" && l.atendido_por === b.id);
-    const cadeira = lugares.filter((l) => l.status === "atendendo" && l.atendido_por === b.id);
+  // Um bloco por barbeiro trabalhando, mais um pra quem ficou indisponível com
+  // alguém chamado ou na cadeira — senão esse cliente sumiria do painel.
+  const ids = trabalhandoHoje(r);
+  const ausentes = [...new Set(lugares
+    .filter((l) => ["chamado", "atendendo"].includes(l.status) && l.atendido_por != null
+                   && !ids.includes(l.atendido_por))
+    .map((l) => l.atendido_por))];
+  const blocos = [...ids, ...ausentes].map((id) => {
+    const presente = ids.includes(id);
+    const chamado = lugares.find((l) => l.status === "chamado" && l.atendido_por === id);
+    const cadeira = lugares.filter((l) => l.status === "atendendo" && l.atendido_por === id);
     return `
-      <section class="fila-bloco" data-barbeiro="${b.id}">
-        <div class="pf-bloco-topo"><h3>${escapeHTML(b.nome)}</h3>
-          <button class="btn pf-chamar" data-chamar="${b.id}">Chamar próximo</button></div>
+      <section class="fila-bloco" data-bloco="${id}">
+        <div class="pf-bloco-topo"><h3>${escapeHTML(nomeDoBarbeiro(r, id))}${presente ? "" : ` <span class="pf-atrasado">(indisponível hoje)</span>`}</h3>
+          ${presente ? `<button class="btn pf-chamar" data-chamar="${id}">Chamar próximo</button>` : ""}</div>
         ${chamado ? cartaoChamado(chamado, r) : ""}
         ${cadeira.map(cartaoAtendendo).join("")}
       </section>`;
@@ -264,8 +296,11 @@ async function renderFila() {
     erro.textContent = "";
     try {
       if (chamar) await API.admin.fila.chamarProximo(Number(chamar.dataset.chamar));
-      else await API.admin.fila.acao(acao.dataset.id, acao.dataset.acao,
-                                     acao.dataset.barbeiro ? Number(acao.dataset.barbeiro) : null);
+      else {
+        const seletor = acao.dataset.escolhe && acao.closest(".pf-card").querySelector(".pf-quem");
+        const quem = acao.dataset.barbeiro || (seletor && seletor.value);
+        await API.admin.fila.acao(acao.dataset.id, acao.dataset.acao, quem ? Number(quem) : null);
+      }
       await atualizarFila();
     } catch (e) {
       erro.textContent = e.message;

@@ -352,6 +352,48 @@ test('painel fila: salão chama pelo barbeiro escolhido', async t => {
   assert.deepEqual(post.body, {barbeiro_id:2});
 });
 
+test('painel fila: cliente de barbeiro indisponível vai para outro', async t => {
+  const {page, requisicoes} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': {...listagem([lugarFila({barbeiro_id:1})]), indisponiveis:[1],
+      nomes:{'1':'JP', '2':'Rian'}},
+    'POST /api/admin/fila/5/chamar': {lugar: lugarFila({status:'chamado', atendido_por:2}), whatsapp:null},
+  }, comoAdmin('master'));
+  await page.evaluate(() => renderFila());
+  const card = page.locator('.pf-card', {hasText:'Ana'});
+  await card.getByText('Barbeiro indisponível hoje').waitFor();
+  await card.getByText('JP', {exact:false}).first().waitFor();
+  assert.equal(await page.locator('[data-barbeiro="1"]').count(), 0, 'nada pode ir para o barbeiro ausente');
+  assert.equal(await card.locator('.pf-quem').inputValue(), '2');
+  await card.getByRole('button', {name:'Chamar', exact:true}).click();
+  await new Promise(r => setTimeout(r, 300));
+  const post = requisicoes.find(r => r.url.pathname === '/api/admin/fila/5/chamar');
+  assert.deepEqual(post.body, {barbeiro_id:2});
+});
+
+test('painel fila: chamado de barbeiro indisponível aparece', async t => {
+  const {page} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': {...listagem([lugarFila({status:'chamado', atendido_por:1, barbeiro_id:null,
+      chamado_em:agoraISO(3)})]), indisponiveis:[1], nomes:{'1':'JP', '2':'Rian'}},
+  }, comoAdmin('master'));
+  await page.evaluate(() => renderFila());
+  const bloco = page.locator('.fila-bloco', {hasText:'JP'});
+  await bloco.getByText('indisponível hoje').waitFor();
+  await bloco.getByRole('button', {name:'Não veio'}).waitFor();
+  assert.equal(await bloco.getByRole('button', {name:'Chamar próximo'}).count(), 0);
+});
+
+test('painel fila: barbeiro chama um cliente específico', async t => {
+  const {page, requisicoes} = await pagina(t, 'admin.html', {
+    'GET /api/admin/fila': listagem([lugarFila({barbeiro_id:null})]),
+    'POST /api/admin/fila/5/chamar': {lugar: lugarFila({status:'chamado', atendido_por:2}), whatsapp:null},
+  }, comoAdmin('barbeiro'));
+  await page.evaluate(() => renderFila());
+  await page.locator('.pf-card', {hasText:'Ana'}).getByRole('button', {name:'Chamar', exact:true}).click();
+  await new Promise(r => setTimeout(r, 300));
+  const post = requisicoes.find(r => r.url.pathname === '/api/admin/fila/5/chamar');
+  assert.deepEqual(post.body, {barbeiro_id:2});
+});
+
 test('painel fila: pôr na fila sem telefone', async t => {
   const {page, requisicoes} = await pagina(t, 'admin.html', {
     'GET /api/admin/fila': listagem([]),

@@ -451,6 +451,11 @@ def test_listagem_traz_whatsapp_do_chamado(cliente, painel):
     assert lugares[1]["whatsapp"] is None
 
 
+def test_listagem_traz_o_nome_de_todos_os_barbeiros(cliente, painel):
+    corpo = json.loads(cliente.get("/api/admin/fila", headers=cabecalho()).data)
+    assert corpo["nomes"] == {"1": "JP", "2": "Rian", "3": "Gabriel"}
+
+
 def test_chamar_proximo_ordem(cliente, painel):
     painel["adicionar"](1, barbeiro_id=2)
     painel["adicionar"](2, barbeiro_id=None)

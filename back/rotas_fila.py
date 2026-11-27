@@ -342,6 +342,7 @@ def painel_fila():
         "barbeiros": [{"id": b.id, "nome": dia.nomes.get(b.id)} for b in dia.barbeiros
                       if escopo is None or b.id == escopo],
         "indisponiveis": sorted(dia.indisponiveis),
+        "nomes": {str(k): v for k, v in dia.nomes.items()},
         "tolerancia_min": TOLERANCIA_FILA_MIN,
     })
 
