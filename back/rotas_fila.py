@@ -37,6 +37,20 @@ MSG_SEM_FILA = "Hoje o atendimento é com horário marcado. Agende pelo site."
 MSG_LINK = "Esse link não vale mais."
 
 
+# Limites de tentativa. Atrás do proxy do Render todos os clientes chegam com
+# o mesmo IP, então contar por IP faria 10 pessoas esperando se bloquearem.
+# A consulta conta por lugar na fila; a entrada, por telefone.
+def _chave_token():
+    return "fila-token:" + str((request.view_args or {}).get("token", ""))
+
+
+def _chave_telefone():
+    dados = request.get_json(silent=True)
+    tel = dados.get("telefone") if isinstance(dados, dict) else None
+    numero = re.sub(r"\D", "", tel) if isinstance(tel, str) else ""
+    return "fila-tel:" + (numero or request.remote_addr or "")
+
+
 def _agora_min():
     agora = agora_br()
     return agora.hour * 60 + agora.minute
@@ -123,7 +137,7 @@ def fila_de_hoje():
 
 
 @app.route("/api/fila", methods=["POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("5 per minute", key_func=_chave_telefone)
 def entrar_na_fila():
     dados = request.get_json(silent=True)
     if not isinstance(dados, dict):
@@ -194,7 +208,7 @@ def _iso(valor):
 
 
 @app.route("/api/fila/<token>", methods=["GET"])
-@limiter.limit("30 per minute")
+@limiter.limit("30 per minute", key_func=_chave_token)
 def situacao_na_fila(token):
     hoje = data_hoje().isoformat()
     conn = get_connection()
@@ -223,7 +237,7 @@ def situacao_na_fila(token):
 
 
 @app.route("/api/fila/<token>/sair", methods=["POST"])
-@limiter.limit("10 per minute")
+@limiter.limit("10 per minute", key_func=_chave_token)
 def sair_da_fila(token):
     conn = get_connection()
     try:

@@ -305,6 +305,33 @@ def test_sair_duas_vezes(cliente, ambiente, monkeypatch):
     assert cliente.post("/api/fila/tok/sair").status_code == 409
 
 
+@pytest.fixture
+def limite_ligado(monkeypatch):
+    monkeypatch.setattr(limiter, "enabled", True)
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
+def test_limite_da_situacao_e_por_lugar_nao_por_ip(cliente, ambiente, monkeypatch, limite_ligado):
+    """Atrás do proxy do Render todo cliente tem o mesmo IP: 10 pessoas
+    consultando a cada 15 s não podem se bloquear umas às outras."""
+    monkeypatch.setattr(fila_dados, "buscar_por_token", lambda c, t: registro(status="saiu"))
+    codigos = [cliente.get(f"/api/fila/tok{i % 10}").status_code for i in range(60)]
+    assert 429 not in codigos
+
+
+def test_limite_da_situacao_segura_um_lugar_abusando(cliente, ambiente, monkeypatch, limite_ligado):
+    monkeypatch.setattr(fila_dados, "buscar_por_token", lambda c, t: registro(status="saiu"))
+    codigos = [cliente.get("/api/fila/tok").status_code for _ in range(31)]
+    assert codigos[-1] == 429
+
+
+def test_limite_de_entrada_e_por_telefone(cliente, ambiente, limite_ligado):
+    codigos = [entrar(cliente, telefone=f"119888877{i:02d}")[0] for i in range(8)]
+    assert 429 not in codigos
+
+
 def test_sair_token_inexistente(cliente, ambiente, monkeypatch):
     monkeypatch.setattr(fila_dados, "buscar_por_token", lambda c, t: None)
     assert cliente.post("/api/fila/abc/sair").status_code == 404
