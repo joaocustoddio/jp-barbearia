@@ -58,6 +58,23 @@ def test_barbeiro_indisponivel_fica_fora():
     assert r[2] == (1, 600)
 
 
+def test_barbeiro_que_ja_foi_embora_nao_recebe_ninguem():
+    # 15:00; o barbeiro 1 saiu às 14:00, o 2 está até 20:00
+    saiu = barbeiro(1, livre=900, fechamento=840)
+    ficou = barbeiro(2, livre=900)
+    r = fila.estimar_fila(900, [saiu, ficou], [lugar(i, barbeiro_id=None) for i in (1, 2, 3, 4)])
+    assert [r[i] for i in (1, 2, 3, 4)] == [(2, 900), (2, 930), (2, 960), (2, 990)]
+
+
+def test_barbeiro_que_ainda_nao_chegou_comeca_na_abertura():
+    # 08:00; o barbeiro 1 abre 09:00, o 2 abre 08:00
+    tarde = barbeiro(1, livre=480, abertura=540)
+    cedo = barbeiro(2, livre=480, abertura=480)
+    r = fila.estimar_fila(480, [tarde, cedo], [lugar(1, barbeiro_id=1), lugar(2, barbeiro_id=None)])
+    assert r[1] == (1, 540)
+    assert r[2] == (2, 480)
+
+
 # ---------------------------------------------------------------- cabe_mais_um
 
 def test_cabe_mais_um_recusa_perto_de_fechar():

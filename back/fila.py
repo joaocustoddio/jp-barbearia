@@ -66,7 +66,8 @@ def estimar_fila(agora_min, barbeiros, lugares):
     está trabalhando hoje fica fora do resultado.
     """
     por_id = {b.id: b for b in barbeiros}
-    livre = {b.id: max(agora_min, b.livre_a_partir) for b in barbeiros}
+    # Ninguém começa antes de o barbeiro chegar; e quem já foi embora não recebe ninguém.
+    livre = {b.id: max(agora_min, b.livre_a_partir, b.abertura) for b in barbeiros}
     resultado = {}
     for l in _ordem(lugares):
         if l.status == "chamado":
@@ -80,6 +81,8 @@ def estimar_fila(agora_min, barbeiros, lugares):
             if c not in livre:
                 continue
             inicio = _primeiro_inicio(livre[c], l.duracao_min, por_id[c].ocupadas)
+            if inicio >= por_id[c].fechamento and l.status != "chamado":
+                continue
             opcoes.append((inicio, c))
         if not opcoes:
             continue
@@ -102,7 +105,10 @@ def cabe_mais_um(agora_min, barbeiros, lugares, barbeiro_id, duracao_min):
             continue
         novo = Lugar(id=10 ** 9, barbeiro_id=alvo, atendido_por=None,
                      status="aguardando", duracao_min=duracao_min)
-        _, inicio = estimar_fila(agora_min, barbeiros, list(lugares) + [novo])[novo.id]
+        estimativa = estimar_fila(agora_min, barbeiros, list(lugares) + [novo])
+        if novo.id not in estimativa:
+            continue
+        _, inicio = estimativa[novo.id]
         b = por_id[alvo]
         if cabe_no_expediente(inicio, duracao_min, min_para_hhmm(b.abertura),
                               min_para_hhmm(b.fechamento), tolerancia_para(duracao_min),
